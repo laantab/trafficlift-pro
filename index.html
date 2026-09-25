@@ -107,10 +107,32 @@
                 <!-- URL Input -->
                 <div class="space-y-1.5">
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Product / Landing Page URL</label>
-                    <div class="relative">
-                        <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
-                        <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
-                            class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
+                    <div class="flex items-center gap-2">
+                        <div class="relative flex-1">
+                            <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
+                            <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
+                                class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
+                        </div>
+                        <button onclick="fetchTrendingProduct()" id="findWinnerBtn"
+                            class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2"
+                            title="Fetch a trending evergreen product from /api/v1/trending-product">
+                            <span>🎲</span>
+                            <span class="hidden sm:inline">Find Winner</span>
+                        </button>
+                    </div>
+                    <!-- Winner card (shown after a successful trending fetch) -->
+                    <div id="winnerCard" class="hidden mt-2 p-3 rounded-xl bg-purple-500/10 border border-purple-500/30">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="font-semibold text-purple-300 text-sm" id="winnerName"></div>
+                                <div class="text-xs text-slate-400 mt-0.5" id="winnerCategory"></div>
+                            </div>
+                            <button onclick="hideWinnerCard()" class="text-slate-500 hover:text-slate-300 flex-shrink-0">
+                                <i data-lucide="x" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <p class="text-slate-300 text-xs mt-2 leading-relaxed" id="winnerAngle"></p>
+                        <div class="text-xs text-slate-500 mt-2 truncate" id="winnerUrl"></div>
                     </div>
                 </div>
 
@@ -1288,6 +1310,37 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             </div>
         `;
         lucide.createIcons();
+    }
+
+    // ─── Trending Product Scout ──────────────────────────────────────────────
+    async function fetchTrendingProduct() {
+        const btn   = document.getElementById('findWinnerBtn');
+        const card  = document.getElementById('winnerCard');
+        const label = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="animate-spin inline-block">⏳</span><span class="hidden sm:inline ml-1">Loading…</span>';
+        try {
+            const r = await fetch(apiUrl('/api/v1/trending-product'));
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            document.getElementById('productUrl').value = data.url;
+            document.getElementById('winnerName').textContent     = data.name;
+            document.getElementById('winnerCategory').textContent = data.category;
+            document.getElementById('winnerAngle').textContent    = data.angle;
+            document.getElementById('winnerUrl').textContent      = data.url;
+            card.classList.remove('hidden');
+            lucide.createIcons();
+            showToast('Winner loaded', data.name, 'success');
+        } catch (e) {
+            showToast('Failed to fetch winner', e.message || String(e), 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = label;
+        }
+    }
+
+    function hideWinnerCard() {
+        document.getElementById('winnerCard').classList.add('hidden');
     }
     </script>
 </body>
