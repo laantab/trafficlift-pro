@@ -40,7 +40,7 @@ EVERGREEN_WINNING_PRODUCTS: list[dict] = [
         "id":      "scrub-brush-01",
         "name":    "Rechargeable Sonic Electric Scrub Brush with 6 Heads",
         "category": "Home & Cleaning",
-        "image_url": "https://images.unsplash.com/photo-1585421514284-efb74c2b69ba",
+        "image_url": "https://images.unsplash.com/photo-1527515637462-cff94eecc1ac",
         "url":     "https://example.com/trending-electric-scrubber",
         "angle":   (
             "Cut your bathroom and kitchen cleaning time in half with zero "
