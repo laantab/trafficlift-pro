@@ -67,6 +67,7 @@ from backend.video import (
     MiniMaxVideoError,
     build_trafficlift_short_prompt,
 )
+from backend.product_scout import router as product_scout_router
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 
@@ -596,6 +597,9 @@ async def clear_all_campaigns() -> JSONResponse:
 
 
 # ── Root ───────────────────────────────────────────────────────────────────
+
+# Mount the product-scout router (trending/evergreen product suggestions).
+app.include_router(product_scout_router)
 
 @app.get("/", include_in_schema=False)
 async def root():
