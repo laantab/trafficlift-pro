@@ -38,9 +38,9 @@ router = APIRouter(prefix="/api/v1", tags=["product-scout"])
 EVERGREEN_WINNING_PRODUCTS: list[dict] = [
     {
         "id":      "scrub-brush-01",
-        "name":    "Rechargeable Sonic Electric Scrub Brush with 6 Heads",
+        "name":    "Rechargeable Electric Spin Scrubber with Replaceable Heads",
         "category": "Home & Cleaning",
-        "image_url": "https://images.unsplash.com/photo-1527515637462-cff94eecc1ac",
+        "image_url": "https://images.unsplash.com/photo-1584622650111-993a426fbf0a",
         "url":     "https://example.com/trending-electric-scrubber",
         "angle":   (
             "Cut your bathroom and kitchen cleaning time in half with zero "
@@ -49,8 +49,8 @@ EVERGREEN_WINNING_PRODUCTS: list[dict] = [
         "pin_title":       "The Deep Cleaning Hack That Saved My Saturday! 🧽✨",
         "pin_description": (
             "Tired of scrubbing grout on your hands and knees? This "
-            "rechargeable sonic scrubber does all the heavy lifting for you "
-            "with 6 interchangeable heads. Click to see how easy deep "
+            "rechargeable electric spin scrubber does all the heavy lifting for you "
+            "with interchangeable heads. Click to see how easy deep "
             "cleaning can be!"
         ),
         "hashtags": ["#CleaningHacks", "#HomeOrganization", "#CleaningMotivation", "#SmartHome"],
