@@ -1389,85 +1389,38 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
     }
 
-    async function copyPinBundle(encTitle, encDesc, encTags, imageUrl) {
-        const title = decodeURIComponent(encTitle || '');
-        const desc  = decodeURIComponent(encDesc  || '');
-        const tags  = decodeURIComponent(encTags  || '');
-        const fullText = `${title}\n\n${desc}\n\n${tags}`.trim();
-
-        // 1. Copy the pin text to clipboard (with non-HTTPS fallback)
-        let copyOk = false;
+    async function copyPinBundle(title, desc, tags, imageUrl) {
+        // 1. Format and copy the text to clipboard (with non-HTTPS fallback so
+        //    this keeps working on http://localhost previews too)
+        const fullText = `${decodeURIComponent(title)}\n\n${decodeURIComponent(desc)}\n\n${decodeURIComponent(tags)}`;
         try {
             await navigator.clipboard.writeText(fullText);
-            copyOk = true;
         } catch (e) {
-            try {
-                const ta = document.createElement('textarea');
-                ta.value = fullText;
-                ta.style.position = 'fixed'; ta.style.opacity = '0';
-                document.body.appendChild(ta); ta.select();
-                document.execCommand('copy'); document.body.removeChild(ta);
-                copyOk = true;
-            } catch (e2) {
-                showToast('Copy failed', e2?.message || String(e2), 'error');
-            }
-        }
-        if (!copyOk) return;
-
-        // 2. Download the matching product image (with timeout + CORS-aware filename)
-        if (!imageUrl) {
-            showToast('Pin copied', '', 'success');
-            return;
+            const ta = document.createElement('textarea');
+            ta.value = fullText;
+            ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
         }
 
-        // Derive a sensible filename from the URL path
-        let filename = 'trafficlift-pinterest-pin.jpg';
+        // 2. Automatically download the matching product image file
         try {
-            const u = new URL(imageUrl, window.location.href);
-            const last = u.pathname.split('/').filter(Boolean).pop() || '';
-            const dot  = last.lastIndexOf('.');
-            if (dot > 0 && dot < last.length - 1) {
-                const ext  = last.slice(dot + 1).toLowerCase();
-                const stem = last.slice(0, dot).replace(/[^a-z0-9._-]+/gi, '-');
-                // Pinterest accepts jpg/png/webp — normalize to a known extension
-                const norm = ({ jpeg: 'jpg', jpg: 'jpg', png: 'png', webp: 'webp', gif: 'jpg' })[ext] || 'jpg';
-                filename = `trafficlift-${stem}.${norm}`;
-            }
-        } catch { /* keep default */ }
+            const response = await fetch(imageUrl);
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
 
-        const controller = ('AbortController' in window) ? new AbortController() : null;
-        const timeoutId  = controller ? setTimeout(() => controller.abort(), 8000) : null;
-
-        try {
-            const res = await fetch(imageUrl, {
-                mode: 'cors',
-                credentials: 'omit',
-                signal: controller ? controller.signal : undefined,
-            });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const blob     = await res.blob();
-            const blobUrl  = URL.createObjectURL(blob);
-            const a        = document.createElement('a');
-            a.href         = blobUrl;
-            a.download     = filename;
-            a.rel          = 'noopener';
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = 'trafficlift-pinterest-pin.jpg';
             document.body.appendChild(a);
             a.click();
-            a.remove();
-            URL.revokeObjectURL(blobUrl);
-            showToast('Pin copied & image downloaded', filename, 'success');
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+
+            showToast('', 'Pin text copied & product image downloaded!', 'success');
         } catch (err) {
             console.error('Image download failed:', err);
-            const reason = err?.name === 'AbortError'
-                ? 'image request timed out'
-                : (err?.message || 'image download blocked (CORS or network)');
-            showToast(
-                'Pin copied (image not downloaded)',
-                reason + ' — right-click the product image to save manually.',
-                'warn'
-            );
-        } finally {
-            if (timeoutId) clearTimeout(timeoutId);
+            showToast('', 'Pin text copied! (Image download failed - right-click image to save)', 'warning');
         }
     }
 
