@@ -1,0 +1,41 @@
+# render.yaml — Render.com Blueprint
+# Drops the project onto Render with one click once the GitHub repo is connected.
+# Persistent disk mounts at /var/data and stores the SQLite campaign store there,
+# so redeploys do NOT wipe campaign history.
+
+services:
+  - type: web
+    name: trafficlift-pro
+    runtime: python
+    plan: starter          # $7/mo for persistent disk; switch to "free" to skip disk
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn trafficlift_pro:app --host 0.0.0.0 --port $PORT --proxy-headers
+    autoDeploy: true       # deploy on every push to main
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: RELOAD
+        value: "false"
+      - key: LOG_LEVEL
+        value: info
+      - key: HOST
+        value: 0.0.0.0
+      # Persistent SQLite — survives redeploys.
+      - key: CAMPAIGNS_DB_PATH
+        value: /var/data/campaigns.db
+      # OPENAI_API_KEY and MINIMAX_API_KEY are optional — leave unset for template-fallback mode.
+      # Add them via the Render dashboard "Environment" tab. NEVER commit secrets to git.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+        sync: false
+      - key: MINIMAX_API_KEY
+        sync: false
+      - key: MINIMAX_GROUP_ID
+        sync: false
+    disk:                  # 1 GB persistent disk for SQLite + any uploaded assets
+      name: trafficlift-data
+      mountPath: /var/data
+      sizeGB: 1

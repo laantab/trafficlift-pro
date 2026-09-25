@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrafficLift Pro v2.0 — AI Traffic Engine</title>
+    <!--
+        Optional: hard-code the cloud backend URL here for production deploys.
+        The user can also override this at runtime from the in-app Settings gear.
+        Leave empty (or omit) to fall back to localStorage / same-origin.
+        Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
+    -->
+    <meta name="api-base" content="">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+                        surface: { 900: '#0f172a', 950: '#020617' }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 8px rgba(99,102,241,0.4); } 50% { box-shadow: 0 0 20px rgba(99,102,241,0.8); } }
+        .glow-pulse { animation: pulse-glow 2s ease-in-out infinite; }
+        .asset-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .asset-card:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        .history-item { transition: background 0.12s; }
+        .history-item:hover { background: #1e293b; }
+        .copy-btn.copied { color: #34d399 !important; }
+        textarea.copyable { resize: none; font-family: inherit; line-height: 1.6; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- ═══ HEADER ══════════════════════════════════════════════════════════ -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-brand-500/20 border border-brand-500/30">
+                    <img src="logo.png" alt="TrafficLift Pro Logo" class="w-full h-full object-cover" onerror="this.style.display='none'; this.parentElement.innerHTML='<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\' class=\'w-full h-full\'><rect width=\'40\' height=\'40\' rx=\'10\' fill=\'url(#g)\'/><defs><linearGradient id=\'g\' x1=\'0\' y1=\'0\' x2=\'1\' y2=\'1\'><stop offset=\'0%\' stop-color=\'#4f46e5\'/><stop offset=\'100%\' stop-color=\'#818cf8\'/></linearGradient></defs><path d=\'M8 28 L20 12 L32 28\' stroke=\'white\' stroke-width=\'3\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/><circle cx=\'20\' cy=\'22\' r=\'3\' fill=\'white\'/></svg>'">
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
+                    <span class="text-xs text-slate-400">v2.0 · AI Traffic Engine</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <!-- AI status badges -->
+                <div id="aiStatusBar" class="hidden sm:flex items-center gap-2 mr-4">
+                    <span id="openaiBadge" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                        <i data-lucide="brain" class="w-3 h-3"></i> OpenAI
+                    </span>
+                    <span id="minimaxBadge" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                        <i data-lucide="film" class="w-3 h-3"></i> MiniMax
+                    </span>
+                    <span id="templateBadge" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <i data-lucide="zap" class="w-3 h-3"></i> Template Mode
+                    </span>
+                </div>
+                <button onclick="openSettings()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition" title="Backend Settings">
+                    <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
+                    <span class="hidden sm:inline text-slate-300">API</span>
+                </button>
+                <button onclick="toggleHistory()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition">
+                    <i data-lucide="history" class="w-4 h-4 text-slate-400"></i>
+                    <span class="hidden sm:inline text-slate-300">History</span>
+                    <span id="historyCount" class="bg-brand-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">0</span>
+                </button>
+                <span id="connPill" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                    <span id="connDot" class="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
+                    <span id="connLabel">Checking…</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ═══ MAIN LAYOUT ════════════════════════════════════════════════════ -->
+    <div class="max-w-[1600px] mx-auto px-4 py-6 flex gap-6">
+
+        <!-- ═══ LEFT PANEL — Controls ═══════════════════════════════════ -->
+        <aside id="controlPanel" class="w-full xl:w-[480px] flex-shrink-0 space-y-5 transition-all">
+
+            <!-- Campaign Parameters Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5">
+
+                <h2 class="text-base font-semibold flex items-center gap-2 text-slate-100">
+                    <i data-lucide="sliders-horizontal" class="w-4 h-4 text-brand-400"></i> Campaign Parameters
+                </h2>
+
+                <!-- URL Input -->
+                <div class="space-y-1.5">
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Product / Landing Page URL</label>
+                    <div class="relative">
+                        <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
+                        <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
+                    </div>
+                </div>
+
+                <!-- Strategy Mode Toggle -->
+                <div class="space-y-1.5">
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Growth Strategy Mode</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="setMode('organic')" id="modeOrganic"
+                            class="p-3 rounded-xl border border-brand-500 bg-brand-500/10 text-brand-400 font-medium text-sm flex flex-col items-center gap-1.5 transition">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                            <span>Organic ($0)</span>
+                        </button>
+                        <button type="button" onclick="setMode('paid')" id="modePaid"
+                            class="p-3 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 font-medium text-sm flex flex-col items-center gap-1.5 transition hover:border-slate-600">
+                            <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+                            <span>Paid Ad Scale</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Channel Selector -->
+                <div class="space-y-1.5">
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Target Channels</label>
+                    <div id="channelGrid" class="grid grid-cols-2 gap-2">
+                        <!-- Populated by JS based on mode -->
+                    </div>
+                </div>
+
+                <!-- Budget Slider (paid only) -->
+                <div id="budgetContainer" class="space-y-2 hidden">
+                    <div class="flex justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        <span>Daily Ad Budget</span>
+                        <span id="budgetValue" class="text-brand-400">$25.00 / day</span>
+                    </div>
+                    <input type="range" id="dailyBudget" min="5" max="500" step="5" value="25"
+                        oninput="document.getElementById('budgetValue').textContent = '$' + this.value + ' / day'"
+                        class="w-full accent-brand-500 bg-slate-950">
+                    <div class="flex justify-between text-xs text-slate-500">
+                        <span>$5</span><span>$500</span>
+                    </div>
+                </div>
+
+                <!-- MiniMax Video Params (organic + tiktok selected) -->
+                <div id="minimaxContainer" class="hidden space-y-2 p-3 rounded-xl bg-slate-950 border border-slate-700">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="film" class="w-4 h-4 text-slate-400"></i>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">MiniMax Video Params</span>
+                        <span class="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">AI</span>
+                    </div>
+                    <p class="text-xs text-slate-400">Generate video production seed parameters for MiniMax Hailuo AI (avatar / text-to-video).</p>
+                    <button onclick="generateMiniMaxParams()" id="minimaxBtn"
+                        class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs text-slate-300 transition">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                        Generate MiniMax Video Params
+                    </button>
+                    <div id="minimaxOutput" class="hidden space-y-1"></div>
+                </div>
+
+                <!-- Launch Button -->
+                <button onclick="launchCampaign()" id="launchBtn"
+                    class="w-full bg-gradient-to-r from-brand-600 to-indigo-500 hover:from-brand-500 hover:to-indigo-400 text-white font-semibold py-3.5 px-4 rounded-xl shadow-lg shadow-brand-500/25 transition flex items-center justify-center gap-2 glow-pulse">
+                    <i data-lucide="rocket" class="w-4 h-4"></i>
+                    Launch Traffic Lift
+                </button>
+            </div>
+
+            <!-- Quick Tips Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Quick Tips</h3>
+                <div class="space-y-1.5">
+                    <div class="flex items-start gap-2 text-xs text-slate-400">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0"></i>
+                        Paste any Shopify, WooCommerce, Amazon, or landing page URL
+                    </div>
+                    <div class="flex items-start gap-2 text-xs text-slate-400">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0"></i>
+                        Select multiple channels for a full-funnel campaign
+                    </div>
+                    <div class="flex items-start gap-2 text-xs text-slate-400">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0"></i>
+                        Click any asset card to copy it instantly
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ═══ CENTER PANEL — Results ══════════════════════════════════ -->
+        <main id="resultsPanel" class="flex-1 min-w-0">
+
+            <!-- Results Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl min-h-[600px] flex flex-col">
+
+                <!-- Panel Header -->
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-base font-semibold flex items-center gap-2">
+                        <i data-lucide="layout-dashboard" class="w-4 h-4 text-brand-400"></i>
+                        Execution Output
+                    </h2>
+                    <div id="campaignIdTag" class="hidden text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono"></div>
+                </div>
+
+                <!-- Empty State -->
+                <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-center py-24 space-y-3">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center">
+                        <i data-lucide="cpu" class="w-8 h-8 text-slate-600"></i>
+                    </div>
+                    <div>
+                        <p class="text-slate-300 font-medium">Ready to generate</p>
+                        <p class="text-sm text-slate-500 mt-1">Paste a product URL and launch your traffic engine to see generated assets.</p>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div id="loadingState" class="hidden flex-1 flex flex-col items-center justify-center py-24 space-y-4">
+                    <div class="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+                    <div class="text-center">
+                        <p class="text-slate-200 font-medium">Generating your campaign...</p>
+                        <p class="text-sm text-slate-500 mt-1">Scraping URL and synthesizing AI assets</p>
+                    </div>
+                    <div id="loadingSteps" class="space-y-1 text-xs text-slate-500"></div>
+                </div>
+
+                <!-- Results Content -->
+                <div id="resultsContent" class="hidden flex-1 space-y-4 overflow-y-auto max-h-[75vh] pr-1">
+
+                    <!-- Product Summary -->
+                    <div id="productSummary" class="bg-slate-950 border border-slate-800 rounded-xl p-4 flex items-start gap-4">
+                        <img id="resImage" src="" alt="Product" class="w-14 h-14 object-cover rounded-lg bg-slate-800 flex-shrink-0">
+                        <div class="min-w-0 flex-1">
+                            <h3 id="resTitle" class="font-semibold text-sm text-white truncate"></h3>
+                            <p id="resDescription" class="text-xs text-slate-400 mt-0.5 line-clamp-2"></p>
+                            <div class="flex items-center gap-2 mt-1.5">
+                                <span id="resMode" class="text-xs px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20"></span>
+                                <span id="resChannels" class="text-xs text-slate-500"></span>
+                            </div>
+                        </div>
+                        <div class="flex-shrink-0 flex gap-1">
+                            <button onclick="copyObject(getCurrentResults())" class="p-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white transition" title="Copy all assets">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Asset Output Container -->
+                    <div id="assetOutput" class="space-y-3"></div>
+                </div>
+
+                <!-- Footer -->
+                <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
+                    <span>TrafficLift Pro v2.0</span>
+                    <span id="statusMessage">Ready</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ═══ HISTORY DRAWER ════════════════════════════════════════════════════ -->
+    <div id="historyDrawer" class="fixed inset-0 z-[60] hidden">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="toggleHistory()"></div>
+        <!-- Drawer -->
+        <div class="absolute right-0 top-0 h-full w-full sm:w-[420px] bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col transform transition-transform">
+            <!-- Drawer Header -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="history" class="w-5 h-5 text-brand-400"></i>
+                    <h2 class="font-semibold text-slate-100">Campaign History</h2>
+                    <span id="drawerHistoryCount" class="bg-brand-600 text-white text-xs font-bold rounded-full px-2 py-0.5">0</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="reloadHistory()" class="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Refresh">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="clearAllHistory()" class="p-2 rounded-lg hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition" title="Clear all">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="toggleHistory()" class="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+            <!-- History List -->
+            <div id="historyList" class="flex-1 overflow-y-auto p-4 space-y-2">
+                <div class="text-center py-16 text-slate-500 text-sm">
+                    <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-3 stroke-1 text-slate-600"></i>
+                    No campaigns yet. Generate your first one!
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TOAST ════════════════════════════════════════════════════════════ -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-4 opacity-0 transition-all duration-300 pointer-events-none">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-3 min-w-[260px]">
+            <div id="toastIcon" class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+            <div>
+                <p id="toastTitle" class="text-sm font-medium text-white"></p>
+                <p id="toastMsg" class="text-xs text-slate-400"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ JAVASCRIPT ══════════════════════════════════════════════════════ -->
+    <script>
+    lucide.createIcons();
+
+    // ─── State ────────────────────────────────────────────────────────────────
+    let currentMode = 'organic';
+    let currentResults = null;
+    let historyOpen = false;
+
+    // ─── API Base URL resolution ──────────────────────────────────────────────
+    // 1. <meta name="api-base" content="..."> in <head>   (build-time / hard-coded)
+    // 2. localStorage['tlp_api_base']                    (user-edited at runtime)
+    // 3. ?api=<url> query string                         (one-shot from URL)
+    // 4. ''  (same-origin)                              (when served from /api on the same host)
+    // 5. 'http://localhost:8000'                        (last-resort dev fallback)
+    function resolveApiBase() {
+        const fromMeta = (document.querySelector('meta[name="api-base"]')?.content || '').trim();
+        const fromLs   = (localStorage.getItem('tlp_api_base') || '').trim();
+        const fromUrl  = new URLSearchParams(window.location.search).get('api')?.trim() || '';
+
+        // if user passed ?api=, persist it and strip the query for cleanliness
+        if (fromUrl) {
+            localStorage.setItem('tlp_api_base', fromUrl);
+            const u = new URL(window.location.href);
+            u.searchParams.delete('api');
+            window.history.replaceState({}, '', u.toString());
+        }
+
+        const finalUrl = fromMeta || fromLs || fromUrl || '';
+        return finalUrl.replace(/\/+$/, ''); // strip trailing slash
+    }
+    let API_BASE = resolveApiBase();
+
+    // Helper: full URL for a given path. If API_BASE is empty we use same-origin.
+    function apiUrl(path) {
+        if (API_BASE) return API_BASE + path;
+        return window.location.origin + path;
+    }
+
+    // ─── Channel Config ────────────────────────────────────────────────────────
+    const CHANNELS = {
+        organic: [
+            { id: 'pinterest',       label: 'Pinterest SEO',        icon: 'image' },
+            { id: 'tiktok_organic',   label: 'TikTok / Reels',      icon: 'video' },
+            { id: 'youtube_shorts',   label: 'YouTube Shorts',      icon: 'youtube' },
+            { id: 'twitter_threads',  label: 'Twitter / X Threads',  icon: 'twitter' },
+        ],
+        paid: [
+            { id: 'meta_ads',         label: 'Meta Ads (FB/IG)',    icon: 'facebook' },
+            { id: 'tiktok_ads',       label: 'TikTok Ads',          icon: 'video' },
+        ],
+    };
+
+    // ─── Init ──────────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        updateChannelGrid();
+        fetchHealthStatus();
+        loadHistory();
+        lucide.createIcons();
+    });
+
+    // ─── Mode Switching ────────────────────────────────────────────────────────
+    function setMode(mode) {
+        currentMode = mode;
+        const organicBtn = document.getElementById('modeOrganic');
+        const paidBtn    = document.getElementById('modePaid');
+        const budget     = document.getElementById('budgetContainer');
+        const minimax    = document.getElementById('minimaxContainer');
+
+        if (mode === 'organic') {
+            organicBtn.className = 'p-3 rounded-xl border border-brand-500 bg-brand-500/10 text-brand-400 font-medium text-sm flex flex-col items-center gap-1.5 transition';
+            paidBtn.className    = 'p-3 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 font-medium text-sm flex flex-col items-center gap-1.5 transition hover:border-slate-600';
+            budget.classList.add('hidden');
+            minimax.classList.remove('hidden');
+        } else {
+            paidBtn.className    = 'p-3 rounded-xl border border-brand-500 bg-brand-500/10 text-brand-400 font-medium text-sm flex flex-col items-center gap-1.5 transition';
+            organicBtn.className = 'p-3 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 font-medium text-sm flex flex-col items-center gap-1.5 transition hover:border-slate-600';
+            budget.classList.remove('hidden');
+            minimax.classList.add('hidden');
+        }
+        updateChannelGrid();
+    }
+
+    function updateChannelGrid() {
+        const grid = document.getElementById('channelGrid');
+        const channels = CHANNELS[currentMode];
+        grid.innerHTML = channels.map(ch => `
+            <label id="ch-${ch.id}" class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-700 bg-slate-950 cursor-pointer hover:border-slate-600 transition text-sm text-slate-300">
+                <input type="checkbox" value="${ch.id}" checked class="rounded border-slate-600 text-brand-500 focus:ring-brand-500/30 w-4 h-4">
+                <i data-lucide="${ch.icon}" class="w-3.5 h-3.5 text-slate-400 flex-shrink-0"></i>
+                <span class="truncate">${ch.label}</span>
+            </label>
+        `).join('');
+        lucide.createIcons();
+    }
+
+    // ─── Health Check ──────────────────────────────────────────────────────────
+    async function fetchHealthStatus() {
+        try {
+            const r = await fetch(apiUrl('/api/v1/health'));
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.json();
+
+            const oa = document.getElementById('openaiBadge');
+            const mm = document.getElementById('minimaxBadge');
+            const tm = document.getElementById('templateBadge');
+
+            oa.className = 'inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ' +
+                (d.ai_backends?.openai ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800 text-slate-500 border-slate-700');
+            mm.className = 'inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ' +
+                (d.ai_backends?.minimax ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800 text-slate-500 border-slate-700');
+            tm.style.display = (d.ai_backend_active === 'template_fallback') ? 'inline-flex' : 'none';
+
+            document.getElementById('historyCount').textContent = d.campaigns_stored || 0;
+            document.getElementById('drawerHistoryCount').textContent = d.campaigns_stored || 0;
+
+            updateConnPill(true, d);
+        } catch (e) {
+            updateConnPill(false);
+            console.warn('Health check failed:', e.message);
+        }
+    }
+
+    // ─── Launch Campaign ──────────────────────────────────────────────────────
+    async function launchCampaign() {
+        const url = document.getElementById('productUrl').value.trim();
+        if (!url) { showToast('Missing URL', 'Please paste a product URL first', 'error'); return; }
+
+        const checkboxes = document.querySelectorAll('#channelGrid input:checked');
+        const channels = Array.from(checkboxes).map(cb => cb.value);
+        if (!channels.length) { showToast('No channels', 'Select at least one target channel', 'error'); return; }
+
+        const budget = parseFloat(document.getElementById('dailyBudget').value) || 25.0;
+
+        // Show loading
+        showLoading(true);
+        setLoadingStep('Scraping product metadata...');
+        await tick();
+
+        try {
+            const r = await fetch(apiUrl('/api/v1/traffic/generate'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ input_url: url, mode: currentMode, target_channels: channels, daily_budget: budget }),
+            });
+
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                throw new Error(err.detail || `Server error ${r.status}`);
+            }
+
+            const data = await r.json();
+            setLoadingStep('Rendering assets...');
+            await tick(400);
+            currentResults = data;
+            renderResults(data);
+
+            // Update campaign ID tag
+            const tag = document.getElementById('campaignIdTag');
+            if (data.campaign_id) {
+                tag.textContent = 'ID: ' + data.campaign_id;
+                tag.classList.remove('hidden');
+            }
+
+            showLoading(false);
+            fetchHealthStatus();
+            showToast('Campaign generated!', `${channels.length} channel(s) ready to use`, 'success');
+
+        } catch (err) {
+            showLoading(false);
+            showToast('Generation failed', err.message, 'error');
+            document.getElementById('statusMessage').textContent = 'Error: ' + err.message;
+        }
+    }
+
+    // ─── Render Results ────────────────────────────────────────────────────────
+    function renderResults(data) {
+        document.getElementById('emptyState').classList.add('hidden');
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('resultsContent').classList.remove('hidden');
+
+        const p = data.scraped_product;
+        const pkg = data.compiled_package;
+
+        document.getElementById('resTitle').textContent = p.title || 'Untitled Product';
+        document.getElementById('resDescription').textContent = p.description || '';
+        document.getElementById('resImage').src = p.primary_image ||
+            'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150';
+        document.getElementById('resMode').textContent = data.mode === 'organic' ? 'Organic' : 'Paid Ads';
+        document.getElementById('resChannels').textContent = data.input_url;
+        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms · ${data.meta.ai_mode}`;
+
+        const out = document.getElementById('assetOutput');
+        out.innerHTML = '';
+
+        // ── Pinterest ───────────────────────────────────────────────────────
+        if (pkg.pinterest_seo_engine) {
+            const pp = pkg.pinterest_seo_engine;
+            out.appendChild(makeCard('Pinterest SEO', 'image', 'brand', [
+                makeRow('Board Title', pp.board_title),
+                makeRow('Pin Title', pp.pin_title),
+                makeTextarea('Description', pp.optimized_description),
+                makeRow('Keywords', pp.recommended_keywords?.join(' · ')),
+                makeRow('Suggested Boards', pp.suggested_board_names?.join(' | ')),
+                makeRow('Dimensions', pp.optimal_pin_dimensions),
+                makeRow('CTA', pp.pin_cta_suggestion),
+            ]));
+        }
+
+        // ── TikTok/Reels ────────────────────────────────────────────────────
+        if (pkg.short_form_video_blueprint) {
+            const vt = pkg.short_form_video_blueprint;
+            out.appendChild(makeCard('TikTok / Reels Script', 'video', 'rose', [
+                makeRow('Hook (0-3s)', vt.hook_0_3s),
+                makeTextarea('Problem (3-10s)', vt.problem_3_10s),
+                makeTextarea('Solution (10-25s)', vt.solution_10_25s),
+                makeRow('Call to Action', vt.call_to_action),
+                makeRow('Hashtags', vt.suggested_hashtags?.map(t => '#' + t.replace('#','')).join(' ')),
+                makeRow('Duration', vt.estimated_duration),
+                makeRow('Hook Type', vt.hook_type),
+            ]));
+        }
+
+        // ── YouTube Shorts ─────────────────────────────────────────────────
+        if (pkg.youtube_shorts_blueprint) {
+            const yt = pkg.youtube_shorts_blueprint;
+            out.appendChild(makeCard('YouTube Shorts', 'youtube', 'red', [
+                makeRow('Video Title', yt.video_title),
+                makeTextarea('Hook (0-2s)', yt.hook_segment),
+                makeTextarea('Body Script', yt.body_segment),
+                makeRow('Call to Action', yt.call_to_action),
+                makeTextarea('Description', yt.description_template),
+                makeRow('Title Tags', yt.title_tags?.join(' · ')),
+                makeRow('Shorts Hashtags', yt.shorts_hashtags?.map(t => '#' + t.replace('#','')).join(' ')),
+                makeRow('Duration', yt.estimated_duration),
+                makeTextarea('SEO Tips', yt.seo_tips?.join('\n')),
+                makeRow('Thumbnail Ideas', yt.suggested_thumbnails?.join(' | ')),
+            ]));
+        }
+
+        // ── Twitter/X Thread ───────────────────────────────────────────────
+        if (pkg.twitter_viral_thread) {
+            const tw = pkg.twitter_viral_thread;
+            out.appendChild(makeCard('Twitter / X Viral Thread', 'twitter', 'blue', [
+                makeRow('Thread Theme', tw.thread_theme),
+                makeRow('Posting Time', tw.optimal_posting_time),
+                makeRow('Hashtags', tw.suggested_hashtags?.map(t => '#' + t.replace('#','')).join(' ')),
+                ...tw.tweets?.map((tweet, i) => makeTweetCard(`Tweet ${i + 1}`, tweet, i + 1)),
+            ]));
+        }
+
+        // ── Paid Ad Package ─────────────────────────────────────────────────
+        if (pkg.allocated_daily_budget !== undefined) {
+            out.appendChild(makeCard('Paid Ad Package', 'dollar-sign', 'emerald', [
+                makeRow('Daily Budget', '$' + pkg.allocated_daily_budget),
+            ]));
+
+            if (pkg.ad_copy) {
+                for (const [plat, copy] of Object.entries(pkg.ad_copy)) {
+                    const platLabel = plat === 'meta_ads' ? 'Meta Ads (FB/IG)' : 'TikTok Ads';
+                    const platColor = plat === 'meta_ads' ? 'blue' : 'rose';
+                    out.appendChild(makeCard(platLabel, plat === 'meta_ads' ? 'facebook' : 'video', platColor, [
+                        makeRow('Headline v1', copy.headline),
+                        makeRow('Headline v2', copy.headline_v2),
+                        makeTextarea('Primary Text', copy.primary_text),
+                        makeRow('Description', copy.description),
+                        makeRow('CTA', copy.cta_label),
+                    ]));
+                }
+            }
+
+            if (pkg.audience_suggestions?.length) {
+                out.appendChild(makeCard('Audience Suggestions', 'users', 'violet', [
+                    ...pkg.audience_suggestions.map(a => makeRow('Audience', a)),
+                ]));
+            }
+
+            if (pkg.platform_recommendations?.length) {
+                out.appendChild(makeCard('Campaign Recommendations', 'layers', 'amber', [
+                    ...pkg.platform_recommendations.map(r => makeRow('Campaign', r)),
+                ]));
+            }
+
+            if (pkg.creative_specs) {
+                out.appendChild(makeCard('Creative Specs', 'monitor', 'slate', [
+                    ...Object.entries(pkg.creative_specs).map(([k, v]) => makeRow(k, v)),
+                ]));
+            }
+        }
+
+        lucide.createIcons();
+    }
+
+    // ─── Card Builders ──────────────────────────────────────────────────────────
+    function makeCard(title, iconName, colorKey, rows) {
+        const colorMap = {
+            brand: 'text-brand-400', rose: 'text-rose-400', red: 'text-red-400',
+            blue: 'text-blue-400', emerald: 'text-emerald-400', violet: 'text-violet-400',
+            amber: 'text-amber-400', slate: 'text-slate-400',
+        };
+        const color = colorMap[colorKey] || 'text-brand-400';
+        const div = document.createElement('div');
+        div.className = 'asset-card bg-slate-950 border border-slate-800 rounded-xl overflow-hidden';
+        div.innerHTML = `
+            <div class="flex items-center justify-between px-4 py-3 bg-slate-900/50 border-b border-slate-800">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="${iconName}" class="w-4 h-4 ${color}"></i>
+                    <span class="text-sm font-semibold ${color}">${title}</span>
+                </div>
+                <button onclick="copyCard(this)" class="copy-btn p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-white transition" title="Copy all">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <div class="p-4 space-y-3"></div>
+        `;
+        const body = div.querySelector('.p-4');
+        rows.forEach(row => body.appendChild(row));
+        return div;
+    }
+
+    function makeRow(label, value) {
+        const div = document.createElement('div');
+        div.className = 'flex gap-3 text-sm';
+        const val = value != null && value !== '' ? String(value) : '—';
+        div.innerHTML = `
+            <span class="text-xs text-slate-500 font-medium w-28 flex-shrink-0 pt-0.5">${label}</span>
+            <span class="text-slate-200 flex-1 break-words">${escapeHtml(val)}</span>
+        `;
+        return div;
+    }
+
+    function makeTextarea(label, value) {
+        const div = document.createElement('div');
+        div.className = 'space-y-1';
+        const val = value != null && value !== '' ? String(value) : '—';
+        div.innerHTML = `
+            <span class="text-xs text-slate-500 font-medium">${label}</span>
+            <textarea class="copyable w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20" rows="3" readonly>${escapeHtml(val)}</textarea>
+        `;
+        const ta = div.querySelector('textarea');
+        ta.addEventListener('click', () => { navigator.clipboard.writeText(ta.value); flashCopy(ta); });
+        return div;
+    }
+
+    function makeTweetCard(label, content, num) {
+        const div = document.createElement('div');
+        div.className = 'border border-slate-700/50 rounded-lg p-3 space-y-1.5';
+        div.innerHTML = `
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-400">${label}</span>
+                <span class="text-xs text-slate-600">${(content || '').length} chars</span>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(content || '—')}</p>
+            <button onclick="copyToClipboard(${JSON.stringify(content || '').replace(/"/g, '&quot;')}, this)" class="copy-btn flex items-center gap-1 text-xs text-slate-500 hover:text-white transition mt-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy tweet
+            </button>
+        `;
+        return div;
+    }
+
+    // ─── Copy Helpers ─────────────────────────────────────────────────────────
+    function copyToClipboard(text, btn) {
+        navigator.clipboard.writeText(text).then(() => {
+            flashCopy(btn.closest('.copy-btn') || btn);
+            showToast('Copied!', 'Tweet copied to clipboard', 'success');
+        });
+    }
+
+    function copyCard(btn) {
+        const card = btn.closest('.asset-card');
+        const rows = card.querySelectorAll('.p-4 > div');
+        const parts = [];
+        rows.forEach(row => {
+            const label = row.querySelector('span:first-child');
+            const val = row.querySelector('span:last-child');
+            if (label && val) parts.push(`${label.textContent.trim()}: ${val.textContent.trim()}`);
+            const ta = row.querySelector('textarea');
+            if (ta) parts.push(ta.value);
+        });
+        navigator.clipboard.writeText(parts.join('\n\n')).then(() => {
+            flashCopy(btn);
+            showToast('Copied!', 'Card content copied', 'success');
+        });
+    }
+
+    function copyObject(data) {
+        if (!data) return;
+        navigator.clipboard.writeText(JSON.stringify(data.compiled_package || data, null, 2)).then(() => {
+            showToast('Copied!', 'All assets copied as JSON', 'success');
+        });
+    }
+
+    function getCurrentResults() { return currentResults; }
+
+    function flashCopy(el) {
+        el = el.closest('.copy-btn') || el;
+        el.classList.add('copied');
+        const icon = el.querySelector('i');
+        if (icon) { icon.setAttribute('data-lucide', 'check'); lucide.createIcons(); }
+        setTimeout(() => {
+            el.classList.remove('copied');
+            if (icon) { icon.setAttribute('data-lucide', 'copy'); lucide.createIcons(); }
+        }, 1500);
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // ─── MiniMax Video Params ─────────────────────────────────────────────────
+    async function generateMiniMaxParams() {
+        const url = document.getElementById('productUrl').value.trim();
+        if (!url) { showToast('Missing URL', 'Paste a product URL first', 'error'); return; }
+
+        const btn = document.getElementById('minimaxBtn');
+        const out = document.getElementById('minimaxOutput');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full mr-2"></span>Generating...';
+        out.classList.add('hidden');
+        out.innerHTML = '';
+
+        try {
+            const r = await fetch(apiUrl('/api/v1/minimax/video-params'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ input_url: url, platform: 'tiktok' }),
+            });
+
+            const d = await r.json();
+
+            if (d.status === 'unavailable') {
+                out.innerHTML = `
+                    <div class="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
+                        <i data-lucide="alert-triangle" class="w-3.5 h-3.5 inline mr-1"></i>
+                        MiniMax not configured. Set MINIMAX_API_KEY and MINIMAX_GROUP_ID in .env
+                    </div>`;
+                out.classList.remove('hidden');
+            } else if (d.video_params) {
+                const vp = d.video_params;
+                out.innerHTML = `
+                    <div class="space-y-1.5 p-2 rounded-lg bg-slate-950 border border-slate-700 text-xs">
+                        <div class="flex items-center gap-2 text-emerald-400 font-medium mb-1">
+                            <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> MiniMax Video Params Generated
+                        </div>
+                        <div class="space-y-0.5">
+                            <div class="flex gap-2"><span class="text-slate-500 w-20 flex-shrink-0">Platform</span><span class="text-slate-300">${d.platform}</span></div>
+                            <div class="flex gap-2"><span class="text-slate-500 w-20 flex-shrink-0">Aspect</span><span class="text-slate-300">${vp.aspect_ratio}</span></div>
+                            <div class="flex gap-2"><span class="text-slate-500 w-20 flex-shrink-0">Duration</span><span class="text-slate-300">${vp.duration}s</span></div>
+                            <div class="flex gap-2"><span class="text-slate-500 w-20 flex-shrink-0">CFG</span><span class="text-slate-300">${vp.cfg_strength}</span></div>
+                            <div class="mt-1 pt-1 border-t border-slate-700"><span class="text-slate-500 w-20 flex-shrink-0">Prompt</span><span class="text-slate-300 break-words">${escapeHtml(vp.prompt)}</span></div>
+                            ${d.video_id ? `<div class="flex gap-2 mt-1"><span class="text-slate-500 w-20 flex-shrink-0">Video ID</span><span class="text-slate-300 font-mono">${d.video_id}</span></div>` : ''}
+                        </div>
+                        <button onclick="copyToClipboard(${JSON.stringify(vp.prompt).replace(/"/g, '&quot;')}, this)" class="copy-btn flex items-center gap-1 text-slate-400 hover:text-white transition mt-2">
+                            <i data-lucide="copy" class="w-3 h-3"></i> Copy prompt
+                        </button>
+                    </div>`;
+                out.classList.remove('hidden');
+                showToast('MiniMax params ready!', 'Copy the prompt and paste into MiniMax Hailuo AI', 'success');
+            }
+        } catch (e) {
+            showToast('MiniMax error', e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Generate MiniMax Video Params';
+            lucide.createIcons();
+        }
+    }
+
+    // ─── History ───────────────────────────────────────────────────────────────
+    function toggleHistory() {
+        historyOpen = !historyOpen;
+        const drawer = document.getElementById('historyDrawer');
+        drawer.classList.toggle('hidden', !historyOpen);
+        if (historyOpen) loadHistory();
+        lucide.createIcons();
+    }
+
+    async function loadHistory() {
+        try {
+            const r = await fetch(apiUrl('/api/v1/campaigns/history?limit=100'));
+            if (!r.ok) return;
+            const d = await r.json();
+            renderHistoryList(d.campaigns || []);
+            document.getElementById('historyCount').textContent = d.total || 0;
+            document.getElementById('drawerHistoryCount').textContent = d.total || 0;
+        } catch (e) { /* ignore */ }
+    }
+
+    function renderHistoryList(campaigns) {
+        const list = document.getElementById('historyList');
+        if (!campaigns.length) {
+            list.innerHTML = `
+                <div class="text-center py-16 text-slate-500 text-sm">
+                    <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-3 stroke-1 text-slate-600"></i>
+                    No campaigns yet. Generate your first one!
+                </div>`;
+            lucide.createIcons();
+            return;
+        }
+
+        list.innerHTML = campaigns.map(c => `
+            <div class="history-item rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2 cursor-pointer"
+                 onclick="loadCampaign('${c.id}')">
+                <div class="flex items-start gap-3">
+                    <img src="${c.product_image || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=80'}"
+                         alt="" class="w-10 h-10 rounded-lg object-cover bg-slate-800 flex-shrink-0"
+                         onerror="this.style.display='none'">
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-medium text-slate-200 truncate">${escapeHtml(c.product_title || c.input_url)}</p>
+                        <p class="text-xs text-slate-500 truncate mt-0.5">${escapeHtml(c.input_url)}</p>
+                    </div>
+                    <span class="text-xs px-1.5 py-0.5 rounded flex-shrink-0 ${c.mode === 'organic' ? 'bg-brand-500/10 text-brand-400 border border-brand-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}">${c.mode}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <div class="flex flex-wrap gap-1">
+                        ${(c.channels || []).map(ch => `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${chLabel(ch)}</span>`).join('')}
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button onclick="event.stopPropagation(); deleteCampaign('${c.id}')"
+                                class="p-1 rounded hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition" title="Delete">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); copyCampaign('${c.id}')"
+                                class="p-1 rounded hover:bg-slate-800 text-slate-600 hover:text-white transition" title="Copy">
+                            <i data-lucide="copy" class="w-3 h-3"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="text-xs text-slate-600">${formatDate(c.created_at)} · ${c.ai_mode}</div>
+            </div>
+        `).join('');
+        lucide.createIcons();
+    }
+
+    function chLabel(id) {
+        return { pinterest: 'Pinterest', tiktok_organic: 'TikTok', youtube_shorts: 'YT Shorts', twitter_threads: 'Twitter', meta_ads: 'Meta', tiktok_ads: 'TikTok Ads' }[id] || id;
+    }
+
+    async function loadCampaign(id) {
+        try {
+            const r = await fetch(apiUrl(`/api/v1/campaigns/${id}`));
+            if (!r.ok) throw new Error('Not found');
+            const data = await r.json();
+            currentResults = data;
+            renderResults(data);
+            toggleHistory();
+            document.getElementById('campaignIdTag').textContent = 'ID: ' + id;
+            document.getElementById('campaignIdTag').classList.remove('hidden');
+            showToast('Campaign loaded', data.scraped_product?.title || id, 'success');
+        } catch (e) {
+            showToast('Load failed', e.message, 'error');
+        }
+    }
+
+    async function copyCampaign(id) {
+        try {
+            const r = await fetch(apiUrl(`/api/v1/campaigns/${id}`));
+            const d = await r.json();
+            navigator.clipboard.writeText(JSON.stringify(d.compiled_package || d, null, 2))
+                .then(() => showToast('Copied!', 'Campaign assets copied', 'success'));
+        } catch (e) {
+            showToast('Copy failed', e.message, 'error');
+        }
+    }
+
+    async function deleteCampaign(id) {
+        if (!confirm('Delete this campaign?')) return;
+        try {
+            const r = await fetch(apiUrl(`/api/v1/campaigns/${id}`), { method: 'DELETE' });
+            if (!r.ok) throw new Error();
+            loadHistory();
+            showToast('Deleted', 'Campaign removed', 'success');
+        } catch (e) {
+            showToast('Delete failed', 'Could not delete campaign', 'error');
+        }
+    }
+
+    async function clearAllHistory() {
+        if (!confirm('Delete ALL campaigns? This cannot be undone.')) return;
+        try {
+            await fetch(apiUrl('/api/v1/campaigns/clear'), { method: 'DELETE' });
+            loadHistory();
+            showToast('Cleared', 'All campaigns deleted', 'success');
+        } catch (e) {
+            showToast('Clear failed', e.message, 'error');
+        }
+    }
+
+    function reloadHistory() { loadHistory(); }
+
+    function formatDate(iso) {
+        if (!iso) return '';
+        try {
+            const d = new Date(iso);
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        } catch { return iso; }
+    }
+
+    // ─── Loading State ─────────────────────────────────────────────────────────
+    function showLoading(show) {
+        document.getElementById('emptyState').classList.toggle('hidden', show);
+        document.getElementById('resultsContent').classList.toggle('hidden', show);
+        document.getElementById('loadingState').classList.toggle('hidden', !show);
+        if (!show) document.getElementById('loadingSteps').innerHTML = '';
+    }
+
+    function setLoadingStep(msg) {
+        const steps = document.getElementById('loadingSteps');
+        const p = document.createElement('p');
+        p.textContent = msg;
+        steps.appendChild(p);
+    }
+
+    function tick(ms = 200) { return new Promise(r => setTimeout(r, ms)); }
+
+    // ─── Toast ─────────────────────────────────────────────────────────────────
+    let toastTimer;
+    function showToast(title, msg, type = 'success') {
+        const toast = document.getElementById('toast');
+        const iconMap = {
+            success: { icon: 'check', bg: 'bg-emerald-500/20', color: 'text-emerald-400' },
+            error:   { icon: 'x',    bg: 'bg-red-500/20',    color: 'text-red-400' },
+            info:    { icon: 'info',  bg: 'bg-blue-500/20',   color: 'text-blue-400' },
+        };
+        const { icon, bg, color } = iconMap[type] || iconMap.success;
+        const iconEl = document.getElementById('toastIcon');
+        iconEl.className = `w-8 h-8 rounded-lg ${bg} flex items-center justify-center flex-shrink-0`;
+        iconEl.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 ${color}"></i>`;
+        document.getElementById('toastTitle').textContent = title;
+        document.getElementById('toastMsg').textContent = msg;
+        lucide.createIcons();
+
+        clearTimeout(toastTimer);
+        toast.style.transform = 'translateY(0)';
+        toast.style.opacity = '1';
+        toast.classList.remove('pointer-events-none');
+        toastTimer = setTimeout(() => {
+            toast.style.transform = 'translateY(12px)';
+            toast.style.opacity = '0';
+        }, 3000);
+    }
+    </script>
+
+    <!-- ═══ SETTINGS MODAL ═══════════════════════════════════════════════════ -->
+    <div id="settingsModal" class="fixed inset-0 z-[60] hidden bg-black/70 backdrop-blur-sm items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+                <h3 class="font-semibold flex items-center gap-2">
+                    <i data-lucide="server" class="w-4 h-4 text-brand-400"></i>
+                    Backend Connection
+                </h3>
+                <button onclick="closeSettings()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">API base URL</label>
+                    <input id="apiBaseInput" type="url"
+                        placeholder="https://trafficlift-pro.onrender.com"
+                        class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
+                    <p class="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                        Leave blank to use the same origin (when the backend is reverse-proxied behind this page). On Render, paste your service URL — for example:
+                        <code class="text-brand-400">https://trafficlift-pro.onrender.com</code>
+                    </p>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                    <button onclick="useSameOrigin()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 transition">Use this page's origin</button>
+                    <div class="flex gap-2">
+                        <button onclick="saveSettings()" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition">Save &amp; Test</button>
+                    </div>
+                </div>
+                <div id="settingsStatus" class="text-xs text-slate-400 min-h-[1em]"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ─── Settings Modal ───────────────────────────────────────────────────────
+    function openSettings() {
+        document.getElementById('apiBaseInput').value = API_BASE;
+        document.getElementById('settingsStatus').textContent = '';
+        const modal = document.getElementById('settingsModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        lucide.createIcons();
+    }
+    function closeSettings() {
+        const modal = document.getElementById('settingsModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    function useSameOrigin() {
+        document.getElementById('apiBaseInput').value = '';
+    }
+    async function saveSettings() {
+        const v = document.getElementById('apiBaseInput').value.trim();
+        API_BASE = v;  // in-memory + below
+        if (v) localStorage.setItem('tlp_api_base', v);
+        else localStorage.removeItem('tlp_api_base');
+        document.getElementById('settingsStatus').textContent = 'Testing…';
+        try {
+            const r = await fetch(apiUrl('/api/v1/health'));
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.json();
+            document.getElementById('settingsStatus').innerHTML =
+                '✅ Connected — service <code class="text-emerald-400">' + (d.service || 'OK') +
+                '</code> v' + (d.version || '?') + ' (' + (d.ai_backend_active || 'unknown') + ')';
+            updateConnPill(true, d);
+            closeSettings();
+            showToast('Connected', (d.service || 'Backend') + ' reachable', 'success');
+        } catch (e) {
+            document.getElementById('settingsStatus').innerHTML =
+                '❌ Could not reach <code class="text-red-400">' + (API_BASE || window.location.origin) +
+                '/api/v1/health</code><br><span class="text-slate-500">' + e.message + '</span>';
+            updateConnPill(false);
+        }
+    }
+
+    function updateConnPill(ok, d) {
+        const pill = document.getElementById('connPill');
+        const dot  = document.getElementById('connDot');
+        const lbl  = document.getElementById('connLabel');
+        if (ok) {
+            pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5';
+            lbl.textContent = d?.ai_backend_active ? 'Online · ' + d.ai_backend_active : 'Online';
+        } else {
+            pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5';
+            lbl.textContent = 'Offline';
+        }
+    }
+    </script>
+</body>
+</html>

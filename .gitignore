@@ -1,0 +1,68 @@
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ── Virtual envs ──────────────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+
+# ── Secrets / local config (NEVER commit) ────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.secret
+
+# ── SQLite & local data ──────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+backend/campaigns.db
+/var/data/
+
+# ── Local-only / personal scratch files ──────────────────────────────
+_local_only/
+commands.html
+fix_clone_drive.bat
+fix_clone_drive.ps1
+fix_clone_drive.zip
+find_2tb.txt
+
+# ── Logs ─────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ── OS junk ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ── IDE ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Coverage / test artifacts ────────────────────────────────────────
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Render / build artifacts ─────────────────────────────────────────
+.render-buildpacks/
+node_modules/

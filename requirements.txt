@@ -1,0 +1,25 @@
+# TrafficLift Pro v2.0 — Python Dependencies (pinned for reproducible builds)
+# Install: pip install --upgrade pip && pip install -r requirements.txt
+
+# Web framework + ASGI server
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# URL scraping (HTML + metadata extraction)
+requests==2.32.3
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# AI providers — both optional at runtime (app falls back to template engine
+# if no keys are set, so these are installed unconditionally so import paths
+# never break)
+openai==1.57.4
+httpx==0.28.1
+
+# Persistence (SQLite campaign history)
+sqlalchemy==2.0.36
+
+# Local dev: loads variables from a .env file (no-op on Render where env
+# comes from the platform). Remove this line if you only deploy via Docker.
+python-dotenv==1.0.1
