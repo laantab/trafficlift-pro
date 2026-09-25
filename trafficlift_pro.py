@@ -62,6 +62,11 @@ from backend.generate import (
     PaidAdPackage,
     AdCopyVariations,
 )
+from backend.video import (
+    MiniMaxVideoClient,
+    MiniMaxVideoError,
+    build_trafficlift_short_prompt,
+)
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +175,26 @@ class MiniMaxVideoParamsRequest(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
         return v
+
+
+# ── Video rendering models (actual MiniMax t2v, not just params) ────────────
+
+class VideoSubmitRequest(BaseModel):
+    """Payload for POST /api/v1/video/generate (async submit + poll)."""
+    prompt: Annotated[str, Field(
+        description="Full video prompt (1-7000 chars). Drives both visuals and native audio on H3/H3-Max.",
+        min_length=1, max_length=7000,
+    )]
+    model: Annotated[str, Field(default="MiniMax-H3")] = "MiniMax-H3"
+    duration: Annotated[int, Field(ge=4, le=15)] = 15
+    ratio: Annotated[str, Field(default="9:16")] = "9:16"
+    resolution: Annotated[str, Field(default="768P")] = "768P"
+    reference_image_url: Annotated[Optional[str], Field(default=None)] = None
+
+
+class VideoRenderRequest(VideoSubmitRequest):
+    """Payload for POST /api/v1/video/render (submit + block until done)."""
+    poll_timeout: Annotated[int, Field(ge=30, le=3600, default=2400)] = 2400
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,6 +310,10 @@ async def health_check():
             "openai":  ai_modes["openai"],
             "minimax": ai_modes["minimax"],
         },
+        "video_rendering": {
+            "configured": MiniMaxVideoClient.is_configured(),
+            "models":     MiniMaxVideoClient.supported_models(),
+        },
         "campaigns_stored": db.count(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
@@ -392,6 +421,104 @@ async def minimax_video_params(request: MiniMaxVideoParamsRequest) -> JSONRespon
         "product_title": product.title,
         **result,
     })
+
+
+# ── MiniMax actual video rendering endpoints ──────────────────────────────
+# These call MiniMax t2v (H3 / H3-Max / Hailuo-2.3) and return a real MP4 URL,
+# unlike /minimax/video-params which only returns seed parameters.
+
+def _video_client() -> MiniMaxVideoClient:
+    """Build a fresh MiniMaxVideoClient (cheap to construct)."""
+    if not MiniMaxVideoClient.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "MINIMAX_API_KEY is not configured on this deployment. "
+                "Add it in the Render dashboard (Environment → Environment Variables) "
+                "to enable video rendering."
+            ),
+        )
+    return MiniMaxVideoClient()
+
+
+@app.get("/api/v1/video/models")
+async def list_video_models() -> JSONResponse:
+    """List supported MiniMax video models and their constraints."""
+    return JSONResponse({
+        "configured": MiniMaxVideoClient.is_configured(),
+        "models": [
+            {
+                "id":                model_id,
+                "supports_native_audio": model_id in ("MiniMax-H3", "MiniMax-H3-Max"),
+                "duration_seconds":  [spec["min_dur"], spec["max_dur"]],
+                "ratios":            spec["ratios"],
+                "resolutions":       spec["resolutions"],
+            }
+            for model_id, spec in MiniMaxVideoClient.SUPPORTED_MODELS.items()
+        ],
+    })
+
+
+@app.post("/api/v1/video/generate")
+async def submit_video(request: VideoSubmitRequest) -> JSONResponse:
+    """
+    Submit an async video generation task. Returns immediately with a
+    `task_id`. Frontend should poll `/api/v1/video/status/{task_id}` until
+    `status == 'succeeded'` to obtain `video_url`.
+    """
+    client = _video_client()
+    try:
+        task = client.submit(
+            prompt=request.prompt,
+            model=request.model,
+            duration=request.duration,
+            ratio=request.ratio,
+            resolution=request.resolution,
+            reference_image_url=request.reference_image_url,
+        )
+    except MiniMaxVideoError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return JSONResponse({"success": True, "task": task.to_dict()})
+
+
+@app.get("/api/v1/video/status/{task_id}")
+async def video_status(
+    task_id: str,
+    model: Annotated[str, Query(description="MiniMax model used to submit the task")] = "MiniMax-H3",
+) -> JSONResponse:
+    """Poll a previously submitted video task for current status + video_url."""
+    client = _video_client()
+    try:
+        task = client.query(task_id, model=model)
+    except MiniMaxVideoError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return JSONResponse({"success": True, "task": task.to_dict()})
+
+
+@app.post("/api/v1/video/render")
+async def render_video(request: VideoRenderRequest) -> JSONResponse:
+    """
+    Submit a video task AND block until it reaches a terminal status, then
+    return the final `video_url`. Suitable for synchronous frontends where
+    the user is waiting on a single result.
+
+    Note: H3 typically takes 15-30 minutes. Use the async `/video/generate`
+    endpoint for a better UX, or call this with `poll_timeout >= 1800`.
+    """
+    client = _video_client()
+    try:
+        task = client.render(
+            prompt=request.prompt,
+            model=request.model,
+            duration=request.duration,
+            ratio=request.ratio,
+            resolution=request.resolution,
+            reference_image_url=request.reference_image_url,
+            poll_timeout=request.poll_timeout,
+        )
+    except MiniMaxVideoError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    return JSONResponse({"success": True, "task": task.to_dict()})
 
 
 # ── Campaign history endpoints ─────────────────────────────────────────────

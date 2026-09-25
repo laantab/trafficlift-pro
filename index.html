@@ -74,6 +74,10 @@
                     <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
                     <span class="hidden sm:inline text-slate-300">API</span>
                 </button>
+                <button onclick="openVideoModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition" title="Render Short Video (MiniMax)">
+                    <i data-lucide="video" class="w-4 h-4 text-slate-400"></i>
+                    <span class="hidden sm:inline text-slate-300">Video</span>
+                </button>
                 <button onclick="toggleHistory()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition">
                     <i data-lucide="history" class="w-4 h-4 text-slate-400"></i>
                     <span class="hidden sm:inline text-slate-300">History</span>
@@ -993,6 +997,87 @@
         </div>
     </div>
 
+    <!-- ═══ VIDEO RENDER MODAL ══════════════════════════════════════════════ -->
+    <div id="videoModal" class="fixed inset-0 z-[60] hidden bg-black/70 backdrop-blur-sm items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+                <h3 class="font-semibold flex items-center gap-2">
+                    <i data-lucide="video" class="w-4 h-4 text-brand-400"></i>
+                    Render Short Video (MiniMax)
+                </h3>
+                <button onclick="closeVideoModal()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    Submit a text-to-video render to MiniMax. H3 / H3-Max include a synchronized native audio track (voiceover + ambience + sound effects described in your prompt).
+                </p>
+
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Prompt</label>
+                    <textarea id="videoPrompt" rows="6" maxlength="7000"
+                        placeholder="Describe the vertical 9:16 short you want — visual style, scene sequence, voiceover dialogue, audio cues."
+                        class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition font-mono"></textarea>
+                    <div class="flex items-center justify-between mt-1">
+                        <button onclick="fillVideoPromptTemplate()" class="text-xs text-brand-400 hover:text-brand-300 transition">Insert TrafficLift template</button>
+                        <span id="videoPromptCount" class="text-xs text-slate-500">0 / 7000</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Model</label>
+                        <select id="videoModel" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
+                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality · native audio)</option>
+                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast · native audio)</option>
+                            <option value="MiniMax-Hailuo-2.3">MiniMax-Hailuo-2.3 (cheap · silent)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Duration</label>
+                        <select id="videoDuration" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
+                            <option value="6">6s</option>
+                            <option value="10">10s</option>
+                            <option value="15" selected>15s</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Ratio</label>
+                        <select id="videoRatio" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
+                            <option value="9:16" selected>9:16 (vertical)</option>
+                            <option value="16:9">16:9 (landscape)</option>
+                            <option value="1:1">1:1 (square)</option>
+                            <option value="4:3">4:3</option>
+                            <option value="3:4">3:4 (portrait)</option>
+                            <option value="21:9">21:9 (cinematic)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Resolution</label>
+                        <select id="videoResolution" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
+                            <option value="768P" selected>768P</option>
+                            <option value="2K">2K (H3 only)</option>
+                            <option value="480P">480P (H3-Max only)</option>
+                            <option value="1080P">1080P (Hailuo-2.3 6s only)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button onclick="submitVideoRender()" id="videoSubmitBtn"
+                        class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition flex items-center gap-2">
+                        <i data-lucide="play" class="w-4 h-4"></i>
+                        <span>Render Video</span>
+                    </button>
+                </div>
+
+                <div id="videoStatus" class="text-xs text-slate-400 min-h-[1em]"></div>
+                <div id="videoResult" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
     // ─── Settings Modal ───────────────────────────────────────────────────────
     function openSettings() {
@@ -1048,6 +1133,161 @@
             dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5';
             lbl.textContent = 'Offline';
         }
+    }
+
+    // ─── Video Render Modal ──────────────────────────────────────────────────
+    const VIDEO_DEFAULT_PROMPT = `Cinematic vertical 9:16 product showcase short-form video for "TrafficLift Pro" — an autonomous AI traffic engine for online entrepreneurs that turns any product URL into Pinterest SEO, TikTok scripts, YouTube Shorts, Twitter/X threads, and paid ad copy in seconds.
+
+Visual Style: Sleek, high-contrast neon lighting. Cyan and magenta accents glow against a deep dark-mode background. Dynamic modern UI showcase. Cinematic camera motion with smooth 60fps. Premium SaaS launch energy.
+
+Scene 1 — Hook (0-3 seconds): Dim, desaturated wide shot of a frustrated entrepreneur at a desk, analytics dashboard flatlined at zero. Sudden dramatic cut to a striking close-up of a glowing red "0" on a faded dashboard. Tension builds with a quick cinematic whip-pan and a single sharp electronic stab.
+
+Scene 2 — Product Reveal (3-8 seconds): Dynamic panning shot across a sleek 3D interface in dark mode with neon cyan and magenta accents. The product name "TrafficLift Pro" materializes in glowing typography in the center. Rapid cuts showcase AI-generated marketing assets popping onto the screen one after another with satisfying neon pulses: a Pinterest SEO card, a TikTok script card, a Meta ad copy card, and a YouTube Shorts blueprint. Each card lands with a soft click and a brief riser.
+
+Scene 3 — Call to Action (8-15 seconds): Camera sweeps toward a giant glowing CTA button reading "Launch Your Campaign". A bright neon pulse expands outward in concentric rings. A confident, professional male voiceover speaks over the rising beat: "Stop guessing your traffic. Paste a URL. TrafficLift Pro gives you Pinterest SEO, TikTok scripts, and paid ads in seconds. Launch your campaign now." Final beat lands on the TrafficLift Pro logo with a triumphant neon flash and a deep sub-bass drop.
+
+Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, subtle electronic risers building through Scene 2 and peaking at the CTA in Scene 3, a confident professional male voiceover delivering the dialogue in Scene 3, and a clean cinematic mix throughout.`;
+
+    function openVideoModal() {
+        const promptEl = document.getElementById('videoPrompt');
+        if (!promptEl.value.trim()) promptEl.value = VIDEO_DEFAULT_PROMPT;
+        updateVideoPromptCount();
+        document.getElementById('videoStatus').textContent = '';
+        document.getElementById('videoResult').classList.add('hidden');
+        document.getElementById('videoResult').innerHTML = '';
+        const modal = document.getElementById('videoModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        lucide.createIcons();
+    }
+    function closeVideoModal() {
+        const modal = document.getElementById('videoModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    function fillVideoPromptTemplate() {
+        document.getElementById('videoPrompt').value = VIDEO_DEFAULT_PROMPT;
+        updateVideoPromptCount();
+    }
+    function updateVideoPromptCount() {
+        const v = document.getElementById('videoPrompt').value;
+        document.getElementById('videoPromptCount').textContent = `${v.length} / 7000`;
+    }
+    document.addEventListener('input', (e) => {
+        if (e.target && e.target.id === 'videoPrompt') updateVideoPromptCount();
+    });
+
+    async function submitVideoRender() {
+        const prompt     = document.getElementById('videoPrompt').value.trim();
+        const model      = document.getElementById('videoModel').value;
+        const duration   = parseInt(document.getElementById('videoDuration').value, 10);
+        const ratio      = document.getElementById('videoRatio').value;
+        const resolution = document.getElementById('videoResolution').value;
+        const statusEl   = document.getElementById('videoStatus');
+        const resultEl   = document.getElementById('videoResult');
+        const submitBtn  = document.getElementById('videoSubmitBtn');
+
+        if (!prompt) {
+            statusEl.innerHTML = '<span class="text-red-400">Prompt is required.</span>';
+            return;
+        }
+        if (prompt.length > 7000) {
+            statusEl.innerHTML = '<span class="text-red-400">Prompt must be 7000 characters or fewer.</span>';
+            return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i><span>Submitting…</span>';
+        lucide.createIcons();
+        resultEl.classList.add('hidden');
+        resultEl.innerHTML = '';
+        statusEl.innerHTML = '<span class="text-slate-400">Submitting to MiniMax…</span>';
+
+        try {
+            const r = await fetch(apiUrl('/api/v1/video/generate'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, model, duration, ratio, resolution }),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+            const taskId = data.task.task_id;
+            statusEl.innerHTML =
+                `<span class="text-slate-300">Task submitted · id <code class="text-brand-400">${taskId}</code></span><br>` +
+                '<span class="text-slate-500">Polling status every 15 seconds — H3 typically takes 15–30 minutes.</span>';
+
+            await pollVideoUntilDone(taskId, model, statusEl, resultEl);
+        } catch (e) {
+            statusEl.innerHTML =
+                '<span class="text-red-400">Submission failed:</span> <span class="text-slate-400">' +
+                (e.message || String(e)) + '</span>';
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Render Video</span>';
+            lucide.createIcons();
+        }
+    }
+
+    async function pollVideoUntilDone(taskId, model, statusEl, resultEl) {
+        const maxAttempts = 120;   // ~30 minutes at 15s interval
+        const intervalMs  = 15000;
+        for (let i = 0; i < maxAttempts; i++) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            try {
+                const r = await fetch(apiUrl(`/api/v1/video/status/${encodeURIComponent(taskId)}?model=${encodeURIComponent(model)}`));
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+                const t = data.task;
+                const elapsed = Math.round((i + 1) * intervalMs / 1000);
+                statusEl.innerHTML =
+                    `<span class="text-slate-300">Status: <code class="text-brand-400">${t.status}</code></span>` +
+                    `<br><span class="text-slate-500">elapsed ${elapsed}s · task ${taskId}</span>`;
+                if (t.status === 'succeeded' || t.status === 'Success') {
+                    renderVideoResult(t, resultEl, statusEl);
+                    showToast('Video ready', `${model} finished in ${elapsed}s`, 'success');
+                    return;
+                }
+                if (t.status === 'failed' || t.status === 'Fail' || t.status === 'cancelled') {
+                    statusEl.innerHTML =
+                        '<span class="text-red-400">Render failed:</span> ' +
+                        '<code class="text-red-300">' + (t.failure_reason || t.status) + '</code>';
+                    return;
+                }
+            } catch (e) {
+                statusEl.innerHTML +=
+                    '<br><span class="text-amber-400">poll error: ' + (e.message || e) + '</span>';
+            }
+        }
+        statusEl.innerHTML += '<br><span class="text-amber-400">Polling timed out. Task may still be running — check back later.</span>';
+    }
+
+    function renderVideoResult(task, resultEl, statusEl) {
+        const url = task.video_url;
+        if (!url) {
+            statusEl.innerHTML += '<br><span class="text-amber-400">Task succeeded but no video_url returned.</span>';
+            return;
+        }
+        statusEl.innerHTML =
+            '<span class="text-emerald-400 font-medium">✅ Render complete</span><br>' +
+            `<span class="text-slate-500">${task.model} · ${task.duration_seconds}s · ${task.ratio} · ${task.resolution}</span>`;
+        resultEl.classList.remove('hidden');
+        resultEl.innerHTML = `
+            <div class="rounded-xl overflow-hidden border border-slate-700 bg-black">
+                <video controls autoplay playsinline class="w-full max-h-[60vh] mx-auto" src="${url}"></video>
+            </div>
+            <div class="flex items-center gap-2 mt-3">
+                <a href="${url}" download="trafficlift_pro_${task.task_id}.mp4" target="_blank" rel="noopener"
+                   class="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium transition flex items-center gap-1.5">
+                    <i data-lucide="download" class="w-3.5 h-3.5"></i> Download MP4
+                </a>
+                <a href="${url}" target="_blank" rel="noopener"
+                   class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition flex items-center gap-1.5">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open in new tab
+                </a>
+                <code class="text-xs text-slate-500 ml-auto truncate">${url}</code>
+            </div>
+        `;
+        lucide.createIcons();
     }
     </script>
 </body>

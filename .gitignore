@@ -66,3 +66,7 @@ htmlcov/
 # ── Render / build artifacts ─────────────────────────────────────────
 .render-buildpacks/
 node_modules/
+
+# ── Local video scratch (rendered demos, prompts, polling logs) ─────
+video/
+!video/.gitkeep
