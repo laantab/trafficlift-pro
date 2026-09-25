@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TrafficLift Pro v2.0 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v2.0 â€” AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -45,7 +45,7 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-brand-500 selection:text-white">
 
-    <!-- ═══ HEADER ══════════════════════════════════════════════════════════ -->
+    <!-- â•â•â• HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
         <div class="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -54,7 +54,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v2.0 · AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v2.0 Â· AI Traffic Engine</span>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -85,16 +85,16 @@
                 </button>
                 <span id="connPill" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
                     <span id="connDot" class="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
-                    <span id="connLabel">Checking…</span>
+                    <span id="connLabel">Checkingâ€¦</span>
                 </span>
             </div>
         </div>
     </header>
 
-    <!-- ═══ MAIN LAYOUT ════════════════════════════════════════════════════ -->
+    <!-- â•â•â• MAIN LAYOUT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <div class="max-w-[1600px] mx-auto px-4 py-6 flex gap-6">
 
-        <!-- ═══ LEFT PANEL — Controls ═══════════════════════════════════ -->
+        <!-- â•â•â• LEFT PANEL â€” Controls â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
         <aside id="controlPanel" class="w-full xl:w-[480px] flex-shrink-0 space-y-5 transition-all">
 
             <!-- Campaign Parameters Card -->
@@ -116,7 +116,7 @@
                         <button onclick="fetchTrendingProduct()" id="findWinnerBtn"
                             class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2"
                             title="Fetch a trending evergreen product from /api/v1/trending-product">
-                            <span>🎲</span>
+                            <span>ðŸŽ²</span>
                             <span class="hidden sm:inline">Find Winner</span>
                         </button>
                     </div>
@@ -205,7 +205,7 @@
             </div>
         </aside>
 
-        <!-- ═══ CENTER PANEL — Results ══════════════════════════════════ -->
+        <!-- â•â•â• CENTER PANEL â€” Results â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
         <main id="resultsPanel" class="flex-1 min-w-0">
 
             <!-- Results Card -->
@@ -278,7 +278,7 @@
         </main>
     </div>
 
-    <!-- ═══ HISTORY DRAWER ════════════════════════════════════════════════════ -->
+    <!-- â•â•â• HISTORY DRAWER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <div id="historyDrawer" class="fixed inset-0 z-[60] hidden">
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="toggleHistory()"></div>
@@ -313,7 +313,7 @@
         </div>
     </div>
 
-    <!-- ═══ TOAST ════════════════════════════════════════════════════════════ -->
+    <!-- â•â•â• TOAST â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-4 opacity-0 transition-all duration-300 pointer-events-none">
         <div class="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-3 min-w-[260px]">
             <div id="toastIcon" class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
@@ -326,16 +326,16 @@
         </div>
     </div>
 
-    <!-- ═══ JAVASCRIPT ══════════════════════════════════════════════════════ -->
+    <!-- â•â•â• JAVASCRIPT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <script>
     lucide.createIcons();
 
-    // ─── State ────────────────────────────────────────────────────────────────
+    // â”€â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let currentMode = 'organic';
     let currentResults = null;
     let historyOpen = false;
 
-    // ─── API Base URL resolution ──────────────────────────────────────────────
+    // â”€â”€â”€ API Base URL resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // 1. <meta name="api-base" content="..."> in <head>   (build-time / hard-coded)
     // 2. localStorage['tlp_api_base']                    (user-edited at runtime)
     // 3. ?api=<url> query string                         (one-shot from URL)
@@ -365,7 +365,7 @@
         return window.location.origin + path;
     }
 
-    // ─── Channel Config ────────────────────────────────────────────────────────
+    // â”€â”€â”€ Channel Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const CHANNELS = {
         organic: [
             { id: 'pinterest',       label: 'Pinterest SEO',        icon: 'image' },
@@ -379,7 +379,7 @@
         ],
     };
 
-    // ─── Init ──────────────────────────────────────────────────────────────────
+    // â”€â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     document.addEventListener('DOMContentLoaded', () => {
         updateChannelGrid();
         fetchHealthStatus();
@@ -387,7 +387,7 @@
         lucide.createIcons();
     });
 
-    // ─── Mode Switching ────────────────────────────────────────────────────────
+    // â”€â”€â”€ Mode Switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function setMode(mode) {
         currentMode = mode;
         const organicBtn = document.getElementById('modeOrganic');
@@ -422,7 +422,7 @@
         lucide.createIcons();
     }
 
-    // ─── Health Check ──────────────────────────────────────────────────────────
+    // â”€â”€â”€ Health Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function fetchHealthStatus() {
         try {
             const r = await fetch(apiUrl('/api/v1/health'));
@@ -449,7 +449,7 @@
         }
     }
 
-    // ─── Launch Campaign ──────────────────────────────────────────────────────
+    // â”€â”€â”€ Launch Campaign â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function launchCampaign() {
         const url = document.getElementById('productUrl').value.trim();
         if (!url) { showToast('Missing URL', 'Please paste a product URL first', 'error'); return; }
@@ -501,7 +501,7 @@
         }
     }
 
-    // ─── Render Results ────────────────────────────────────────────────────────
+    // â”€â”€â”€ Render Results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function renderResults(data) {
         document.getElementById('emptyState').classList.add('hidden');
         document.getElementById('loadingState').classList.add('hidden');
@@ -513,29 +513,29 @@
         document.getElementById('resTitle').textContent = p.title || 'Untitled Product';
         document.getElementById('resDescription').textContent = p.description || '';
         document.getElementById('resImage').src = p.primary_image ||
-            'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150';
+            'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80=150';
         document.getElementById('resMode').textContent = data.mode === 'organic' ? 'Organic' : 'Paid Ads';
         document.getElementById('resChannels').textContent = data.input_url;
-        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms · ${data.meta.ai_mode}`;
+        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms Â· ${data.meta.ai_mode}`;
 
         const out = document.getElementById('assetOutput');
         out.innerHTML = '';
 
-        // ── Pinterest ───────────────────────────────────────────────────────
+        // â”€â”€ Pinterest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (pkg.pinterest_seo_engine) {
             const pp = pkg.pinterest_seo_engine;
             out.appendChild(makeCard('Pinterest SEO', 'image', 'brand', [
                 makeRow('Board Title', pp.board_title),
                 makeRow('Pin Title', pp.pin_title),
                 makeTextarea('Description', pp.optimized_description),
-                makeRow('Keywords', pp.recommended_keywords?.join(' · ')),
+                makeRow('Keywords', pp.recommended_keywords?.join(' Â· ')),
                 makeRow('Suggested Boards', pp.suggested_board_names?.join(' | ')),
                 makeRow('Dimensions', pp.optimal_pin_dimensions),
                 makeRow('CTA', pp.pin_cta_suggestion),
             ]));
         }
 
-        // ── TikTok/Reels ────────────────────────────────────────────────────
+        // â”€â”€ TikTok/Reels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (pkg.short_form_video_blueprint) {
             const vt = pkg.short_form_video_blueprint;
             out.appendChild(makeCard('TikTok / Reels Script', 'video', 'rose', [
@@ -549,7 +549,7 @@
             ]));
         }
 
-        // ── YouTube Shorts ─────────────────────────────────────────────────
+        // â”€â”€ YouTube Shorts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (pkg.youtube_shorts_blueprint) {
             const yt = pkg.youtube_shorts_blueprint;
             out.appendChild(makeCard('YouTube Shorts', 'youtube', 'red', [
@@ -558,7 +558,7 @@
                 makeTextarea('Body Script', yt.body_segment),
                 makeRow('Call to Action', yt.call_to_action),
                 makeTextarea('Description', yt.description_template),
-                makeRow('Title Tags', yt.title_tags?.join(' · ')),
+                makeRow('Title Tags', yt.title_tags?.join(' Â· ')),
                 makeRow('Shorts Hashtags', yt.shorts_hashtags?.map(t => '#' + t.replace('#','')).join(' ')),
                 makeRow('Duration', yt.estimated_duration),
                 makeTextarea('SEO Tips', yt.seo_tips?.join('\n')),
@@ -566,7 +566,7 @@
             ]));
         }
 
-        // ── Twitter/X Thread ───────────────────────────────────────────────
+        // â”€â”€ Twitter/X Thread â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (pkg.twitter_viral_thread) {
             const tw = pkg.twitter_viral_thread;
             out.appendChild(makeCard('Twitter / X Viral Thread', 'twitter', 'blue', [
@@ -577,7 +577,7 @@
             ]));
         }
 
-        // ── Paid Ad Package ─────────────────────────────────────────────────
+        // â”€â”€ Paid Ad Package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (pkg.allocated_daily_budget !== undefined) {
             out.appendChild(makeCard('Paid Ad Package', 'dollar-sign', 'emerald', [
                 makeRow('Daily Budget', '$' + pkg.allocated_daily_budget),
@@ -619,7 +619,7 @@
         lucide.createIcons();
     }
 
-    // ─── Card Builders ──────────────────────────────────────────────────────────
+    // â”€â”€â”€ Card Builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function makeCard(title, iconName, colorKey, rows) {
         const colorMap = {
             brand: 'text-brand-400', rose: 'text-rose-400', red: 'text-red-400',
@@ -649,7 +649,7 @@
     function makeRow(label, value) {
         const div = document.createElement('div');
         div.className = 'flex gap-3 text-sm';
-        const val = value != null && value !== '' ? String(value) : '—';
+        const val = value != null && value !== '' ? String(value) : 'â€”';
         div.innerHTML = `
             <span class="text-xs text-slate-500 font-medium w-28 flex-shrink-0 pt-0.5">${label}</span>
             <span class="text-slate-200 flex-1 break-words">${escapeHtml(val)}</span>
@@ -660,7 +660,7 @@
     function makeTextarea(label, value) {
         const div = document.createElement('div');
         div.className = 'space-y-1';
-        const val = value != null && value !== '' ? String(value) : '—';
+        const val = value != null && value !== '' ? String(value) : 'â€”';
         div.innerHTML = `
             <span class="text-xs text-slate-500 font-medium">${label}</span>
             <textarea class="copyable w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/20" rows="3" readonly>${escapeHtml(val)}</textarea>
@@ -678,7 +678,7 @@
                 <span class="text-xs font-semibold text-slate-400">${label}</span>
                 <span class="text-xs text-slate-600">${(content || '').length} chars</span>
             </div>
-            <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(content || '—')}</p>
+            <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(content || 'â€”')}</p>
             <button onclick="copyToClipboard(${JSON.stringify(content || '').replace(/"/g, '&quot;')}, this)" class="copy-btn flex items-center gap-1 text-xs text-slate-500 hover:text-white transition mt-1">
                 <i data-lucide="copy" class="w-3 h-3"></i> Copy tweet
             </button>
@@ -686,7 +686,7 @@
         return div;
     }
 
-    // ─── Copy Helpers ─────────────────────────────────────────────────────────
+    // â”€â”€â”€ Copy Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function copyToClipboard(text, btn) {
         navigator.clipboard.writeText(text).then(() => {
             flashCopy(btn.closest('.copy-btn') || btn);
@@ -740,7 +740,7 @@
             .replace(/'/g, '&#39;');
     }
 
-    // ─── MiniMax Video Params ─────────────────────────────────────────────────
+    // â”€â”€â”€ MiniMax Video Params â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function generateMiniMaxParams() {
         const url = document.getElementById('productUrl').value.trim();
         if (!url) { showToast('Missing URL', 'Paste a product URL first', 'error'); return; }
@@ -799,7 +799,7 @@
         }
     }
 
-    // ─── History ───────────────────────────────────────────────────────────────
+    // â”€â”€â”€ History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function toggleHistory() {
         historyOpen = !historyOpen;
         const drawer = document.getElementById('historyDrawer');
@@ -835,7 +835,7 @@
             <div class="history-item rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2 cursor-pointer"
                  onclick="loadCampaign('${c.id}')">
                 <div class="flex items-start gap-3">
-                    <img src="${c.product_image || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=80'}"
+                    <img src="${c.product_image || 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80=80'}"
                          alt="" class="w-10 h-10 rounded-lg object-cover bg-slate-800 flex-shrink-0"
                          onerror="this.style.display='none'">
                     <div class="min-w-0 flex-1">
@@ -859,7 +859,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="text-xs text-slate-600">${formatDate(c.created_at)} · ${c.ai_mode}</div>
+                <div class="text-xs text-slate-600">${formatDate(c.created_at)} Â· ${c.ai_mode}</div>
             </div>
         `).join('');
         lucide.createIcons();
@@ -929,7 +929,7 @@
         } catch { return iso; }
     }
 
-    // ─── Loading State ─────────────────────────────────────────────────────────
+    // â”€â”€â”€ Loading State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function showLoading(show) {
         document.getElementById('emptyState').classList.toggle('hidden', show);
         document.getElementById('resultsContent').classList.toggle('hidden', show);
@@ -946,7 +946,7 @@
 
     function tick(ms = 200) { return new Promise(r => setTimeout(r, ms)); }
 
-    // ─── Toast ─────────────────────────────────────────────────────────────────
+    // â”€â”€â”€ Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let toastTimer;
     function showToast(title, msg, type = 'success') {
         const toast = document.getElementById('toast');
@@ -974,7 +974,7 @@
     }
     </script>
 
-    <!-- ═══ SETTINGS MODAL ═══════════════════════════════════════════════════ -->
+    <!-- â•â•â• SETTINGS MODAL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <div id="settingsModal" class="fixed inset-0 z-[60] hidden bg-black/70 backdrop-blur-sm items-center justify-center p-4">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md">
             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
@@ -993,7 +993,7 @@
                         placeholder="https://trafficlift-pro.onrender.com"
                         class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
                     <p class="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                        Leave blank to use the same origin (when the backend is reverse-proxied behind this page). On Render, paste your service URL — for example:
+                        Leave blank to use the same origin (when the backend is reverse-proxied behind this page). On Render, paste your service URL â€” for example:
                         <code class="text-brand-400">https://trafficlift-pro.onrender.com</code>
                     </p>
                 </div>
@@ -1008,7 +1008,7 @@
         </div>
     </div>
 
-    <!-- ═══ VIDEO RENDER MODAL ══════════════════════════════════════════════ -->
+    <!-- â•â•â• VIDEO RENDER MODAL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <div id="videoModal" class="fixed inset-0 z-[60] hidden bg-black/70 backdrop-blur-sm items-center justify-center p-4">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
@@ -1028,7 +1028,7 @@
                 <div>
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Prompt</label>
                     <textarea id="videoPrompt" rows="6" maxlength="7000"
-                        placeholder="Describe the vertical 9:16 short you want — visual style, scene sequence, voiceover dialogue, audio cues."
+                        placeholder="Describe the vertical 9:16 short you want â€” visual style, scene sequence, voiceover dialogue, audio cues."
                         class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition font-mono"></textarea>
                     <div class="flex items-center justify-between mt-1">
                         <button onclick="fillVideoPromptTemplate()" class="text-xs text-brand-400 hover:text-brand-300 transition">Insert TrafficLift template</button>
@@ -1040,9 +1040,9 @@
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Model</label>
                         <select id="videoModel" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
-                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality · native audio)</option>
-                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast · native audio)</option>
-                            <option value="MiniMax-Hailuo-2.3">MiniMax-Hailuo-2.3 (cheap · silent)</option>
+                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality Â· native audio)</option>
+                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast Â· native audio)</option>
+                            <option value="MiniMax-Hailuo-2.3">MiniMax-Hailuo-2.3 (cheap Â· silent)</option>
                         </select>
                     </div>
                     <div>
@@ -1090,7 +1090,7 @@
     </div>
 
     <script>
-    // ─── Settings Modal ───────────────────────────────────────────────────────
+    // â”€â”€â”€ Settings Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function openSettings() {
         document.getElementById('apiBaseInput').value = API_BASE;
         document.getElementById('settingsStatus').textContent = '';
@@ -1112,20 +1112,20 @@
         API_BASE = v;  // in-memory + below
         if (v) localStorage.setItem('tlp_api_base', v);
         else localStorage.removeItem('tlp_api_base');
-        document.getElementById('settingsStatus').textContent = 'Testing…';
+        document.getElementById('settingsStatus').textContent = 'Testingâ€¦';
         try {
             const r = await fetch(apiUrl('/api/v1/health'));
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const d = await r.json();
             document.getElementById('settingsStatus').innerHTML =
-                '✅ Connected — service <code class="text-emerald-400">' + (d.service || 'OK') +
+                'âœ… Connected â€” service <code class="text-emerald-400">' + (d.service || 'OK') +
                 '</code> v' + (d.version || '?') + ' (' + (d.ai_backend_active || 'unknown') + ')';
             updateConnPill(true, d);
             closeSettings();
             showToast('Connected', (d.service || 'Backend') + ' reachable', 'success');
         } catch (e) {
             document.getElementById('settingsStatus').innerHTML =
-                '❌ Could not reach <code class="text-red-400">' + (API_BASE || window.location.origin) +
+                'âŒ Could not reach <code class="text-red-400">' + (API_BASE || window.location.origin) +
                 '/api/v1/health</code><br><span class="text-slate-500">' + e.message + '</span>';
             updateConnPill(false);
         }
@@ -1138,7 +1138,7 @@
         if (ok) {
             pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
             dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5';
-            lbl.textContent = d?.ai_backend_active ? 'Online · ' + d.ai_backend_active : 'Online';
+            lbl.textContent = d?.ai_backend_active ? 'Online Â· ' + d.ai_backend_active : 'Online';
         } else {
             pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20';
             dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5';
@@ -1146,16 +1146,16 @@
         }
     }
 
-    // ─── Video Render Modal ──────────────────────────────────────────────────
-    const VIDEO_DEFAULT_PROMPT = `Cinematic vertical 9:16 product showcase short-form video for "TrafficLift Pro" — an autonomous AI traffic engine for online entrepreneurs that turns any product URL into Pinterest SEO, TikTok scripts, YouTube Shorts, Twitter/X threads, and paid ad copy in seconds.
+    // â”€â”€â”€ Video Render Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const VIDEO_DEFAULT_PROMPT = `Cinematic vertical 9:16 product showcase short-form video for "TrafficLift Pro" â€” an autonomous AI traffic engine for online entrepreneurs that turns any product URL into Pinterest SEO, TikTok scripts, YouTube Shorts, Twitter/X threads, and paid ad copy in seconds.
 
 Visual Style: Sleek, high-contrast neon lighting. Cyan and magenta accents glow against a deep dark-mode background. Dynamic modern UI showcase. Cinematic camera motion with smooth 60fps. Premium SaaS launch energy.
 
-Scene 1 — Hook (0-3 seconds): Dim, desaturated wide shot of a frustrated entrepreneur at a desk, analytics dashboard flatlined at zero. Sudden dramatic cut to a striking close-up of a glowing red "0" on a faded dashboard. Tension builds with a quick cinematic whip-pan and a single sharp electronic stab.
+Scene 1 â€” Hook (0-3 seconds): Dim, desaturated wide shot of a frustrated entrepreneur at a desk, analytics dashboard flatlined at zero. Sudden dramatic cut to a striking close-up of a glowing red "0" on a faded dashboard. Tension builds with a quick cinematic whip-pan and a single sharp electronic stab.
 
-Scene 2 — Product Reveal (3-8 seconds): Dynamic panning shot across a sleek 3D interface in dark mode with neon cyan and magenta accents. The product name "TrafficLift Pro" materializes in glowing typography in the center. Rapid cuts showcase AI-generated marketing assets popping onto the screen one after another with satisfying neon pulses: a Pinterest SEO card, a TikTok script card, a Meta ad copy card, and a YouTube Shorts blueprint. Each card lands with a soft click and a brief riser.
+Scene 2 â€” Product Reveal (3-8 seconds): Dynamic panning shot across a sleek 3D interface in dark mode with neon cyan and magenta accents. The product name "TrafficLift Pro" materializes in glowing typography in the center. Rapid cuts showcase AI-generated marketing assets popping onto the screen one after another with satisfying neon pulses: a Pinterest SEO card, a TikTok script card, a Meta ad copy card, and a YouTube Shorts blueprint. Each card lands with a soft click and a brief riser.
 
-Scene 3 — Call to Action (8-15 seconds): Camera sweeps toward a giant glowing CTA button reading "Launch Your Campaign". A bright neon pulse expands outward in concentric rings. A confident, professional male voiceover speaks over the rising beat: "Stop guessing your traffic. Paste a URL. TrafficLift Pro gives you Pinterest SEO, TikTok scripts, and paid ads in seconds. Launch your campaign now." Final beat lands on the TrafficLift Pro logo with a triumphant neon flash and a deep sub-bass drop.
+Scene 3 â€” Call to Action (8-15 seconds): Camera sweeps toward a giant glowing CTA button reading "Launch Your Campaign". A bright neon pulse expands outward in concentric rings. A confident, professional male voiceover speaks over the rising beat: "Stop guessing your traffic. Paste a URL. TrafficLift Pro gives you Pinterest SEO, TikTok scripts, and paid ads in seconds. Launch your campaign now." Final beat lands on the TrafficLift Pro logo with a triumphant neon flash and a deep sub-bass drop.
 
 Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, subtle electronic risers building through Scene 2 and peaking at the CTA in Scene 3, a confident professional male voiceover delivering the dialogue in Scene 3, and a clean cinematic mix throughout.`;
 
@@ -1208,11 +1208,11 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i><span>Submitting…</span>';
+        submitBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i><span>Submittingâ€¦</span>';
         lucide.createIcons();
         resultEl.classList.add('hidden');
         resultEl.innerHTML = '';
-        statusEl.innerHTML = '<span class="text-slate-400">Submitting to MiniMax…</span>';
+        statusEl.innerHTML = '<span class="text-slate-400">Submitting to MiniMaxâ€¦</span>';
 
         try {
             const r = await fetch(apiUrl('/api/v1/video/generate'), {
@@ -1224,8 +1224,8 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
             const taskId = data.task.task_id;
             statusEl.innerHTML =
-                `<span class="text-slate-300">Task submitted · id <code class="text-brand-400">${taskId}</code></span><br>` +
-                '<span class="text-slate-500">Polling status every 15 seconds — H3 typically takes 15–30 minutes.</span>';
+                `<span class="text-slate-300">Task submitted Â· id <code class="text-brand-400">${taskId}</code></span><br>` +
+                '<span class="text-slate-500">Polling status every 15 seconds â€” H3 typically takes 15â€“30 minutes.</span>';
 
             await pollVideoUntilDone(taskId, model, statusEl, resultEl);
         } catch (e) {
@@ -1252,7 +1252,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 const elapsed = Math.round((i + 1) * intervalMs / 1000);
                 statusEl.innerHTML =
                     `<span class="text-slate-300">Status: <code class="text-brand-400">${t.status}</code></span>` +
-                    `<br><span class="text-slate-500">elapsed ${elapsed}s · task ${taskId}</span>`;
+                    `<br><span class="text-slate-500">elapsed ${elapsed}s Â· task ${taskId}</span>`;
                 if (t.status === 'succeeded' || t.status === 'Success') {
                     renderVideoResult(t, resultEl, statusEl);
                     showToast('Video ready', `${model} finished in ${elapsed}s`, 'success');
@@ -1269,7 +1269,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                     '<br><span class="text-amber-400">poll error: ' + (e.message || e) + '</span>';
             }
         }
-        statusEl.innerHTML += '<br><span class="text-amber-400">Polling timed out. Task may still be running — check back later.</span>';
+        statusEl.innerHTML += '<br><span class="text-amber-400">Polling timed out. Task may still be running â€” check back later.</span>';
     }
 
     function renderVideoResult(task, resultEl, statusEl) {
@@ -1279,8 +1279,8 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             return;
         }
         statusEl.innerHTML =
-            '<span class="text-emerald-400 font-medium">✅ Render complete</span><br>' +
-            `<span class="text-slate-500">${task.model} · ${task.duration_seconds}s · ${task.ratio} · ${task.resolution}</span>`;
+            '<span class="text-emerald-400 font-medium">âœ… Render complete</span><br>' +
+            `<span class="text-slate-500">${task.model} Â· ${task.duration_seconds}s Â· ${task.ratio} Â· ${task.resolution}</span>`;
         resultEl.classList.remove('hidden');
         resultEl.innerHTML = `
             <div class="rounded-xl overflow-hidden border border-slate-700 bg-black">
@@ -1301,17 +1301,17 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         lucide.createIcons();
     }
 
-    // ─── Trending Product Scout ──────────────────────────────────────────────
+    // â”€â”€â”€ Trending Product Scout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // 1-click flow:
-    //   click "Find Winner" → fetch /trending-product → fill URL → show winner
-    //   card → toast → ~800 ms later → auto-click #launchBtn to kick off
+    //   click "Find Winner" â†’ fetch /trending-product â†’ fill URL â†’ show winner
+    //   card â†’ toast â†’ ~800 ms later â†’ auto-click #launchBtn to kick off
     //   the campaign generator with the chosen URL.
     function showLoadingState(btn, loading) {
         if (!btn) return;
         if (loading) {
             btn.dataset.label  = btn.dataset.label || btn.innerHTML;
             btn.disabled       = true;
-            btn.innerHTML      = '<span class="animate-spin inline-block">⏳</span><span class="hidden sm:inline ml-1">Loading…</span>';
+            btn.innerHTML      = '<span class="animate-spin inline-block">â³</span><span class="hidden sm:inline ml-1">Loadingâ€¦</span>';
         } else {
             btn.disabled  = false;
             btn.innerHTML = btn.dataset.label || btn.innerHTML;
@@ -1351,10 +1351,10 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
 
                     <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
                         <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold text-pink-400">📌 Pinterest Ready-to-Post Pin</span>
+                            <span class="text-xs font-bold text-pink-400">ðŸ“Œ Pinterest Ready-to-Post Pin</span>
                             <button onclick="copyPinBundle('${encTitle}','${encDesc}','${encTags}','${escapeHtml(data.image_url)}','${encodeURIComponent(data.url || '')}')"
                                     class="bg-pink-600 hover:bg-pink-500 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow">
-                                📋 Copy Pin
+                                ðŸ“‹ Copy Pin
                             </button>
                         </div>
                         <div class="space-y-2 text-xs text-slate-300">
@@ -1372,7 +1372,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                         <span class="text-xs text-slate-300">MiniMax H3-Max Video Pipeline Ready</span>
                     </div>
                     <button onclick="openVideoModal()" class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow">
-                        🎬 Render Video Ad
+                        ðŸŽ¬ Render Video Ad
                     </button>
                 </div>
             </div>
@@ -1465,7 +1465,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 document.getElementById('product-url-input');
             if (urlInput) urlInput.value = data.url || '';
 
-            // 3. Display the winner card details (defensive — skip if not defined)
+            // 3. Display the winner card details (defensive â€” skip if not defined)
             if (typeof displayWinnerCard === 'function') {
                 displayWinnerCard(data);
             }
@@ -1476,7 +1476,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             //    the engine kicks off.
             showToast(
                 `Loaded Winner: ${data.name}`,
-                'Launching traffic engine…',
+                'Launching traffic engineâ€¦',
                 'success'
             );
 
@@ -1516,3 +1516,4 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     </script>
 </body>
 </html>
+
