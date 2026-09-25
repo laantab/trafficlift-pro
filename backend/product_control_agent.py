@@ -49,12 +49,13 @@ REQUIRED_FIELDS = (
 # pet photo accidentally filed under Tech & Gadgets.
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "cleaning":   ["scrub", "clean", "brush", "mop", "vacuum", "wipe",
-                   "cleaner", "grout"],
+                   "cleaner", "grout", "ultrasonic"],
     "tech":       ["charger", "station", "cable", "wireless", "magsafe",
-                   "led", "phone", "hub"],
-    "pet":        ["dog", "cat", "pet", "bed", "pup", "leash", "grooming"],
+                   "led", "phone", "hub", "dock"],
+    "pet":        ["dog", "cat", "pet", "bed", "pup", "leash", "grooming",
+                   "calming"],
     "home decor": ["lamp", "sunset", "projection", "light", "decor",
-                   "aesthetic"],
+                   "aesthetic", "ambient"],
 }
 
 

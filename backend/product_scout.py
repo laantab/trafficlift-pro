@@ -35,7 +35,7 @@ EVERGREEN_WINNING_PRODUCTS = [
         "id": "charger-02",
         "name": "3-in-1 Foldable MagSafe Wireless Charging Station",
         "category": "Tech & Gadgets",
-        "image_url": "https://images.unsplash.com/photo-1622445275576-72232f5fc48f?w=800&auto=format&fit=crop&q=80",
+        "image_url": "https://images.unsplash.com/photo-1611532736597-de2d4265fba3?w=800&auto=format&fit=crop&q=80",
         "url": "https://example.com/trending-3in1-charger",
         "angle": "Declutter your nightstand with fast, simultaneous charging for iPhone, Apple Watch, and AirPods.",
         "pin_title": "Nightstand Setup Upgrade: Zero Cable Clutter ????",
