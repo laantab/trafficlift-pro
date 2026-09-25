@@ -2,6 +2,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.quality_control import ProductControlAgent
+
 router = APIRouter(prefix="/api/v1", tags=["product-scout"])
 
 class ProductResponse(BaseModel):
@@ -33,7 +35,7 @@ EVERGREEN_WINNING_PRODUCTS = [
         "id": "charger-02",
         "name": "3-in-1 Foldable MagSafe Wireless Charging Station",
         "category": "Tech & Gadgets",
-        "image_url": "https://images.unsplash.com/photo-1622445275576-72232f5fc48f?w=800&auto=format&fit=crop&q=60",
+        "image_url": "https://images.unsplash.com/photo-1611532736597-de2d4265fba3?w=800&auto=format&fit=crop&q=60",
         "url": "https://example.com/trending-3in1-charger",
         "angle": "Declutter your nightstand with fast, simultaneous charging for iPhone, Apple Watch, and AirPods.",
         "pin_title": "Nightstand Setup Upgrade: Zero Cable Clutter 🔌📱",
@@ -66,6 +68,19 @@ EVERGREEN_WINNING_PRODUCTS = [
         "demo": True
     }
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Catalog audit (run at import time; semantic warnings are logged,
+# schema failures are loud — never blocks the server silently)
+# ─────────────────────────────────────────────────────────────────────────────
+import logging
+_logger = logging.getLogger("product_scout")
+try:
+    ProductControlAgent.audit_catalog(EVERGREEN_WINNING_PRODUCTS)
+except ValueError as exc:
+    _logger.error("Product catalog FAILED audit at import time: %s", exc)
+    raise
+
 
 @router.get("/trending-product", response_model=ProductResponse)
 def get_winning_product(seed: int | None = None):
