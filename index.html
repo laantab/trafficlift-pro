@@ -1432,6 +1432,23 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                         </button>
                     </div>
                 </div>
+
+                <!-- 1-Click Pinterest Launch (safe path — no URL scraping) -->
+                <div class="border-t border-slate-800 pt-4 space-y-3">
+                    <div class="flex items-center justify-between flex-wrap gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-wider text-pink-400">📌 1-Click Pinterest</span>
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-900/40 border-emerald-700 text-emerald-300" title="Bypasses the URL scraper — uses this winner's data directly so Amazon search URLs and other anti-bot targets cannot break the campaign.">Safe path</span>
+                        </div>
+                        <button type="button" onclick="renderPinterestAd()" id="pinterestLaunchBtn"
+                            class="bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow flex items-center gap-2"
+                            title="Generate a complete Pinterest SEO package from this winner — board title, pin title, description, keywords, suggested boards. Skips URL scraping entirely.">
+                            <i data-lucide="rocket" class="w-3.5 h-3.5"></i>
+                            Render Pinterest Ad
+                        </button>
+                    </div>
+                    <div id="pinterestResult" class="hidden space-y-2"></div>
+                </div>
             </div>
         `;
         outputArea.classList.remove('hidden');
@@ -1444,6 +1461,140 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         if (outputArea) {
             outputArea.innerHTML = '';
             outputArea.classList.add('hidden');
+        }
+    }
+
+    // ── 1-Click Pinterest launch ──────────────────────────────────────────
+    // Safe path: passes the in-memory winner dict to /api/v1/traffic/generate
+    // as `product_payload`, so the URL is never fetched and anti-bot blocks
+    // cannot produce "Untitled Product" cascades.
+    async function renderPinterestAd() {
+        const winner = window.__currentWinner;
+        const btn = document.getElementById('pinterestLaunchBtn');
+        const out = document.getElementById('pinterestResult');
+
+        if (!winner || !winner.id) {
+            showToast(
+                'Pick a winner first',
+                'Click 🎯 Find Winner before launching the Pinterest campaign.',
+                'warning'
+            );
+            return;
+        }
+
+        showLoadingState(btn, true);
+        if (out) { out.classList.add('hidden'); out.innerHTML = ''; }
+
+        try {
+            const endpoint = apiUrl('/api/v1/traffic/generate');
+            console.log('[pinterest] -> POST', endpoint, { id: winner.id });
+            const r = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    mode: 'organic',
+                    target_channels: ['pinterest'],
+                    product_payload: winner,
+                }),
+            });
+            console.log('[pinterest] <- status', r.status);
+            if (!r.ok) {
+                let detail = '';
+                try {
+                    const errBody = await r.json();
+                    detail = errBody?.detail || '';
+                } catch (_) { /* not JSON */ }
+                throw new Error('HTTP ' + r.status + (detail ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
+            }
+            const data = await r.json();
+            console.log('[pinterest] ✓', { campaign_id: data.campaign_id, source: data.source });
+            renderPinterestResult(data, winner);
+            showToast(
+                'Pinterest package ready',
+                data.campaign_id ? `Campaign ${data.campaign_id.slice(0, 8)}… saved.` : 'Generated.',
+                'success'
+            );
+        } catch (e) {
+            console.error('[pinterest] launch failed', e);
+            if (out) {
+                out.classList.remove('hidden');
+                out.innerHTML = `
+                    <div class="bg-rose-900/30 border border-rose-700/40 text-rose-200 text-xs rounded-lg p-3">
+                        <strong>Generation failed.</strong> ${escapeHtml(e && e.message || String(e))}
+                    </div>`;
+            }
+            showToast('Pinterest launch failed', e && e.message || String(e), 'error');
+        } finally {
+            showLoadingState(btn, false);
+        }
+    }
+
+    function renderPinterestResult(data, winner) {
+        const out = document.getElementById('pinterestResult');
+        if (!out) return;
+        const pkg = (data && data.compiled_package && data.compiled_package.pinterest_seo_engine) || null;
+        if (!pkg) {
+            out.classList.remove('hidden');
+            out.innerHTML = `
+                <div class="bg-amber-900/30 border border-amber-700/40 text-amber-200 text-xs rounded-lg p-3">
+                    No Pinterest package was returned. Check the server logs.
+                </div>`;
+            return;
+        }
+
+        const tags = Array.isArray(pkg.keywords) ? pkg.keywords.join(', ') : (pkg.keywords || '');
+        const boards = Array.isArray(pkg.suggested_boards) ? pkg.suggested_boards : [];
+        const dims = pkg.dimensions || '1000 x 1500 px (2:3 vertical ratio)';
+        const cta = pkg.pin_cta_suggestion || 'Shop now | Limited stock available';
+
+        out.classList.remove('hidden');
+        out.innerHTML = `
+            <div class="bg-slate-950 border border-pink-700/40 rounded-xl p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-pink-400">📌 Pinterest SEO Package</span>
+                    <button onclick="copyPinterestPackage(this)"
+                        data-board="${escapeHtml(pkg.board_title || '')}"
+                        data-pin="${escapeHtml(pkg.pin_title || '')}"
+                        data-desc="${escapeHtml(pkg.pin_description || '')}"
+                        data-tags="${escapeHtml(tags)}"
+                        data-cta="${escapeHtml(cta)}"
+                        class="bg-pink-600 hover:bg-pink-500 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow">
+                        📋 Copy All
+                    </button>
+                </div>
+                <dl class="text-xs space-y-2 text-slate-300">
+                    <div><dt class="text-slate-400 font-semibold">Board Title</dt><dd class="text-white">${escapeHtml(pkg.board_title || '')}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Pin Title</dt><dd class="text-white">${escapeHtml(pkg.pin_title || '')}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Description</dt><dd class="text-slate-200 bg-slate-900 p-2 rounded border border-slate-800">${escapeHtml(pkg.pin_description || '')}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Keywords</dt><dd class="text-purple-300">${escapeHtml(tags)}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Suggested Boards</dt><dd class="text-slate-200">${boards.map(escapeHtml).join(' • ')}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Dimensions</dt><dd class="text-slate-200">${escapeHtml(dims)}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">CTA</dt><dd class="text-slate-200">${escapeHtml(cta)}</dd></div>
+                </dl>
+                ${data.campaign_id ? `<div class="text-[10px] text-slate-500 border-t border-slate-800 pt-2">Campaign ID: <span class="text-slate-400">${escapeHtml(data.campaign_id)}</span> · source: <span class="text-slate-400">${escapeHtml(data.source || 'scrape')}</span></div>` : ''}
+            </div>
+        `;
+    }
+
+    async function copyPinterestPackage(btn) {
+        const text = [
+            'Board: ' + (btn.dataset.board || ''),
+            '',
+            'Pin Title: ' + (btn.dataset.pin || ''),
+            '',
+            (btn.dataset.desc || '') + ' ' + (btn.dataset.tags || ''),
+            '',
+            'CTA: ' + (btn.dataset.cta || ''),
+        ].join('\n');
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('', 'Pinterest package copied!', 'success');
+        } catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+            showToast('', 'Pinterest package copied!', 'success');
         }
     }
 
@@ -1552,6 +1703,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             }
             console.log('[find-winner] ✓', { id: data.id, name: data.name, category: data.category });
             window.__lastWinnerId = data.id;
+            window.__currentWinner = data;  // full payload — used by 1-click Pinterest launch
 
             // 2. Pre-fill the product URL input (resilient to either id)
             if (urlInput) urlInput.value = data.url || '';

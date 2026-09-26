@@ -43,7 +43,7 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ── Local imports ────────────────────────────────────────────────────────────
 # Ensure the project root is on sys.path so `from backend.X import Y` works
@@ -117,12 +117,30 @@ db = CampaignDB()
 # ─────────────────────────────────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
-    """Payload for the generate endpoint."""
+    """Payload for the generate endpoint.
+
+    Two input modes are supported:
+    • **Scrape mode** — pass ``input_url`` only; backend fetches + extracts.
+    • **Safe mode** — pass ``product_payload`` (the winner dict from
+      ``/api/v1/find-winner``); backend uses it directly and skips scraping,
+      eliminating the anti-bot "Untitled Product" cascade on search URLs.
+
+    At least one of ``input_url`` or ``product_payload`` must be provided.
+    When ``product_payload`` is present it wins (no scrape happens).
+    """
 
     input_url: Annotated[str, Field(
-        description="Product or landing page URL.",
-        min_length=7,
+        default="",
+        description="Product or landing page URL (optional when product_payload is provided).",
         max_length=2000,
+    )]
+    product_payload: Annotated[Optional[dict], Field(
+        default=None,
+        description=(
+            "Pre-built product dict (e.g. from /api/v1/find-winner). When present, "
+            "the backend skips the scrape step and synthesizes a ScrapedProduct "
+            "from this data — safer for Amazon search URLs and the 1-click flow."
+        ),
     )]
     mode: Annotated[str, Field(
         description="Traffic strategy: 'organic' ($0) or 'paid' (ad scaling).",
@@ -141,9 +159,25 @@ class GenerateRequest(BaseModel):
     @field_validator("input_url")
     @classmethod
     def _validate_url(cls, v: str) -> str:
-        v = v.strip()
-        if not v.startswith(("http://", "https://")):
+        v = (v or "").strip()
+        if v and not v.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
+        return v
+
+    @field_validator("product_payload")
+    @classmethod
+    def _validate_payload(cls, v: Optional[dict]) -> Optional[dict]:
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("product_payload must be an object")
+        # Accept either 'name' or 'title' as the canonical title.
+        title = (v.get("name") or v.get("title") or "").strip()
+        if not title:
+            raise ValueError(
+                "product_payload must include at least 'name' (or 'title')."
+            )
+        v["name"] = title  # canonicalize
         return v
 
     @field_validator("target_channels")
@@ -159,6 +193,14 @@ class GenerateRequest(BaseModel):
         if invalid:
             raise ValueError(f"Unknown channels: {invalid}. Valid: {sorted(valid)}")
         return v
+
+    @model_validator(mode="after")
+    def _ensure_one_source(self) -> "GenerateRequest":
+        if not (self.input_url or self.product_payload):
+            raise ValueError(
+                "Provide either input_url or product_payload."
+            )
+        return self
 
 
 class MiniMaxVideoParamsRequest(BaseModel):
@@ -294,6 +336,53 @@ def _get_ai_mode() -> str:
     return "template_fallback"
 
 
+def _payload_to_scraped_product(payload: dict, fallback_url: str = "") -> ScrapedProduct:
+    """Synthesize a ScrapedProduct from a /find-winner winner dict.
+
+    This is the "safe path" that bypasses the URL scraper — eliminates the
+    anti-bot "Untitled Product" cascade on Amazon search URLs. Any field
+    that's missing from the payload falls back to safe defaults so the
+    downstream generator never receives a blank string for a required field.
+    """
+    name = (payload.get("name") or payload.get("title") or "Untitled Product").strip()
+    description = (
+        payload.get("angle")
+        or payload.get("pin_description")
+        or payload.get("description")
+        or ""
+    ).strip()
+    url = (
+        payload.get("url")
+        or fallback_url
+        or ""
+    ).strip()
+    image = (
+        payload.get("image_url")
+        or payload.get("primary_image")
+        or ""
+    ).strip()
+    category = (payload.get("category") or "").strip()
+    keywords = payload.get("hashtags") or payload.get("raw_keywords") or []
+    if isinstance(keywords, str):
+        keywords = [k.strip() for k in keywords.split() if k.strip()]
+
+    # raw_text gives the AI generator something to riff on when scraping was skipped.
+    raw_text_parts = [name, description, category, " ".join(keywords or [])]
+    raw_text = " \n".join(p for p in raw_text_parts if p)
+
+    return ScrapedProduct(
+        url=url or "https://example.com/",
+        title=name,
+        description=description or name,
+        primary_image=image or None,
+        additional_images=[],
+        price=None,
+        site_name=category or None,
+        raw_keywords=list(keywords or []),
+        raw_text=raw_text,
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # API Routes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -323,25 +412,55 @@ async def health_check():
 @app.post("/api/v1/traffic/generate", response_model=None)
 async def generate_traffic(request: GenerateRequest) -> JSONResponse:
     """
-    Full pipeline: scrape URL → generate assets → persist → return.
+    Full pipeline: input → generate assets → persist → return.
+
+    Two input modes are supported (decided by the request body):
+
+    1. **Scrape mode** — only ``input_url`` is provided. The URL is fetched
+       and parsed; anti-bot failures surface as HTTP 503.
+    2. **Safe mode** — ``product_payload`` is provided (e.g. the winner dict
+       from ``/api/v1/find-winner``). The URL is never fetched, so Amazon
+       search URLs and other anti-bot targets cannot break the pipeline.
+       ``input_url`` is optional in this mode and only used for record-keeping.
 
     Organic channels: pinterest, tiktok_organic, youtube_shorts, twitter_threads
     Paid channels:    meta_ads, tiktok_ads
     """
-    log.info("Request: mode=%s channels=%s url=%s",
-             request.mode, request.target_channels, request.input_url)
+    log.info("Request: mode=%s channels=%s url=%s payload=%s",
+             request.mode, request.target_channels,
+             request.input_url, bool(request.product_payload))
 
     start_ts = datetime.now(timezone.utc)
 
-    # ── Scrape ────────────────────────────────────────────────────────────
-    try:
-        product: ScrapedProduct = scraper.scrape(request.input_url)
-    except Exception as exc:
-        log.error("Scrape failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Could not reach URL. Verify it is publicly accessible: {request.input_url}",
-        )
+    # ── Resolve the ScrapedProduct (scrape vs. safe payload) ──────────────
+    product: ScrapedProduct
+    source_kind = "scrape"
+
+    if request.product_payload:
+        # ── SAFE PATH ──────────────────────────────────────────────────────
+        # Build the ScrapedProduct directly from the winner dict. No network.
+        try:
+            product = _payload_to_scraped_product(
+                request.product_payload,
+                fallback_url=request.input_url,
+            )
+        except Exception as exc:
+            log.error("Payload normalization failed: %s\n%s", exc, traceback.format_exc())
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"product_payload could not be normalized: {exc}",
+            )
+        source_kind = "payload"
+    else:
+        # ── SCRAPE PATH ────────────────────────────────────────────────────
+        try:
+            product = scraper.scrape(request.input_url)
+        except Exception as exc:
+            log.error("Scrape failed: %s\n%s", exc, traceback.format_exc())
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Could not reach URL. Verify it is publicly accessible: {request.input_url}",
+            )
 
     # ── Generate ──────────────────────────────────────────────────────────
     try:
@@ -366,7 +485,7 @@ async def generate_traffic(request: GenerateRequest) -> JSONResponse:
     # ── Persist to SQLite ──────────────────────────────────────────────────
     try:
         record = db.save(
-            input_url=request.input_url,
+            input_url=request.input_url or product.url,
             mode=request.mode,
             channels=request.target_channels,
             budget=request.daily_budget,
@@ -383,7 +502,8 @@ async def generate_traffic(request: GenerateRequest) -> JSONResponse:
     return JSONResponse({
         "success": True,
         "campaign_id": campaign_id,
-        "input_url": request.input_url,
+        "input_url": request.input_url or product.url,
+        "source": source_kind,
         "mode": request.mode,
         "scraped_product": product.to_dict(),
         "compiled_package": compiled,
