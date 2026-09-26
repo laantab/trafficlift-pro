@@ -1553,8 +1553,24 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
     }
     </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('findWinnerBtn');
+            if (btn) {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (typeof fetchTrendingProduct === 'function') {
+                        fetchTrendingProduct();
+                    } else {
+                        console.error('fetchTrendingProduct function is not defined.');
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>
+
 
 
 
