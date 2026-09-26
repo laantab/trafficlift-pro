@@ -1,129 +1,79 @@
-﻿"""
-backend/product_scout.py
-Product Scout — research-backed winning-product picker.
-
-Routes:
-  GET  /api/v1/find-winner?url_or_keyword=...&category=...&seed=...&exclude=id1,id2
-  POST /api/v1/find-winner              { "url_or_keyword": "...", "category": "...",
-                                          "seed": ..., "exclude": [...], "use_ai": false }
-
-The researcher rotates through a curated pool of 30 trending products across
-6 categories and varies copy on every call. When OPENAI_API_KEY is configured,
-`use_ai=true` triggers a fresh GPT-4o research pick (falls back to pool on
-failure). Every result is audited by ProductControlAgent.
-"""
-from __future__ import annotations
-
-from typing import Optional
-
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
-
-from backend.product_research import (
-    ProductResearcher,
-    get_researcher,
-    POOLS,
-    CATEGORY_LABELS,
-)
+﻿import random
+import hashlib
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
+from backend.product_control_agent import ProductControlAgent
 
 router = APIRouter(prefix="/api/v1", tags=["product-scout"])
 
-
 class ProductRequest(BaseModel):
-    """POST body for /find-winner."""
-    url_or_keyword: str = Field(
-        default="trending product",
-        description="URL or free-form keyword to seed intent bias.",
-    )
-    category: str = Field(default="Trending General")
-    seed: Optional[int] = Field(default=None, ge=0, le=10_000)
-    exclude: list[str] = Field(
-        default_factory=list,
-        description="Product ids to avoid (e.g. the last one shown).",
-    )
-    use_ai: bool = Field(
-        default=False,
-        description="If true and OpenAI is configured, generate a fresh pick via GPT-4o.",
-    )
+    url_or_keyword: str | None = None
+    category: str | None = None
 
+PRODUCTS_POOL = [
+    {
+        "id": "tech-01",
+        "name": "LED Desk Lamp with USB Charging Port — Dimmable, 5 Color Temps",
+        "category": "Tech & Gadgets",
+        "image_url": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=800&auto=format&fit=crop&q=80",
+        "url": "https://www.amazon.com/dp/B083ZD8W7S",
+        "angle": "Touch dimming, 5 color temps, memory function, and USB pass-through charging.",
+        "pin_title": "Why My Ring Light Collects Dust Now 💡",
+        "pin_description": "5 color temps (2700K-6500K), 5 brightness levels, USB-A pass-through charging, and memory function. Perfect for WFH and desk setups.",
+        "hashtags": ["#DeskSetup", "#WFH", "#TechGadgets", "#LightingDesign", "#AmazonFinds"],
+        "trend_score": 92,
+        "margin": "High (60-70%)",
+        "evergreen": "90%"
+    },
+    {
+        "id": "home-02",
+        "name": "High-Torque Electric Spin Scrubber Pro",
+        "category": "Home & Cleaning",
+        "image_url": "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80",
+        "url": "https://www.amazon.com/dp/B09X7G7291",
+        "angle": "Eliminate deep grime, grout lines, and bathroom tiles in seconds without breaking your back.",
+        "pin_title": "Deep Cleaning Tile & Grout Made Effortless 🧽✨",
+        "pin_description": "Stop scrubbing on your knees! High-torque electric scrubber blasts through soap scum instantly with 4 replaceable brush heads.",
+        "hashtags": ["#CleaningHacks", "#DeepCleaning", "#HomeOrganization", "#AmazonMustHaves"],
+        "trend_score": 95,
+        "margin": "High (65-75%)",
+        "evergreen": "85%"
+    },
+    {
+        "id": "kitchen-03",
+        "name": "Compact Portable Espresso Maker & Cold Brew Press",
+        "category": "Kitchen & Dining",
+        "image_url": "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=800&auto=format&fit=crop&q=80",
+        "url": "https://www.amazon.com/dp/B073WD6M8Z",
+        "angle": "Barista-quality espresso anywhere in under 60 seconds with manual pressure pumping.",
+        "pin_title": "Ditch  Coffee Shops With This Travel Espresso Press ☕",
+        "pin_description": "Extract rich, velvety crema anywhere—office, road trips, or camping. No electricity needed.",
+        "hashtags": ["#CoffeeLovers", "#Espresso", "#TravelEssentials", "#KitchenGadgets"],
+        "trend_score": 88,
+        "margin": "Medium (50-60%)",
+        "evergreen": "92%"
+    },
+    {
+        "id": "fitness-04",
+        "name": "Smart Pilates Reformer Bar with Resistance Bands",
+        "category": "Fitness & Wellness",
+        "image_url": "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&auto=format&fit=crop&q=80",
+        "url": "https://www.amazon.com/dp/B08BL3X78Q",
+        "angle": "Full-body studio workout from home targeting core, arms, and glutes in 15 minutes.",
+        "pin_title": "Studio Pilates At Home For Less Than One Session 🧘‍♀️",
+        "pin_description": "Get tone and defined without heavy equipment. Toning bar + adjustable resistance bands for full body strength.",
+        "hashtags": ["#HomeWorkout", "#PilatesBar", "#FitnessGoals", "#AtHomeGym"],
+        "trend_score": 91,
+        "margin": "High (70%)",
+        "evergreen": "88%"
+    }
+]
 
-# ── Routes ─────────────────────────────────────────────────────────────────
-
-
-def _synthesize(
-    *,
-    url_or_keyword: str,
-    seed: Optional[int],
-    exclude: list[str],
-    use_ai: bool,
-) -> dict:
-    raw_input = (url_or_keyword or "").strip()
-    if not raw_input:
-        raise HTTPException(
-            status_code=400,
-            detail="URL or keyword cannot be empty.",
-        )
-    researcher = get_researcher()
-    return researcher.pick(
-        intent=raw_input,
-        exclude=exclude,
-        seed=seed,
-        use_ai=use_ai,
-    )
-
-
-@router.post("/find-winner")
-def find_winner_post(payload: ProductRequest) -> dict:
-    """POST variant: JSON body with the full control surface."""
-    return _synthesize(
-        url_or_keyword=payload.url_or_keyword,
-        seed=payload.seed,
-        exclude=payload.exclude,
-        use_ai=payload.use_ai,
-    )
-
-
-@router.get("/find-winner")
-def find_winner_get(
-    url_or_keyword: str = Query(
-        "trending product",
-        description="URL or free-form keyword to seed intent synthesis.",
-    ),
-    seed: Optional[int] = Query(None, ge=0, le=10_000),
-    exclude: Optional[str] = Query(
-        None,
-        description="Comma-separated product ids to avoid (e.g. 'scrub-brush-01,dog-bed-01').",
-    ),
-    use_ai: bool = Query(False, description="Generate via GPT-4o (requires OPENAI_API_KEY)."),
-) -> dict:
-    """GET variant: query params for browser/curl/handshake calls."""
-    excl = [x for x in (exclude or "").split(",") if x] if exclude else []
-    return _synthesize(
-        url_or_keyword=url_or_keyword,
-        seed=seed,
-        exclude=excl,
-        use_ai=use_ai,
-    )
-
-
-@router.get("/find-winners")
-def list_winners(
-    category: Optional[str] = Query(
-        None,
-        description="Optional category key (cleaning, tech, pet, decor, fitness, kitchen).",
-    ),
-) -> dict:
-    """Browse all products in the research pool (lightweight summary)."""
-    summary = get_researcher().get_pool_summary()
-    if category:
-        if category not in POOLS:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Unknown category: {category}. Valid: {sorted(POOLS.keys())}",
-            )
-        return {
-            "category": CATEGORY_LABELS[category],
-            "products": summary["categories"][category],
-            "total": len(POOLS[category]),
-        }
-    return summary
+@router.api_route("/find-winner", methods=["GET", "POST"])
+async def find_winner(request: Request, payload: ProductRequest | None = None):
+    # Select a random winner from the curated pool
+    selected = random.choice(PRODUCTS_POOL).copy()
+    
+    # Audit via ProductControlAgent
+    audited = ProductControlAgent.audit_product(selected)
+    return audited
