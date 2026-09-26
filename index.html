@@ -1454,15 +1454,21 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         const btn = document.getElementById('findWinnerBtn');
         showLoadingState(btn, true);
         try {
-            // 1. Fetch the winning product from /api/v1/trending-product
-            const r = await fetch(apiUrl('/api/v1/trending-product'));
+            // 1. Fetch the winning product from /api/v1/find-winner.
+            //    If the user has typed something in the URL input, forward it
+            //    as a `url_or_keyword` hint so the synthesis can match intent.
+            const urlInput =
+                document.getElementById('productUrl') ||
+                document.getElementById('product-url-input');
+            const hint = (urlInput && urlInput.value || '').trim();
+            const qs = hint
+                ? `?url_or_keyword=${encodeURIComponent(hint)}`
+                : '';
+            const r = await fetch(apiUrl(`/api/v1/find-winner${qs}`));
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const data = await r.json();
 
             // 2. Pre-fill the product URL input (resilient to either id)
-            const urlInput =
-                document.getElementById('productUrl') ||
-                document.getElementById('product-url-input');
             if (urlInput) urlInput.value = data.url || '';
 
             // 3. Display the winner card details (defensive â€” skip if not defined)
