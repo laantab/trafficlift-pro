@@ -25,7 +25,7 @@
             }
         }
     </script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@0.469.0"></script>
     <style>
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 6px; }
@@ -1216,7 +1216,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i><span>Submittingâ€¦</span>';
+        submitBtn.innerHTML = '<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i><span>Submitting…</span>';
         lucide.createIcons();
         resultEl.classList.add('hidden');
         resultEl.innerHTML = '';
@@ -1599,7 +1599,6 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         const cta           = pkg.pin_cta_suggestion ?? 'Shop now | Limited stock available';
         const hashtags      = Array.isArray(winner?.hashtags) ? winner.hashtags : [];
         const destUrl       = winner?.url ?? data.input_url ?? '';
-        const imageUrl      = winner?.image_url ?? '';
 
         out.classList.remove('hidden');
         out.innerHTML = `
@@ -1617,14 +1616,19 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                             class="bg-pink-600 hover:bg-pink-500 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow">
                             📋 Copy Pin Text
                         </button>
-                        <button onclick="downloadPinImage('${escapeHtml(imageUrl).replace(/'/g, '%27')}', '${escapeHtml(winner?.name || 'pin').replace(/'/g, '%27')}')"
+                        <button onclick="downloadPinImage()"
                             class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow"
-                            title="Render the winner image into a 2:3 Pinterest-compliant JPEG (1000x1500) and download.">
+                            title="Download the designed 1000x1500 pin (hero + title + CTA) shown above.">
                             ⬇ Download Pin Image
                         </button>
                     </div>
                 </div>
-                ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(winner?.name || '')}" class="w-full h-48 object-cover rounded-lg border border-slate-700" onerror="this.onerror=null;this.style.display='none'">` : ''}
+                <div class="relative">
+                    <div id="pinPreviewWrap" class="aspect-[2/3] w-full max-w-[280px] mx-auto rounded-lg overflow-hidden bg-slate-900 flex items-center justify-center text-slate-500 text-xs border border-slate-700">
+                        <span id="pinPreviewSpinner" class="animate-pulse">Rendering designed pin…</span>
+                    </div>
+                    <div id="pinPreviewNotice" class="hidden mt-2 text-[10px] text-slate-400 text-center"></div>
+                </div>
                 <dl class="text-xs space-y-2 text-slate-300">
                     <div><dt class="text-slate-400 font-semibold">Board Title</dt><dd class="text-white">${escapeHtml(pkg.board_title || '')}</dd></div>
                     <div><dt class="text-slate-400 font-semibold">Pin Title</dt><dd class="text-white">${escapeHtml(pkg.pin_title || '')}</dd></div>
@@ -1639,6 +1643,33 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 ${data.campaign_id ? `<div class="text-[10px] text-slate-500 border-t border-slate-800 pt-2">Campaign ID: <span class="text-slate-400">${escapeHtml(data.campaign_id)}</span> · source: <span class="text-slate-400">${escapeHtml(data.source || 'scrape')}</span></div>` : ''}
             </div>
         `;
+
+        // Render the designed pin and embed it as a preview image. The data URL
+        // is cached on window.__lastPinDataUrl so the Download button ships
+        // exactly this design.
+        renderPinPreview(winner, pkg).then((dataUrl) => {
+            const wrap = document.getElementById('pinPreviewWrap');
+            const notice = document.getElementById('pinPreviewNotice');
+            if (!wrap) return;
+            wrap.innerHTML = '<img src="' + dataUrl + '" alt="Pinterest pin preview" class="w-full h-full object-cover">';
+            if (notice) {
+                const usedFallback = !(winner && winner.image_url) || /data:image\/svg/.test((winner && winner.image_url) || '');
+                notice.textContent = usedFallback
+                    ? 'Image unavailable — labeled branded fallback used.'
+                    : 'Designed pin (hero + title + CTA) rendered from your selected product image.';
+                notice.classList.remove('hidden');
+            }
+        }).catch((err) => {
+            console.error('[pin-preview] render failed:', err);
+            const wrap = document.getElementById('pinPreviewWrap');
+            const notice = document.getElementById('pinPreviewNotice');
+            if (wrap) wrap.innerHTML = '<div class="text-rose-300 text-xs p-3 text-center">Pin render failed: ' + escapeHtml(err && err.message || String(err)) + '</div>';
+            if (notice) {
+                notice.textContent = 'Pin render failed — text-only fallback shown above.';
+                notice.classList.remove('hidden');
+            }
+        });
+    }
     }
 
     async function copyPinterestPackage(btn) {
@@ -1665,53 +1696,295 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
     }
 
-    // ── 2:3 Pinterest pin image download (1000x1500 JPEG) ──────────────────
-    async function downloadPinImage(imageUrl, productName) {
-        if (!imageUrl) {
-            showToast('No image', 'No image available for this winner.', 'warning');
-            return;
-        }
+    // ── Designed 2:3 Pinterest pin image (1000x1500 JPEG) ────────────────────
+    // Layout:  hero image (0..900), title band (900..1200), CTA bar (1200..1500).
+    // The hero image is loaded with crossOrigin='anonymous'; on failure we
+    // render a labeled fallback (gradient + product name + "image unavailable")
+    // so the pin is always a complete, downloadable design.
+
+    // Cached latest pin (data URL) — populated by renderPinPreview() so the
+    // Download button can ship the EXACT design shown on screen.
+    window.__lastPinDataUrl = null;
+    window.__lastPinFilename = null;
+
+    // Category → gradient pair (matches the existing brand palette).
+    const PIN_FALLBACK_GRADIENTS = {
+        cleaning: ['#0ea5e9', '#1e40af'],
+        tech:     ['#4f46e5', '#1e1b4b'],
+        pet:      ['#f59e0b', '#7c2d12'],
+        decor:    ['#ec4899', '#831843'],
+        fitness:  ['#10b981', '#064e3b'],
+        kitchen:  ['#f97316', '#7c2d12'],
+        general:  ['#6366f1', '#1e1b4b'],
+    };
+
+    function _categoryKeyFromText(text) {
+        const t = (text || '').toLowerCase();
+        if (/clean|scrub|brush|vacuum/.test(t)) return 'cleaning';
+        if (/tech|charger|phone|wireless|magsafe|stand|lamp|smart/.test(t)) return 'tech';
+        if (/pet|dog|cat|feeder|leash|tree/.test(t)) return 'pet';
+        if (/decor|lamp|sunset|wall|throw|blanket|plant/.test(t)) return 'decor';
+        if (/fit|yoga|foam|dumbbell|massage|water/.test(t)) return 'fitness';
+        if (/kitchen|knife|spice|coffee|lunch|pan/.test(t)) return 'kitchen';
+        return 'general';
+    }
+
+    async function _loadImageWithCors(url) {
+        // Try crossOrigin='anonymous' first; if it fails, retry without
+        // crossOrigin (still useful for canvas drawing, just taints it).
+        // Returns { img, tainted } — tainted images can be drawn but their
+        // pixels cannot be read back; toBlob still works on the canvas
+        // because we draw first and read back the full canvas.
+        if (!url) return null;
         try {
             const img = new Image();
             img.crossOrigin = 'anonymous';
-            img.src = imageUrl;
+            img.src = url;
             await new Promise((resolve, reject) => {
                 img.onload = resolve;
-                img.onerror = () => reject(new Error('Image failed to load (CORS or invalid URL).'));
+                img.onerror = () => reject(new Error('cors-load-failed'));
             });
+            return { img, tainted: false };
+        } catch (_) {
+            // Retry without CORS — works for same-origin + data: URIs.
+            return await new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve({ img, tainted: true });
+                img.onerror = () => resolve(null);
+                img.src = url;
+            });
+        }
+    }
 
-            const canvas = document.createElement('canvas');
-            canvas.width = 1000;
-            canvas.height = 1500;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+    function _wrapText(ctx, text, maxWidth, maxLines) {
+        const words = (text || '').split(/\s+/);
+        const lines = [];
+        let current = '';
+        for (const word of words) {
+            const trial = current ? current + ' ' + word : word;
+            if (ctx.measureText(trial).width > maxWidth && current) {
+                lines.push(current);
+                current = word;
+                if (lines.length >= maxLines) break;
+            } else {
+                current = trial;
+            }
+        }
+        if (current && lines.length < maxLines) lines.push(current);
+        // If we still have overflow, ellipsize the last line.
+        if (lines.length === maxLines) {
+            const last = lines[lines.length - 1];
+            while (ctx.measureText(last + '…').width > maxWidth && last.length > 0) {
+                last = last.slice(0, -1);
+            }
+            lines[lines.length - 1] = last + '…';
+        }
+        return lines;
+    }
 
-            // Fit & center the source image into the 2:3 frame
-            const hRatio = canvas.width / img.naturalWidth;
-            const vRatio = canvas.height / img.naturalHeight;
-            const ratio = Math.max(hRatio, vRatio);
-            const centerShiftX = (canvas.width - img.naturalWidth * ratio) / 2;
-            const centerShiftY = (canvas.height - img.naturalHeight * ratio) / 2;
-            ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
-                centerShiftX, centerShiftY,
-                img.naturalWidth * ratio, img.naturalHeight * ratio);
+    function _drawFallbackHero(ctx, w, h, categoryKey, productName) {
+        const [c1, c2] = PIN_FALLBACK_GRADIENTS[categoryKey] || PIN_FALLBACK_GRADIENTS.general;
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, c1);
+        grad.addColorStop(1, c2);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
 
-            canvas.toBlob((blob) => {
-                const blobUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                const safeName = (productName || 'pin').replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 50);
-                a.download = 'pinterest-' + safeName + '-1000x1500.jpg';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(blobUrl);
-                showToast('', 'Pin image downloaded (1000x1500, 2:3).', 'success');
-            }, 'image/jpeg', 0.95);
+        // Subtle diagonal sheen
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(0, h * 0.55);
+        ctx.lineTo(w, h * 0.25);
+        ctx.lineTo(w, h * 0.55);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        // Big emoji-style category marker
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 220px -apple-system, BlinkMacSystemFont, "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const emojiMap = {
+            cleaning: '🧽', tech: '🔌', pet: '🐾', decor: '🌅',
+            fitness: '💪', kitchen: '🍳', general: '✨',
+        };
+        ctx.fillText(emojiMap[categoryKey] || emojiMap.general, w / 2, h * 0.42);
+
+        // Product name
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 56px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        const lines = _wrapText(ctx, productName || 'Trending Product', w - 120, 3);
+        const lineHeight = 64;
+        const totalHeight = lines.length * lineHeight;
+        let y = h * 0.72 - totalHeight / 2;
+        for (const line of lines) {
+            ctx.fillText(line, w / 2, y);
+            y += lineHeight;
+        }
+
+        // "Image unavailable" notice
+        ctx.font = '500 22px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+        ctx.fillText('— image unavailable, branded fallback shown —', w / 2, h - 60);
+    }
+
+    function _drawHeroImage(ctx, img, w, h) {
+        // object-fit: cover semantics — fill the frame, cropping if needed.
+        const targetRatio = w / h;
+        const srcRatio = img.naturalWidth / img.naturalHeight;
+        let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+        if (srcRatio > targetRatio) {
+            // source is wider — crop sides
+            sw = img.naturalHeight * targetRatio;
+            sx = (img.naturalWidth - sw) / 2;
+        } else {
+            // source is taller — crop top/bottom
+            sh = img.naturalWidth / targetRatio;
+            sy = (img.naturalHeight - sh) / 2;
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+
+        // Dark gradient overlay at the bottom 30% so title text stays readable
+        const grad = ctx.createLinearGradient(0, h * 0.55, 0, h);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, h * 0.55, w, h * 0.45);
+    }
+
+    function _drawTitleBand(ctx, w, yStart, height, title, category) {
+        // Dark slate background
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, yStart, w, height);
+
+        // Category eyebrow
+        ctx.fillStyle = '#f472b6'; // pink-400
+        ctx.font = '700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText((category || 'TRENDING').toUpperCase(), 50, yStart + 40);
+
+        // Pin title — wrap to max 3 lines, auto-shrink if needed
+        const maxWidth = w - 100;
+        let fontSize = 60;
+        let lines;
+        // Try shrinking font size until 3 lines fit comfortably
+        for (let attempt = 0; attempt < 5; attempt++) {
+            ctx.font = '800 ' + fontSize + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+            lines = _wrapText(ctx, title || 'Pinterest-Ready Pin', maxWidth, 3);
+            if (lines.length <= 3) {
+                const totalHeight = lines.length * (fontSize * 1.15);
+                if (totalHeight <= height - 110) break;
+            }
+            fontSize -= 6;
+        }
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = '800 ' + fontSize + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        const lineHeight = fontSize * 1.15;
+        let y = yStart + 90;
+        for (const line of lines) {
+            ctx.fillText(line, 50, y);
+            y += lineHeight;
+        }
+    }
+
+    function _drawCtaBar(ctx, w, yStart, height, cta, brand) {
+        // Pink-rose gradient background (matches TrafficLift brand)
+        const grad = ctx.createLinearGradient(0, yStart, w, yStart + height);
+        grad.addColorStop(0, '#ec4899'); // pink-500
+        grad.addColorStop(1, '#f43f5e'); // rose-500
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, yStart, w, height);
+
+        // CTA text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 44px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((cta || 'Shop Now').toUpperCase(), w / 2, yStart + height * 0.45);
+
+        // Brand watermark bottom-left
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.font = '600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText((brand || 'TrafficLift Pro · Find Winner'), 50, yStart + height - 30);
+
+        // Decorative dot top-right
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.beginPath();
+        ctx.arc(w - 60, yStart + 50, 14, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    async function renderPinPreview(winner, pkg) {
+        const W = 1000, H = 1500;
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        const categoryKey = _categoryKeyFromText(
+            (winner && winner.category) || (pkg && pkg.board_title) || ''
+        );
+        const productName = (winner && winner.name) || 'Trending Product';
+        const pinTitle    = (pkg && pkg.pin_title) || productName;
+        const cta         = (pkg && pkg.pin_cta_suggestion) || 'Shop now';
+
+        // 1. HERO (0..900)
+        const hero = await _loadImageWithCors(winner && winner.image_url);
+        if (hero && hero.img && hero.img.naturalWidth > 0) {
+            _drawHeroImage(ctx, hero.img, W, 900);
+        } else {
+            _drawFallbackHero(ctx, W, 900, categoryKey, productName);
+        }
+
+        // 2. TITLE BAND (900..1200)
+        _drawTitleBand(ctx, W, 900, 300, pinTitle, (winner && winner.category) || 'Trending');
+
+        // 3. CTA BAR (1200..1500)
+        _drawCtaBar(ctx, W, 1200, 300, cta);
+
+        // Export to JPEG data URL and cache for download
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        window.__lastPinDataUrl = dataUrl;
+        window.__lastPinFilename = 'pinterest-' + (productName || 'pin')
+            .replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 50) + '-1000x1500.jpg';
+        return dataUrl;
+    }
+
+    function downloadPinImage() {
+        // Use the cached designed pin if available (so download matches
+        // what's on screen); otherwise re-render synchronously with no image.
+        if (!window.__lastPinDataUrl) {
+            showToast('No pin', 'Generate a winner first.', 'warning');
+            return;
+        }
+        try {
+            // Convert data URL → blob → object URL → anchor download.
+            fetch(window.__lastPinDataUrl)
+                .then(r => r.blob())
+                .then(blob => {
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = window.__lastPinFilename || 'pinterest-pin-1000x1500.jpg';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(blobUrl);
+                    showToast('', 'Pin downloaded (1000x1500, 2:3).', 'success');
+                })
+                .catch(err => {
+                    console.error('Pin download failed:', err);
+                    showToast('Pin download failed', err && err.message || String(err), 'error');
+                });
         } catch (err) {
-            console.error('Pin image download failed:', err);
-            showToast('Pin image failed', err && err.message || String(err), 'error');
+            console.error('Pin download failed:', err);
+            showToast('Pin download failed', err && err.message || String(err), 'error');
         }
     }
 

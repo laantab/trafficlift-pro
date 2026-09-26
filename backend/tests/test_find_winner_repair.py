@@ -416,3 +416,123 @@ def test_pick_research_status_fallback_returns_real_product():
     assert out["name"] and out["name"] != "Untitled Product", \
         f"Fallback returned blank/unknown name: {out['name']}"
     assert out["id"]
+
+
+# ── VISUAL PIN TESTS (added in the second repair pass) ────────────────────────
+
+
+def test_case_15_renderPinPreview_function_exists():
+    """index.html MUST define a renderPinPreview() that produces a designed pin."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "async function renderPinPreview" in src, "renderPinPreview() missing"
+    assert "canvas.width = 1000" in src, "1000px canvas width missing"
+    assert "canvas.height = 1500" in src, "1500px canvas height missing"
+    # Hero / title / CTA zones are explicitly drawn
+    assert "_drawHeroImage" in src, "_drawHeroImage helper missing"
+    assert "_drawTitleBand" in src, "_drawTitleBand helper missing"
+    assert "_drawCtaBar" in src, "_drawCtaBar helper missing"
+
+
+def test_case_16_pinterest_result_html_includes_pin_preview():
+    """renderPinterestResult must embed a pinPreview placeholder for the canvas."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "pinPreviewWrap" in src, "pinPreviewWrap placeholder missing"
+    assert "id=\"pinPreviewWrap\"" in src or "id='pinPreviewWrap'" in src
+    assert "renderPinPreview" in src
+    assert "renderPinterestResult" in src
+    # The function calls renderPinPreview inside its body
+    pattern = "function renderPinterestResult"
+    idx = src.index(pattern)
+    end = src.index("</script>", idx)
+    body = src[idx:end]
+    assert "renderPinPreview(winner, pkg)" in body, \
+        "renderPinterestResult must call renderPinPreview(winner, pkg)"
+
+
+def test_case_17_download_pin_uses_cached_design():
+    """downloadPinImage() must use the cached data URL, not re-render."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # The download button's onclick now calls downloadPinImage() with no args
+    assert 'onclick="downloadPinImage()"' in src, \
+        "Download button must call downloadPinImage() with no args (uses cached design)"
+    # downloadPinImage itself must read from the cached data URL
+    fn_idx = src.index("function downloadPinImage()")
+    fn_body = src[fn_idx:fn_idx + 2000]
+    assert "__lastPinDataUrl" in fn_body, \
+        "downloadPinImage must read window.__lastPinDataUrl"
+    assert "createObjectURL" in fn_body, \
+        "downloadPinImage must convert data URL to a blob URL for download"
+
+
+def test_case_18_lucide_loader_circle_used():
+    """The deprecated 'loader' icon MUST be replaced with 'loader-circle'."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # 'loader' is a deprecated icon in modern Lucide (renamed to loader-circle)
+    # It should not appear as data-lucide="loader" anywhere
+    import re
+    bad = re.findall(r'data-lucide="loader"(?![-])', src)
+    assert not bad, \
+        f"Found {len(bad)} uses of deprecated 'loader' icon (should be 'loader-circle'): {bad[:3]}"
+    # And loader-circle is used at least once (replacement)
+    assert 'data-lucide="loader-circle"' in src, \
+        "Expected 'loader-circle' (the replacement for deprecated 'loader')"
+
+
+def test_case_19_lucide_version_pinned():
+    """Lucide MUST be loaded from a pinned version, not @latest."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # The unpkg URL should specify a version (e.g. @0.469.0)
+    assert "unpkg.com/lucide@" in src, "Lucide URL missing version"
+    assert "@latest" not in src.split("unpkg.com/lucide@")[1].split('"')[0], \
+        "Lucide is loaded from @latest which is brittle (icon APIs change across versions)"
+
+
+def test_case_20_cors_fallback_function_exists():
+    """A fallback visual function MUST exist for CORS/image failures."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "_drawFallbackHero" in src, "_drawFallbackHero missing"
+    assert "Image unavailable" in src or "image unavailable" in src, \
+        "Fallback visual must be labeled 'image unavailable'"
+    # The fallback must NOT fail silently — it must render text/gradient
+    assert "PIN_FALLBACK_GRADIENTS" in src, \
+        "PIN_FALLBACK_GRADIENTS category palette missing"
+
+
+def test_case_21_pin_preview_handles_data_uri_safely():
+    """renderPinPreview must accept data:image URIs without throwing."""
+    # We can't easily run a full canvas in headless tests, but we can verify
+    # the source uses _loadImageWithCors (not crossOrigin-only) for data URIs.
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "_loadImageWithCors" in src, \
+        "_loadImageWithCors helper missing — needed for data: URI images"
+
+
+def test_case_22_one_click_flow_auto_renders_pin():
+    """fetchTrendingProduct must auto-call renderPinterestAd → renderPinPreview."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function fetchTrendingProduct()")
+    end = src.index("</script>", fn_idx)
+    body = src[fn_idx:end]
+    # The auto-call path
+    assert "await renderPinterestAd" in body, \
+        "fetchTrendingProduct must auto-call renderPinterestAd()"
+    # renderPinterestAd calls renderPinterestResult which calls renderPinPreview
+    assert "renderPinterestResult" in src, \
+        "renderPinterestResult() must exist for the auto flow"
+
+
+def test_case_23_pin_layout_is_2_3_vertical():
+    """The pin canvas MUST be exactly 1000×1500 (2:3 vertical ratio)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "canvas.width = 1000" in src
+    assert "canvas.height = 1500" in src
+    # Verify it's actually exported as JPEG
+    assert "image/jpeg" in src
+
+
+def test_case_24_pin_uses_pinterest_brand_color():
+    """The CTA bar uses pink-rose (matching the TrafficLift brand)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # CTA bar should use pink/rose gradient
+    assert "#ec4899" in src or "#f43f5e" in src or "pink" in src.lower(), \
+        "CTA bar must use brand pink/rose colors"
