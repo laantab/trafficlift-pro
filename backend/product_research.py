@@ -113,6 +113,92 @@ def _img(pid: str) -> str:
     return f"https://images.unsplash.com/photo-{pid}?w=800&auto=format&fit=crop&q=80"
 
 
+
+
+def _amazon(product_name: str) -> str:
+    """Build a useful Amazon search URL for the product."""
+    from urllib.parse import quote_plus
+    return f"https://www.amazon.com/s?k={quote_plus(product_name)}"
+
+
+# Category themes: (gradient_start, gradient_end, emoji, accent_color)
+# Drives the SVG placeholder backgrounds — always renders, never misleading.
+_CATEGORY_THEMES: dict[str, tuple[str, str, str, str]] = {
+    "cleaning": ("#0ea5e9", "#1e40af", "✨", "#38bdf8"),
+    "tech":     ("#6366f1", "#1e1b4b", "⚡", "#a78bfa"),
+    "pet":      ("#f59e0b", "#9a3412", "🐾", "#fbbf24"),
+    "decor":    ("#ec4899", "#831843", "🌅", "#f472b6"),
+    "fitness":  ("#10b981", "#064e3b", "💪", "#34d399"),
+    "kitchen":  ("#f97316", "#7c2d12", "🍳", "#fb923c"),
+}
+
+
+def _svg_placeholder(product_id: str, product_name: str, category_key: str) -> str:
+    """Generate an inline SVG placeholder that ALWAYS renders honestly.
+
+    Returns a `data:image/svg+xml;base64,...` URL suitable for <img src>.
+    Shows the actual product name + category emoji on a themed gradient —
+    never a mismatched photo.
+    """
+    import base64
+    from xml.sax.saxutils import escape
+
+    start, end, emoji, accent = _CATEGORY_THEMES.get(
+        category_key, ("#475569", "#1e293b", "🛒", "#94a3b8")
+    )
+
+    words = product_name.split()
+    lines = []
+    cur = ""
+    for w in words:
+        if len(cur) + len(w) + 1 > 22:
+            if cur:
+                lines.append(cur.strip())
+            cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        lines.append(cur)
+    lines = lines[:3]
+
+    line_height = 44
+    total_h = line_height * len(lines)
+    start_y = 420 - total_h // 2
+    text_elements = []
+    for i, line in enumerate(lines):
+        y = start_y + i * line_height + 32
+        text_elements.append(
+            f'<text x="400" y="{y}" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" '
+            f'font-size="36" font-weight="700" fill="#ffffff" text-anchor="middle" '
+            f'letter-spacing="-0.5">{escape(line)}</text>'
+        )
+    text_svg = "\n        ".join(text_elements)
+
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="{start}"/>
+      <stop offset="100%" stop-color="{end}"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="32%" r="60%">
+      <stop offset="0%" stop-color="{accent}" stop-opacity="0.40"/>
+      <stop offset="100%" stop-color="{accent}" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="800" height="800" fill="url(#g)"/>
+  <rect width="800" height="800" fill="url(#glow)"/>
+  <circle cx="400" cy="260" r="130" fill="#ffffff" fill-opacity="0.08"/>
+  <text x="400" y="232" font-family="Apple Color Emoji,Segoe UI Emoji,sans-serif" font-size="130" text-anchor="middle">{emoji}</text>
+        {text_svg}
+  <text x="400" y="740" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="14" font-weight="600" fill="#ffffff" fill-opacity="0.55" text-anchor="middle" letter-spacing="3">TRENDING PICK · {escape(product_id.upper())}</text>
+</svg>'''
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _placeholder(product_id: str, product_name: str, category_key: str) -> str:
+    """Public entry point — always renders, always matches the product name."""
+    return _svg_placeholder(product_id, product_name, category_key)
 # ── HOME & CLEANING ────────────────────────────────────────────────────────
 
 CLEANING_POOL: list[ProductCard] = [
@@ -120,8 +206,8 @@ CLEANING_POOL: list[ProductCard] = [
         id="scrub-brush-01",
         name="Rechargeable Electric Spin Scrubber with 6 Replaceable Heads",
         category="Home & Cleaning",
-        image_url=_img("1581578731548-c64695cc6952"),
-        url="https://example.com/trending-electric-scrubber",
+        image_url=_placeholder("scrub-brush-01", "Rechargeable Electric Spin Scrubber with 6 Replaceable Heads", "cleaning"),
+        url=_amazon("Rechargeable Electric Spin Scrubber with 6 Replaceable Heads"),
         angle_options=[
             "Cut your bathroom and kitchen cleaning time in half with zero elbow grease.",
             "Erase years of grout stains in seconds — six heads cover every surface.",
@@ -160,8 +246,8 @@ CLEANING_POOL: list[ProductCard] = [
         id="microfiber-cloths-02",
         name="Premium Microfiber Cleaning Cloths — 12-Pack (Color Coded)",
         category="Home & Cleaning",
-        image_url=_img("1610557892470-55d9e80c0bce"),
-        url="https://example.com/trending-microfiber-cloths",
+        image_url=_placeholder("microfiber-cloths-02", "Premium Microfiber Cleaning Cloths — 12-Pack (Color Coded)", "cleaning"),
+        url=_amazon("Premium Microfiber Cleaning Cloths — 12-Pack (Color Coded)"),
         angle_options=[
             "One cloth per surface — color-coded so you never cross-contaminate again.",
             "Washable 500+ times. Replaces 6+ rolls of paper towels per month.",
@@ -200,8 +286,8 @@ CLEANING_POOL: list[ProductCard] = [
         id="toilet-brush-03",
         name="Silicone Toilet Brush with Holder — Hygienic, No Bristle Buildup",
         category="Home & Cleaning",
-        image_url=_img("1567113463300-102a7eb3cb26"),
-        url="https://example.com/trending-silicone-toilet-brush",
+        image_url=_placeholder("toilet-brush-03", "Silicone Toilet Brush with Holder — Hygienic, No Bristle Buildup", "cleaning"),
+        url=_amazon("Silicone Toilet Brush with Holder — Hygienic, No Bristle Buildup"),
         angle_options=[
             "Silicone head sheds nothing. The brush that actually stays clean.",
             "Replace your 5-year-old plastic brush for under $15.",
@@ -236,8 +322,8 @@ CLEANING_POOL: list[ProductCard] = [
         id="cleaning-spray-04",
         name="All-Purpose Concentrated Cleaning Spray — Plant-Based, 3 Bottles",
         category="Home & Cleaning",
-        image_url=_img("1620916566398-39f1143ab7be"),
-        url="https://example.com/trending-plant-cleaner",
+        image_url=_placeholder("cleaning-spray-04", "All-Purpose Concentrated Cleaning Spray — Plant-Based, 3 Bottles", "cleaning"),
+        url=_amazon("All-Purpose Concentrated Cleaning Spray — Plant-Based, 3 Bottles"),
         angle_options=[
             "One bottle, every surface. Plant-based means safe around kids and pets.",
             "Concentrated formula = one bottle makes four. Refills pay for themselves.",
@@ -272,8 +358,8 @@ CLEANING_POOL: list[ProductCard] = [
         id="cordless-vacuum-05",
         name="Cordless Handheld Vacuum — Lightweight, USB-C Rechargeable",
         category="Home & Cleaning",
-        image_url=_img("1556909114-f6e7ad7d3136"),
-        url="https://example.com/trending-handheld-vacuum",
+        image_url=_placeholder("cordless-vacuum-05", "Cordless Handheld Vacuum — Lightweight, USB-C Rechargeable", "cleaning"),
+        url=_amazon("Cordless Handheld Vacuum — Lightweight, USB-C Rechargeable"),
         angle_options=[
             "Grabs crumbs from the car seat in one pass.",
             "Weighs less than a soda can. Reaches the places your full-size vacuum can't.",
@@ -312,8 +398,8 @@ TECH_POOL: list[ProductCard] = [
         id="charger-01",
         name="3-in-1 Foldable MagSafe Wireless Charging Station",
         category="Tech & Gadgets",
-        image_url=_img("1611532736597-de2d4265fba3"),
-        url="https://example.com/trending-3in1-charger",
+        image_url=_placeholder("charger-01", "3-in-1 Foldable MagSafe Wireless Charging Station", "cleaning"),
+        url=_amazon("3-in-1 Foldable MagSafe Wireless Charging Station"),
         angle_options=[
             "Declutter your nightstand with fast, simultaneous charging for iPhone, Apple Watch, and AirPods.",
             "Folds flat for travel. Pops up for desk. One charger, every device.",
@@ -352,8 +438,8 @@ TECH_POOL: list[ProductCard] = [
         id="laptop-stand-02",
         name="Adjustable Aluminum Laptop Stand — Ergonomic, Foldable",
         category="Tech & Gadgets",
-        image_url=_img("1496181133206-80ce9b88a853"),
-        url="https://example.com/trending-laptop-stand",
+        image_url=_placeholder("laptop-stand-02", "Adjustable Aluminum Laptop Stand — Ergonomic, Foldable", "cleaning"),
+        url=_amazon("Adjustable Aluminum Laptop Stand — Ergonomic, Foldable"),
         angle_options=[
             "Eye-level screen in 3 seconds. Neck pain gone in 3 days.",
             "The single change that fixed my posture and my posture selfies.",
@@ -387,8 +473,8 @@ TECH_POOL: list[ProductCard] = [
         id="desk-lamp-03",
         name="LED Desk Lamp with USB Charging Port — Dimmable, 5 Color Temps",
         category="Tech & Gadgets",
-        image_url=_img("1588872657578-7efd1f1555ed"),
-        url="https://example.com/trending-desk-lamp",
+        image_url=_placeholder("desk-lamp-03", "LED Desk Lamp with USB Charging Port — Dimmable, 5 Color Temps", "cleaning"),
+        url=_amazon("LED Desk Lamp with USB Charging Port — Dimmable, 5 Color Temps"),
         angle_options=[
             "Five color temperatures. One USB port. Zero eye strain.",
             "The desk lamp that finally replaced your ring light.",
@@ -422,8 +508,8 @@ TECH_POOL: list[ProductCard] = [
         id="phone-stand-04",
         name="MagSafe Phone Stand for Video Calls — Magnetic, Adjustable",
         category="Tech & Gadgets",
-        image_url=_img("1572177812156-58036aae439c"),
-        url="https://example.com/trending-magsafe-stand",
+        image_url=_placeholder("phone-stand-04", "MagSafe Phone Stand for Video Calls — Magnetic, Adjustable", "cleaning"),
+        url=_amazon("MagSafe Phone Stand for Video Calls — Magnetic, Adjustable"),
         angle_options=[
             "Snaps on, stands up, no clip needed. The stand your Zoom calls have been waiting for.",
             "Adjustable height + 360° rotation. Find your angle without re-mounting.",
@@ -457,8 +543,8 @@ TECH_POOL: list[ProductCard] = [
         id="smart-plug-05",
         name="WiFi Smart Plug — Voice Control, Schedule, No Hub Required",
         category="Tech & Gadgets",
-        image_url=_img("1574169208507-84376144848b"),
-        url="https://example.com/trending-smart-plug",
+        image_url=_placeholder("smart-plug-05", "WiFi Smart Plug — Voice Control, Schedule, No Hub Required", "cleaning"),
+        url=_amazon("WiFi Smart Plug — Voice Control, Schedule, No Hub Required"),
         angle_options=[
             "Turn any outlet into a voice-controlled smart outlet. No hub needed.",
             "Schedule your coffee maker, lamp, or fan to run on a routine.",
@@ -497,8 +583,8 @@ PET_POOL: list[ProductCard] = [
         id="dog-bed-01",
         name="Orthopedic Calming Donut Dog Bed — Self-Warming, Plush",
         category="Pet Supplies",
-        image_url=_img("1541599540903-216a46ca1dc0"),
-        url="https://example.com/trending-calming-dog-bed",
+        image_url=_placeholder("dog-bed-01", "Orthopedic Calming Donut Dog Bed — Self-Warming, Plush", "cleaning"),
+        url=_amazon("Orthopedic Calming Donut Dog Bed — Self-Warming, Plush"),
         angle_options=[
             "Relieve pet anxiety and joint pain with faux-fur self-warming comfort.",
             "The bed anxious dogs fall in love with in 8 seconds flat.",
@@ -537,8 +623,8 @@ PET_POOL: list[ProductCard] = [
         id="pet-feeder-02",
         name="Automatic Pet Feeder — WiFi, Portion Control, 6L Capacity",
         category="Pet Supplies",
-        image_url=_img("1591768793355-74d04bb6608f"),
-        url="https://example.com/trending-auto-feeder",
+        image_url=_placeholder("pet-feeder-02", "Automatic Pet Feeder — WiFi, Portion Control, 6L Capacity", "cleaning"),
+        url=_amazon("Automatic Pet Feeder — WiFi, Portion Control, 6L Capacity"),
         angle_options=[
             "Schedule meals from your phone. Never wonder if your pet ate.",
             "The feeder that lets you travel without a pet-sitter for the basics.",
@@ -572,8 +658,8 @@ PET_POOL: list[ProductCard] = [
         id="cat-tree-03",
         name="Modern Cat Tree Tower — Sisal Scratching Posts, Plush Perches",
         category="Pet Supplies",
-        image_url=_img("1583337130417-3346a1be7dee"),
-        url="https://example.com/trending-cat-tree",
+        image_url=_placeholder("cat-tree-03", "Modern Cat Tree Tower — Sisal Scratching Posts, Plush Perches", "cleaning"),
+        url=_amazon("Modern Cat Tree Tower — Sisal Scratching Posts, Plush Perches"),
         angle_options=[
             "The cat tree that doesn't look like a cat tree.",
             "Sisal posts that actually get used. Perches at the heights cats want.",
@@ -607,8 +693,8 @@ PET_POOL: list[ProductCard] = [
         id="cat-toy-04",
         name="Interactive Cat Toy — Auto Rotating Butterfly, USB Rechargeable",
         category="Pet Supplies",
-        image_url=_img("1535930891776-0c2dfb7fda1a"),
-        url="https://example.com/trending-cat-toy",
+        image_url=_placeholder("cat-toy-04", "Interactive Cat Toy — Auto Rotating Butterfly, USB Rechargeable", "cleaning"),
+        url=_amazon("Interactive Cat Toy — Auto Rotating Butterfly, USB Rechargeable"),
         angle_options=[
             "Fluttering butterfly that never tires. Your cat will.",
             "USB rechargeable, motion-activated, safe for solo play.",
@@ -642,8 +728,8 @@ PET_POOL: list[ProductCard] = [
         id="dog-leash-05",
         name="Retractable Dog Leash — 16ft, One-Hand Brake, Reflective",
         category="Pet Supplies",
-        image_url=_img("1601758228041-f3b2795255f1"),
-        url="https://example.com/trending-dog-leash",
+        image_url=_placeholder("dog-leash-05", "Retractable Dog Leash — 16ft, One-Hand Brake, Reflective", "cleaning"),
+        url=_amazon("Retractable Dog Leash — 16ft, One-Hand Brake, Reflective"),
         angle_options=[
             "One-hand brake, 16ft of freedom, reflective stitching for night walks.",
             "The retractable leash that won't snap mid-jog.",
@@ -682,8 +768,8 @@ DECOR_POOL: list[ProductCard] = [
         id="sunset-lamp-01",
         name="Sunset Projection LED Ambient Lamp — 16 Color Modes",
         category="Aesthetic Home Decor",
-        image_url=_img("1513519245088-0e12902e5a38"),
-        url="https://example.com/trending-sunset-lamp",
+        image_url=_placeholder("sunset-lamp-01", "Sunset Projection LED Ambient Lamp — 16 Color Modes", "cleaning"),
+        url=_amazon("Sunset Projection LED Ambient Lamp — 16 Color Modes"),
         angle_options=[
             "Instantly transform any room's vibe for cozy evenings and viral social media content.",
             "Golden hour on demand. The lamp that broke Pinterest.",
@@ -723,8 +809,8 @@ DECOR_POOL: list[ProductCard] = [
         id="led-strip-02",
         name="RGB LED Strip Lights — App Control, Music Sync, 32.8ft",
         category="Aesthetic Home Decor",
-        image_url=_img("1554995207-c18c203602cb"),
-        url="https://example.com/trending-led-strip",
+        image_url=_placeholder("led-strip-02", "RGB LED Strip Lights — App Control, Music Sync, 32.8ft", "cleaning"),
+        url=_amazon("RGB LED Strip Lights — App Control, Music Sync, 32.8ft"),
         angle_options=[
             "Music sync makes your room a club. App control makes it smart.",
             "32 feet of color that turns any ceiling into a vibe.",
@@ -758,8 +844,8 @@ DECOR_POOL: list[ProductCard] = [
         id="throw-blanket-03",
         name="Chunky Knit Throw Blanket — Hand-Woven, Soft Polyester",
         category="Aesthetic Home Decor",
-        image_url=_img("1538688525198-9b88f6f53126"),
-        url="https://example.com/trending-knit-blanket",
+        image_url=_placeholder("throw-blanket-03", "Chunky Knit Throw Blanket — Hand-Woven, Soft Polyester", "cleaning"),
+        url=_amazon("Chunky Knit Throw Blanket — Hand-Woven, Soft Polyester"),
         angle_options=[
             "The blanket that makes every couch a Pinterest photo.",
             "Chunky knit that photographs like a magazine and feels like a hug.",
@@ -793,8 +879,8 @@ DECOR_POOL: list[ProductCard] = [
         id="plant-pot-04",
         name="Self-Watering Plant Pot — Modern Ceramic, Multiple Sizes",
         category="Aesthetic Home Decor",
-        image_url=_img("1485955900006-10f4d324d411"),
-        url="https://example.com/trending-self-watering-pot",
+        image_url=_placeholder("plant-pot-04", "Self-Watering Plant Pot — Modern Ceramic, Multiple Sizes", "cleaning"),
+        url=_amazon("Self-Watering Plant Pot — Modern Ceramic, Multiple Sizes"),
         angle_options=[
             "Modern ceramic that waters your plants for you. The plant parent cheat code.",
             "The pot that fixes your watering inconsistency forever.",
@@ -828,8 +914,8 @@ DECOR_POOL: list[ProductCard] = [
         id="wall-clock-05",
         name="Modern Silent Wall Clock — Minimalist Sweep Movement",
         category="Aesthetic Home Decor",
-        image_url=_img("1493663284031-b7e3aefcae8e"),
-        url="https://example.com/trending-wall-clock",
+        image_url=_placeholder("wall-clock-05", "Modern Silent Wall Clock — Minimalist Sweep Movement", "cleaning"),
+        url=_amazon("Modern Silent Wall Clock — Minimalist Sweep Movement"),
         angle_options=[
             "Silent sweep movement. No ticking, no distraction.",
             "Minimalist face, modern frame, 12-inch diameter. Looks expensive, isn't.",
@@ -867,8 +953,8 @@ FITNESS_POOL: list[ProductCard] = [
         id="yoga-mat-01",
         name="Premium Non-Slip Yoga Mat — 6mm Eco TPE, Carrying Strap",
         category="Fitness & Wellness",
-        image_url=_img("1591291621164-2c6367723315"),
-        url="https://example.com/trending-yoga-mat",
+        image_url=_placeholder("yoga-mat-01", "Premium Non-Slip Yoga Mat — 6mm Eco TPE, Carrying Strap", "cleaning"),
+        url=_amazon("Premium Non-Slip Yoga Mat — 6mm Eco TPE, Carrying Strap"),
         angle_options=[
             "Eco TPE. Non-slip texture. The mat that doesn't slide during downward dog.",
             "6mm cushioning that protects joints without sacrificing balance.",
@@ -902,8 +988,8 @@ FITNESS_POOL: list[ProductCard] = [
         id="foam-roller-02",
         name="High-Density Foam Roller — Textured, 36-inch, Muscle Recovery",
         category="Fitness & Wellness",
-        image_url=_img("1599058917212-d750089bc07e"),
-        url="https://example.com/trending-foam-roller",
+        image_url=_placeholder("foam-roller-02", "High-Density Foam Roller — Textured, 36-inch, Muscle Recovery", "cleaning"),
+        url=_amazon("High-Density Foam Roller — Textured, 36-inch, Muscle Recovery"),
         angle_options=[
             "The roller that turns post-workout soreness into a 10-minute recovery.",
             "Textured surface mimics a deep-tissue massage. Your fascia thanks you.",
@@ -937,8 +1023,8 @@ FITNESS_POOL: list[ProductCard] = [
         id="dumbbells-03",
         name="Adjustable Dumbbells — 5-in-1 Weight Set, Pair",
         category="Fitness & Wellness",
-        image_url=_img("1571019613454-1cb2f99b2d8b"),
-        url="https://example.com/trending-adjustable-dumbbells",
+        image_url=_placeholder("dumbbells-03", "Adjustable Dumbbells — 5-in-1 Weight Set, Pair", "cleaning"),
+        url=_amazon("Adjustable Dumbbells — 5-in-1 Weight Set, Pair"),
         angle_options=[
             "Five weights in one. Replace a whole rack.",
             "The dumbbells that turned a corner into a home gym.",
@@ -972,8 +1058,8 @@ FITNESS_POOL: list[ProductCard] = [
         id="massage-gun-04",
         name="Percussive Massage Gun — 6 Heads, 30 Speeds, Quiet Brushless Motor",
         category="Fitness & Wellness",
-        image_url=_img("1549060279-7e168fcee0c2"),
-        url="https://example.com/trending-massage-gun",
+        image_url=_placeholder("massage-gun-04", "Percussive Massage Gun — 6 Heads, 30 Speeds, Quiet Brushless Motor", "cleaning"),
+        url=_amazon("Percussive Massage Gun — 6 Heads, 30 Speeds, Quiet Brushless Motor"),
         angle_options=[
             "Quiet brushless motor = apartment-friendly. Your neighbors never hear it.",
             "30 speeds + 6 heads = massage-therapist-grade customization.",
@@ -1008,8 +1094,8 @@ FITNESS_POOL: list[ProductCard] = [
         id="water-bottle-05",
         name="Insulated Stainless Steel Water Bottle — 32oz, Time Marker",
         category="Fitness & Wellness",
-        image_url=_img("1605296867304-46d5465a13f1"),
-        url="https://example.com/trending-water-bottle",
+        image_url=_placeholder("water-bottle-05", "Insulated Stainless Steel Water Bottle — 32oz, Time Marker", "cleaning"),
+        url=_amazon("Insulated Stainless Steel Water Bottle — 32oz, Time Marker"),
         angle_options=[
             "Time markers on the side so you know how much you've actually drunk.",
             "32oz = fills twice and you're done. Insulated so ice lasts 24 hours.",
@@ -1048,8 +1134,8 @@ KITCHEN_POOL: list[ProductCard] = [
         id="knife-set-01",
         name="6-Piece Stainless Steel Knife Set with Block — Razor Sharp",
         category="Kitchen & Cooking",
-        image_url=_img("1593618998160-e34014e67546"),
-        url="https://example.com/trending-knife-set",
+        image_url=_placeholder("knife-set-01", "6-Piece Stainless Steel Knife Set with Block — Razor Sharp", "cleaning"),
+        url=_amazon("6-Piece Stainless Steel Knife Set with Block — Razor Sharp"),
         angle_options=[
             "The knife set that makes weeknight cooking feel like a cooking show.",
             "Razor-sharp factory edge + ergonomic grip = cuts in half the time.",
@@ -1083,8 +1169,8 @@ KITCHEN_POOL: list[ProductCard] = [
         id="spice-rack-02",
         name="Rotating Spice Rack Organizer — 16 Jars, Labels Included",
         category="Kitchen & Cooking",
-        image_url=_img("1556910103-1c02745aae4d"),
-        url="https://example.com/trending-spice-rack",
+        image_url=_placeholder("spice-rack-02", "Rotating Spice Rack Organizer — 16 Jars, Labels Included", "cleaning"),
+        url=_amazon("Rotating Spice Rack Organizer — 16 Jars, Labels Included"),
         angle_options=[
             "Lazy Susan design. Find cumin without excavating the cabinet.",
             "16 jars, 16 labels, zero rummaging.",
@@ -1118,8 +1204,8 @@ KITCHEN_POOL: list[ProductCard] = [
         id="coffee-mug-warmer-03",
         name="Coffee Mug Warmer & Beverage Warmer — 3 Temp Settings",
         category="Kitchen & Cooking",
-        image_url=_img("1543353071-873f17a7a088"),
-        url="https://example.com/trending-coffee-warmer",
+        image_url=_placeholder("coffee-mug-warmer-03", "Coffee Mug Warmer & Beverage Warmer — 3 Temp Settings", "cleaning"),
+        url=_amazon("Coffee Mug Warmer & Beverage Warmer — 3 Temp Settings"),
         angle_options=[
             "Three temp settings so your coffee stays at your perfect temp.",
             "The single desk accessory that fixed my lukewarm coffee problem.",
@@ -1153,8 +1239,8 @@ KITCHEN_POOL: list[ProductCard] = [
         id="lunch-box-04",
         name="Bento Lunch Box — 3 Compartments, Leak-Proof, Microwave Safe",
         category="Kitchen & Cooking",
-        image_url=_img("1606787366850-de6330128bfc"),
-        url="https://example.com/trending-bento-box",
+        image_url=_placeholder("lunch-box-04", "Bento Lunch Box — 3 Compartments, Leak-Proof, Microwave Safe", "cleaning"),
+        url=_amazon("Bento Lunch Box — 3 Compartments, Leak-Proof, Microwave Safe"),
         angle_options=[
             "Three compartments keep your salad separate from your dressing.",
             "Leak-proof seal means it survives the commute upright.",
@@ -1188,8 +1274,8 @@ KITCHEN_POOL: list[ProductCard] = [
         id="pan-05",
         name="Non-Stick Ceramic Frying Pan — 10-inch, Oven Safe to 500°F",
         category="Kitchen & Cooking",
-        image_url=_img("1606787366850-de6330128bfc"),
-        url="https://example.com/trending-ceramic-pan",
+        image_url=_placeholder("pan-05", "Non-Stick Ceramic Frying Pan — 10-inch, Oven Safe to 500°F", "cleaning"),
+        url=_amazon("Non-Stick Ceramic Frying Pan — 10-inch, Oven Safe to 500°F"),
         angle_options=[
             "Ceramic non-stick means no PFAS, no teflon, no shame.",
             "10-inch pan that goes from stovetop to oven. No transferring.",
@@ -1467,7 +1553,7 @@ class ProductResearcher:
                     "?w=800&auto=format&fit=crop&q=80"
                 )
             if not data.get("url", "").startswith("http"):
-                data["url"] = f"https://example.com/ai/{data.get('id', 'pick')}"
+                data["url"] = _amazon(data.get("name") or "trending product")
             # Strip fields the agent requires but AI might miss
             data.setdefault("competition_reasons", [])
             # Cast trend_score to int if AI returned float

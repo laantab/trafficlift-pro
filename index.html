@@ -510,7 +510,7 @@
         const p = data.scraped_product;
         const pkg = data.compiled_package;
 
-        document.getElementById('resTitle').textContent = p.title || 'Untitled Product';
+        document.getElementById('resTitle').textContent = p.title || 'Trending Product (no title extracted — try a different URL)';
         document.getElementById('resDescription').textContent = p.description || '';
         document.getElementById('resImage').src = p.primary_image ||
             'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80=150';
@@ -1410,14 +1410,19 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                         </ul>` : ''}
                 </div>` : ''}
 
-                <div class="border-t border-slate-800 pt-4 flex items-center justify-between">
+                <div class="border-t border-slate-800 pt-4 flex items-center justify-between flex-wrap gap-2">
                     <div class="flex items-center gap-2">
                         <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
                         <span class="text-xs text-slate-300">MiniMax H3-Max Video Pipeline Ready</span>
                     </div>
-                    <button onclick="openVideoModal()" class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow">
-                        🎬 Render Video Ad
-                    </button>
+                    <div class="flex items-center gap-2">
+                        ${data.url ? `<a href="${escapeHtml(data.url)}" target="_blank" rel="noopener" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-3 py-2 rounded-xl transition shadow">
+                            🛒 View on Amazon
+                        </a>` : ''}
+                        <button onclick="openVideoModal()" class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow">
+                            🎬 Render Video Ad
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -1527,41 +1532,18 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             }
             lucide.createIcons();
 
-            // 4. Toast + auto-launch the campaign generator after a brief
-            //    pause so the user actually sees the winner card before
-            //    the engine kicks off.
+            // 4. Confirm and offer next steps. We deliberately do NOT auto-launch
+            //    against the Amazon search URL — the scraper often fails on Amazon
+            //    pages (anti-bot), which previously surfaced as "Untitled Product".
+            //    Instead, show the source URL inside the card so the user can
+            //    open it, and toast the win.
             showToast(
                 `Loaded Winner: ${data.name}`,
-                'Launching traffic engineâ€¦',
+                data.url
+                    ? `Source: ${data.url.replace(/^https?:\/\//, '').slice(0, 60)}…`
+                    : 'Pick a product URL to launch the campaign.',
                 'success'
             );
-
-            setTimeout(() => {
-                // Preferred: real button. Fallback: known function names. Last resort: any
-                // submit/launch button in the DOM.
-                const launchBtn =
-                    document.getElementById('launchBtn') ||
-                    document.querySelector(
-                        'button[onclick*="generate"], button[onclick*="Launch"], ' +
-                        'button#launch-btn, button#launch'
-                    );
-
-                if (launchBtn) {
-                    launchBtn.click();
-                } else if (typeof generateTraffic === 'function') {
-                    generateTraffic();
-                } else if (typeof launchTrafficLift === 'function') {
-                    launchTrafficLift();
-                } else if (typeof launchCampaign === 'function') {
-                    launchCampaign();
-                } else {
-                    showToast(
-                        'Launch function not found',
-                        'Open the campaign panel and click Launch Traffic Lift manually.',
-                        'warn'
-                    );
-                }
-            }, 800);
         } catch (e) {
             console.error('Failed to fetch trending product', e);
             showToast('Failed to fetch winner', e?.message || String(e), 'error');
