@@ -34,6 +34,11 @@ services:
         sync: false
       - key: MINIMAX_GROUP_ID
         sync: false
+      # TAVILY_API_KEY enables the primary live-research provider for /find-winner.
+      # When unset, the app falls back to a zero-key DuckDuckGo HTML search.
+      # NEVER commit secrets to git.
+      - key: TAVILY_API_KEY
+        sync: false
     disk:                  # 1 GB persistent disk for SQLite + any uploaded assets
       name: trafficlift-data
       mountPath: /var/data

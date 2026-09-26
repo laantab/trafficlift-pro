@@ -245,7 +245,20 @@ class VideoRenderRequest(VideoSubmitRequest):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _pinterest_to_dict(p: PinterestSEOEngine) -> dict:
+    """Canonical + aliased Pinterest payload.
+
+    Canonical keys (what the backend serializer emits):
+        board_title, pin_title, optimized_description, recommended_keywords,
+        suggested_board_names, optimal_pin_dimensions, pin_cta_suggestion
+
+    Aliases (for forward compatibility with consumers that read shorter names):
+        pin_description  → optimized_description
+        keywords         → recommended_keywords
+        suggested_boards → suggested_board_names
+        dimensions       → optimal_pin_dimensions
+    """
     return {
+        # canonical
         "board_title": p.board_title,
         "pin_title": p.pin_title,
         "optimized_description": p.optimized_description,
@@ -253,6 +266,11 @@ def _pinterest_to_dict(p: PinterestSEOEngine) -> dict:
         "suggested_board_names": p.suggested_board_names,
         "optimal_pin_dimensions": p.optimal_pin_dimensions,
         "pin_cta_suggestion": p.pin_cta_suggestion,
+        # aliases (preferred by current frontend)
+        "pin_description": p.optimized_description,
+        "keywords": p.recommended_keywords,
+        "suggested_boards": p.suggested_board_names,
+        "dimensions": p.optimal_pin_dimensions,
     }
 
 def _tiktok_to_dict(v: ShortFormVideoBlueprint) -> dict:

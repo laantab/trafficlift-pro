@@ -22,11 +22,102 @@ import hashlib
 import logging
 import os
 import random
+import re
 import threading
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+from backend import live_research
+
 logger = logging.getLogger("ProductResearcher")
+
+
+# ── Category metadata for scoring ─────────────────────────────────────────────
+
+# Categories that produce highly clickable Pinterest pins (lifestyle / aesthetic).
+_PINTEREST_FRIENDLY = {"decor", "kitchen", "fitness", "pet"}
+
+# Categories with strong commercial search intent on Pinterest.
+_COMMERCIAL_HIGH = {"cleaning", "tech", "pet", "kitchen"}
+
+# (Reverse lookup is built at module bottom once CATEGORY_LABELS exists.)
+
+
+# ── Helpers shared by scoring & envelope ──────────────────────────────────────
+
+
+def _card_category(card: ProductCard) -> str:
+    """Reverse-lookup the category_key for a ProductCard by id."""
+    for cat, pool in POOLS.items():
+        for c in pool:
+            if c.id == card.id:
+                return cat
+    return "general"
+
+
+def _card_category_key(card: ProductCard) -> str:
+    """Return the short category key (e.g. 'cleaning') for a ProductCard."""
+    # Prefer the label reverse map; fall back to id-based lookup.
+    by_label = _LABEL_TO_KEY.get(card.category)
+    if by_label:
+        return by_label
+    return _card_category(card)
+
+
+def _envelope_to_meta(envelope) -> dict:
+    """Project a ResearchEnvelope into the winner payload's research fields."""
+    return {
+        "research_status": envelope.research_status,
+        "research_timestamp": envelope.research_timestamp,
+        "research_provider": envelope.research_provider,
+        "research_sources": envelope.research_sources,
+        "research_summary": envelope.research_summary,
+        "research_query": envelope.research_query,
+    }
+
+
+def _count_keyword_matches(
+    keywords: list[str], sources: list[dict]
+) -> tuple[int, int]:
+    """Count how many sources contain any of the candidate's keywords.
+
+    Returns (sources_with_match, total_sources).
+    """
+    if not sources or not keywords:
+        return 0, len(sources or [])
+    kws_lower = [k.lower() for k in keywords]
+    hits = 0
+    for src in sources:
+        text = (src.get("snippet") or "") + " " + (src.get("title") or "")
+        text_lower = text.lower()
+        if any(k in text_lower for k in kws_lower):
+            hits += 1
+    return hits, len(sources)
+
+
+def _build_rationale(
+    card: ProductCard, envelope, factors: dict, total_score: int
+) -> str:
+    """Produce a short human-readable rationale string."""
+    parts = []
+    matches = factors.get("web_source_matches", 0)
+    total = len(envelope.research_sources)
+    provider = envelope.research_provider or "none"
+    status = envelope.research_status
+    parts.append(
+        f"Selected '{card.name}' (score {total_score}/100) from "
+        f"{envelope.research_query!r} research — status={status}, provider={provider}."
+    )
+    if total > 0:
+        parts.append(f"{matches}/{total} sources mentioned this product or its keywords.")
+    parts.append(
+        f"Breakdown: web_evidence={factors['web_evidence_strength']}/50, "
+        f"demand={factors['demand_signal']}/20, visual={factors['visual_appeal']}/10, "
+        f"evergreen={factors['evergreen_strength']}/10, "
+        f"commercial={factors['commercial_intent']}/10, "
+        f"competition_pen={factors['competition_penalty']}."
+    )
+    return " ".join(parts)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data model
@@ -1371,34 +1462,88 @@ class ProductResearcher:
         """
         Pick a winner.
 
+        Pipeline:
+            1. Run live Internet research (Tavily → DuckDuckGo fallback).
+               The 30-product pool is CANDIDATE INVENTORY, never source of truth.
+            2. If live research returned usable evidence (status=live|partial):
+               score 3-5 candidates and select the highest.
+            3. If research failed (status=fallback): explicitly mark the result
+               as ``source="fallback_pool"`` and DO NOT present the embedded
+               trend_signals as fresh evidence.
+
         Args:
             intent:   Raw user input (URL or keyword). Used to bias the category.
             exclude:  Optional list of product ids to avoid (e.g. last shown).
             seed:     Optional deterministic seed for tests.
-            use_ai:   If True and OpenAI is configured, generate a fresh pick.
+            use_ai:   If True and OpenAI is configured, prefer a fresh AI pick
+                      when live research is unavailable.
 
         Returns:
-            Audit-cleared product dict (compatible with existing /find-winner consumers)
-            augmented with: trend_score, trend_signals, margin_estimate, viral_hook,
-                            evergreen_score, competition, source.
+            Audit-cleared product dict with a research envelope:
+              research_status, research_timestamp, research_provider,
+              research_sources, candidates_evaluated, selection_score,
+              selection_rationale, research_summary, source.
         """
         # Lazy import to avoid circular dependency
         from backend.product_control_agent import ProductControlAgent
 
         exclude = set(exclude or [])
+        intent_clean = (intent or "").strip() or "trending product"
+        category_hint = _classify(intent_clean)
 
+        # 1. Live Internet research (Tavily → DuckDuckGo fallback)
+        envelope = live_research.research(intent_clean)
+
+        # 2. Branch on research status
+        if envelope.research_status in ("live", "partial"):
+            return self._pick_research_backed(
+                intent=intent_clean,
+                category_hint=category_hint,
+                envelope=envelope,
+                exclude=exclude,
+                seed=seed,
+                use_ai=use_ai,
+            )
+
+        # 3. Fallback path — explicit "fallback" status, never claim freshness
         if use_ai and self._openai_available:
-            ai_card = self._ai_pick(intent, category_hint=_classify(intent))
+            ai_card = self._ai_pick(intent_clean, category_hint=category_hint)
             if ai_card is not None:
+                ai_card.update(_envelope_to_meta(envelope))
+                ai_card["source"] = "openai_research"
+                ai_card["selection_rationale"] = (
+                    "Live research unavailable; selected via GPT-4o knowledge."
+                )
+                ai_card["candidates_evaluated"] = [
+                    {
+                        "id": ai_card.get("id", "ai-pick"),
+                        "name": ai_card.get("name", "AI suggested product"),
+                        "score": 50,
+                        "factors": {"web_evidence": 0, "demand_signal": 50},
+                        "selected": True,
+                    }
+                ]
                 return ProductControlAgent.audit_product(ai_card)
 
-        # Pool-based pick
-        category = _classify(intent) if intent else None
-        if category not in POOLS:
-            # Pick from all pools (cross-category)
-            return self._pick_across(exclude=exclude, seed=seed)
-
-        return self._pick_from(category, exclude=exclude, seed=seed)
+        # Last-resort: pool rotation (clearly labeled as fallback)
+        if category_hint in POOLS:
+            winner = self._pick_from(category_hint, exclude=exclude, seed=seed)
+        else:
+            winner = self._pick_across(exclude=exclude, seed=seed)
+        winner.update(_envelope_to_meta(envelope))
+        winner["source"] = "fallback_pool"
+        winner["selection_rationale"] = (
+            "Live research unavailable — showing fallback suggestion from curated pool. "
+            "Trend signals shown are NOT fresh evidence; they are pool metadata."
+        )
+        # Clear the misleading old trend_signals from pool cards when in fallback
+        # so the UI doesn't surface them as "live evidence"
+        if envelope.research_status == "fallback":
+            winner["trend_signals"] = []
+            winner["trend_signals_note"] = (
+                "Trend signals omitted because no live research was available."
+            )
+        return ProductControlAgent.audit_product(winner)
 
     def get_pool_summary(self) -> dict:
         """Return lightweight pool metadata for a 'browse all' view."""
@@ -1414,6 +1559,147 @@ class ProductResearcher:
         }
 
     # ── Internal helpers ───────────────────────────────────────────────────
+
+    def _pick_research_backed(
+        self,
+        *,
+        intent: str,
+        category_hint: Optional[str],
+        envelope,
+        exclude: set[str],
+        seed: Optional[int],
+        use_ai: bool,
+    ) -> dict:
+        """Select a winner by scoring 3-5 candidates against live research.
+
+        Pool cards are CANDIDATE INVENTORY only. The selection is driven by the
+        strongest match between live evidence and candidate attributes.
+        """
+        from backend.product_control_agent import ProductControlAgent
+
+        candidates = self._gather_candidates(
+            category_hint=category_hint, exclude=exclude, seed=seed
+        )
+        if not candidates:
+            # Should never happen — pool is always populated — but be safe.
+            return self._pick_across(exclude=exclude, seed=seed)
+
+        scored: list[tuple[ProductCard, dict, int]] = []
+        for card in candidates:
+            score, factors = self._score_candidate(card, envelope)
+            scored.append((card, factors, score))
+
+        # Sort descending by score; break ties by rotation (deterministic)
+        rng = random.Random(seed) if seed is not None else random.Random()
+        scored.sort(key=lambda t: (-t[2], rng.random()))
+        winner_card, winner_factors, winner_score = scored[0]
+
+        winner = self._materialize(winner_card, _card_category(winner_card))
+        winner.update(_envelope_to_meta(envelope))
+        winner["selection_score"] = winner_score
+        winner["selection_rationale"] = _build_rationale(
+            winner_card, envelope, winner_factors, winner_score
+        )
+        winner["candidates_evaluated"] = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "category": c.category,
+                "score": s,
+                "factors": f,
+                "selected": (c.id == winner_card.id),
+            }
+            for c, f, s in scored
+        ]
+        winner["source"] = "live_research" if envelope.research_status == "live" else "partial_research"
+        # When research is partial, trim the pool trend_signals so we don't
+        # present them as fresh evidence.
+        if envelope.research_status == "partial":
+            winner["trend_signals"] = []
+            winner["trend_signals_note"] = (
+                "Pool trend signals omitted because live evidence was sparse."
+            )
+        return ProductControlAgent.audit_product(winner)
+
+    def _gather_candidates(
+        self,
+        *,
+        category_hint: Optional[str],
+        exclude: set[str],
+        seed: Optional[int],
+        max_n: int = 5,
+    ) -> list[ProductCard]:
+        """Return 3-5 candidate ProductCards to be evaluated.
+
+        If a category hint matches a pool, take from that pool. Otherwise
+        sample from across pools. Always excludes ids in ``exclude``.
+        """
+        rng = random.Random(seed) if seed is not None else random.Random()
+
+        if category_hint in POOLS:
+            pool = POOLS[category_hint]
+        else:
+            pool = [card for cat in POOLS.values() for card in cat]
+
+        candidates = [c for c in pool if c.id not in exclude]
+        if len(candidates) <= max_n:
+            return candidates
+        # Deterministic shuffle → take top N
+        rng.shuffle(candidates)
+        return candidates[:max_n]
+
+    def _score_candidate(
+        self, card: ProductCard, envelope
+    ) -> tuple[int, dict]:
+        """Score a single candidate against live research evidence.
+
+        Scoring factors (out of 100, web_evidence dominates):
+            web_evidence_strength : up to 50 (matches between sources & candidate)
+            demand_signal         : up to 20 (from card.trend_score_range)
+            visual_appeal         : up to 10 (Pinterest-friendly categories)
+            evergreen_strength    : up to 10 (card.evergreen_score * 10)
+            commercial_intent     : up to 10 (category heuristic)
+            competition_penalty   : 0 / -5 / -10 based on card.competition
+        """
+        keywords = self._candidate_keywords(card)
+        web_hits, total_sources = _count_keyword_matches(keywords, envelope.research_sources)
+        # Normalize: if 5 sources all match → 50/50. If 0 → 0/50.
+        web_strength = min(50, int(round(50.0 * web_hits / max(total_sources, 1))))
+        demand = min(20, max(0, int(round(card.trend_score_range[1] * 0.2))))
+        cat_key = _card_category_key(card)
+        visual = 10 if cat_key in _PINTEREST_FRIENDLY else 5
+        evergreen = min(10, int(round(card.evergreen_score * 10)))
+        commercial = 10 if cat_key in _COMMERCIAL_HIGH else 5
+        competition_pen = {"Low": 0, "Medium": -5, "High": -10}.get(card.competition, -5)
+
+        score = web_strength + demand + visual + evergreen + commercial + competition_pen
+        score = max(0, min(100, score))
+        factors = {
+            "web_evidence_strength": web_strength,
+            "web_source_matches": web_hits,
+            "demand_signal": demand,
+            "visual_appeal": visual,
+            "evergreen_strength": evergreen,
+            "commercial_intent": commercial,
+            "competition_penalty": competition_pen,
+        }
+        return score, factors
+
+    def _candidate_keywords(self, card: ProductCard) -> list[str]:
+        """Tokens derived from card.name + card.category_key for web matching."""
+        text = f"{card.name} {_card_category_key(card)}".lower()
+        # Strip punctuation, keep words ≥4 chars
+        words = re.findall(r"[a-z0-9]{4,}", text)
+        # Dedupe, keep order, cap at 12
+        seen: set[str] = set()
+        out: list[str] = []
+        for w in words:
+            if w not in seen:
+                seen.add(w)
+                out.append(w)
+            if len(out) >= 12:
+                break
+        return out
 
     def _pick_from(
         self,
@@ -1591,3 +1877,15 @@ def get_researcher() -> ProductResearcher:
                         logger.warning("OpenAI init failed: %s", exc)
                 _singleton = ProductResearcher(openai_client=client)
     return _singleton
+
+
+# ── Late-bound helpers ────────────────────────────────────────────────────────
+
+
+def _build_label_to_key() -> dict[str, str]:
+    """Build a reverse map: display label → short key (built lazily so that
+    CATEGORY_LABELS — defined further up — is available at import time)."""
+    return {label: key for key, label in CATEGORY_LABELS.items()}
+
+
+_LABEL_TO_KEY: dict[str, str] = _build_label_to_key()

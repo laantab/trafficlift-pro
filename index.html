@@ -1433,18 +1433,63 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                     </div>
                 </div>
 
-                <!-- 1-Click Pinterest Launch (safe path — no URL scraping) -->
+                <!-- Research metadata: freshness, why it won, sources -->
+                <div class="border-t border-slate-800 pt-4 space-y-3">
+                    <div class="flex items-center justify-between flex-wrap gap-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">🔬 Research</span>
+                        <div class="flex items-center gap-2">
+                            ${(() => {
+                                const s = data.research_status || 'fallback';
+                                const map = {
+                                    live:    ['bg-emerald-900/40 border-emerald-700 text-emerald-300', 'Live research · ' + (data.research_provider || 'none')],
+                                    partial: ['bg-amber-900/40 border-amber-700 text-amber-300', 'Partial research · ' + (data.research_provider || 'none')],
+                                    fallback:['bg-slate-800 border-slate-600 text-slate-300', 'Fallback suggestion'],
+                                };
+                                const [cls, label] = map[s] || map.fallback;
+                                return `<span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border ${cls}">${escapeHtml(label)}</span>`;
+                            })()}
+                            ${data.research_timestamp ? `<span class="text-[10px] text-slate-500">${escapeHtml(new Date(data.research_timestamp).toLocaleString())}</span>` : ''}
+                        </div>
+                    </div>
+                    ${data.research_summary ? `<p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(data.research_summary)}</p>` : ''}
+
+                    ${data.selection_rationale ? `
+                    <details class="text-xs text-slate-300">
+                        <summary class="cursor-pointer text-slate-400 hover:text-slate-200 font-semibold">Why it won · score ${data.selection_score ?? '–'}/100</summary>
+                        <p class="mt-2 text-slate-300 leading-relaxed">${escapeHtml(data.selection_rationale)}</p>
+                        ${Array.isArray(data.candidates_evaluated) && data.candidates_evaluated.length ? `
+                        <ul class="mt-2 space-y-1 text-[11px] text-slate-400 list-disc list-inside marker:text-slate-500">
+                            ${data.candidates_evaluated.map(c => `<li class="${c.selected ? 'text-emerald-300 font-semibold' : ''}">${escapeHtml(c.name)} · score ${c.score}${c.selected ? ' · SELECTED' : ''}</li>`).join('')}
+                        </ul>` : ''}
+                    </details>` : ''}
+
+                    ${Array.isArray(data.research_sources) && data.research_sources.length ? `
+                    <details class="text-xs text-slate-300">
+                        <summary class="cursor-pointer text-slate-400 hover:text-slate-200 font-semibold">Research sources (${data.research_sources.length})</summary>
+                        <ul class="mt-2 space-y-1.5 text-[11px] text-slate-400">
+                            ${data.research_sources.slice(0, 6).map(src => `
+                                <li class="border-l-2 border-slate-700 pl-2">
+                                    <a href="${escapeHtml(src.url || '#')}" target="_blank" rel="noopener" class="text-slate-200 hover:text-pink-300 font-medium">${escapeHtml(src.title || '(untitled)')}</a>
+                                    ${src.snippet ? `<div class="text-slate-400">${escapeHtml(src.snippet.slice(0, 160))}${src.snippet.length > 160 ? '…' : ''}</div>` : ''}
+                                    <span class="text-[10px] text-slate-500">${escapeHtml(src.provider || '')}</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </details>` : (data.research_status === 'fallback' ? `<p class="text-[11px] text-slate-400 italic">Live research unavailable — showing fallback suggestion from curated pool. Trend signals shown above are NOT fresh evidence.</p>` : '')}
+                </div>
+
+<!-- 1-Click Pinterest Launch (safe path — no URL scraping) -->
                 <div class="border-t border-slate-800 pt-4 space-y-3">
                     <div class="flex items-center justify-between flex-wrap gap-2">
                         <div class="flex items-center gap-2">
-                            <span class="text-xs font-semibold uppercase tracking-wider text-pink-400">📌 1-Click Pinterest</span>
-                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-900/40 border-emerald-700 text-emerald-300" title="Bypasses the URL scraper — uses this winner's data directly so Amazon search URLs and other anti-bot targets cannot break the campaign.">Safe path</span>
+                            <span class="text-xs font-semibold uppercase tracking-wider text-pink-400">📌 Pinterest Ready</span>
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-900/40 border-emerald-700 text-emerald-300" title="Pinterest package is generated automatically after each Find Winner click. This button re-runs the generator on the current winner.">Auto-generated</span>
                         </div>
                         <button type="button" onclick="renderPinterestAd()" id="pinterestLaunchBtn"
                             class="bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow flex items-center gap-2"
-                            title="Generate a complete Pinterest SEO package from this winner — board title, pin title, description, keywords, suggested boards. Skips URL scraping entirely.">
-                            <i data-lucide="rocket" class="w-3.5 h-3.5"></i>
-                            Render Pinterest Ad
+                            title="Re-run the Pinterest package generator on the current winner.">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                            Retry Pinterest Package
                         </button>
                     </div>
                     <div id="pinterestResult" class="hidden space-y-2"></div>
@@ -1542,34 +1587,54 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             return;
         }
 
-        const tags = Array.isArray(pkg.keywords) ? pkg.keywords.join(', ') : (pkg.keywords || '');
-        const boards = Array.isArray(pkg.suggested_boards) ? pkg.suggested_boards : [];
-        const dims = pkg.dimensions || '1000 x 1500 px (2:3 vertical ratio)';
-        const cta = pkg.pin_cta_suggestion || 'Shop now | Limited stock available';
+        // Read either the canonical (backend) or aliased (frontend-friendly) keys.
+        const pinDesc       = pkg.optimized_description ?? pkg.pin_description ?? '';
+        const keywords      = Array.isArray(pkg.recommended_keywords) ? pkg.recommended_keywords
+                            : Array.isArray(pkg.keywords)             ? pkg.keywords
+                            : [];
+        const boards        = Array.isArray(pkg.suggested_board_names) ? pkg.suggested_board_names
+                            : Array.isArray(pkg.suggested_boards)     ? pkg.suggested_boards
+                            : [];
+        const dims          = pkg.optimal_pin_dimensions ?? pkg.dimensions ?? '1000 x 1500 px (2:3 vertical ratio)';
+        const cta           = pkg.pin_cta_suggestion ?? 'Shop now | Limited stock available';
+        const hashtags      = Array.isArray(winner?.hashtags) ? winner.hashtags : [];
+        const destUrl       = winner?.url ?? data.input_url ?? '';
+        const imageUrl      = winner?.image_url ?? '';
 
         out.classList.remove('hidden');
         out.innerHTML = `
-            <div class="bg-slate-950 border border-pink-700/40 rounded-xl p-4 space-y-3">
+            <div class="bg-slate-950 border border-pink-700/40 rounded-xl p-4 space-y-3" id="pinterestPackage">
                 <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-pink-400">📌 Pinterest SEO Package</span>
-                    <button onclick="copyPinterestPackage(this)"
-                        data-board="${escapeHtml(pkg.board_title || '')}"
-                        data-pin="${escapeHtml(pkg.pin_title || '')}"
-                        data-desc="${escapeHtml(pkg.pin_description || '')}"
-                        data-tags="${escapeHtml(tags)}"
-                        data-cta="${escapeHtml(cta)}"
-                        class="bg-pink-600 hover:bg-pink-500 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow">
-                        📋 Copy All
-                    </button>
+                    <span class="text-xs font-bold text-pink-400">📌 Pinterest Ready</span>
+                    <div class="flex items-center gap-2">
+                        <button onclick="copyPinterestPackage(this)"
+                            data-board="${escapeHtml(pkg.board_title || '')}"
+                            data-pin="${escapeHtml(pkg.pin_title || '')}"
+                            data-desc="${escapeHtml(pinDesc)}"
+                            data-tags="${escapeHtml(keywords.join(' '))}"
+                            data-cta="${escapeHtml(cta)}"
+                            data-url="${escapeHtml(destUrl)}"
+                            class="bg-pink-600 hover:bg-pink-500 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow">
+                            📋 Copy Pin Text
+                        </button>
+                        <button onclick="downloadPinImage('${escapeHtml(imageUrl).replace(/'/g, '%27')}', '${escapeHtml(winner?.name || 'pin').replace(/'/g, '%27')}')"
+                            class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium shadow"
+                            title="Render the winner image into a 2:3 Pinterest-compliant JPEG (1000x1500) and download.">
+                            ⬇ Download Pin Image
+                        </button>
+                    </div>
                 </div>
+                ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(winner?.name || '')}" class="w-full h-48 object-cover rounded-lg border border-slate-700" onerror="this.onerror=null;this.style.display='none'">` : ''}
                 <dl class="text-xs space-y-2 text-slate-300">
                     <div><dt class="text-slate-400 font-semibold">Board Title</dt><dd class="text-white">${escapeHtml(pkg.board_title || '')}</dd></div>
                     <div><dt class="text-slate-400 font-semibold">Pin Title</dt><dd class="text-white">${escapeHtml(pkg.pin_title || '')}</dd></div>
-                    <div><dt class="text-slate-400 font-semibold">Description</dt><dd class="text-slate-200 bg-slate-900 p-2 rounded border border-slate-800">${escapeHtml(pkg.pin_description || '')}</dd></div>
-                    <div><dt class="text-slate-400 font-semibold">Keywords</dt><dd class="text-purple-300">${escapeHtml(tags)}</dd></div>
-                    <div><dt class="text-slate-400 font-semibold">Suggested Boards</dt><dd class="text-slate-200">${boards.map(escapeHtml).join(' • ')}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Description</dt><dd class="text-slate-200 bg-slate-900 p-2 rounded border border-slate-800">${escapeHtml(pinDesc)}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Keywords</dt><dd class="text-purple-300">${escapeHtml(keywords.join(', '))}</dd></div>
+                    ${hashtags.length ? `<div><dt class="text-slate-400 font-semibold">Hashtags</dt><dd class="text-pink-300">${hashtags.map(escapeHtml).join(' ')}</dd></div>` : ''}
+                    ${boards.length ? `<div><dt class="text-slate-400 font-semibold">Suggested Boards</dt><dd class="text-slate-200">${boards.map(escapeHtml).join(' • ')}</dd></div>` : ''}
                     <div><dt class="text-slate-400 font-semibold">Dimensions</dt><dd class="text-slate-200">${escapeHtml(dims)}</dd></div>
                     <div><dt class="text-slate-400 font-semibold">CTA</dt><dd class="text-slate-200">${escapeHtml(cta)}</dd></div>
+                    ${destUrl ? `<div><dt class="text-slate-400 font-semibold">Destination URL</dt><dd><a href="${escapeHtml(destUrl)}" target="_blank" rel="noopener" class="text-pink-300 hover:text-pink-200 break-all">${escapeHtml(destUrl)}</a></dd></div>` : ''}
                 </dl>
                 ${data.campaign_id ? `<div class="text-[10px] text-slate-500 border-t border-slate-800 pt-2">Campaign ID: <span class="text-slate-400">${escapeHtml(data.campaign_id)}</span> · source: <span class="text-slate-400">${escapeHtml(data.source || 'scrape')}</span></div>` : ''}
             </div>
@@ -1585,6 +1650,8 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             (btn.dataset.desc || '') + ' ' + (btn.dataset.tags || ''),
             '',
             'CTA: ' + (btn.dataset.cta || ''),
+            '',
+            'Link: ' + (btn.dataset.url || ''),
         ].join('\n');
         try {
             await navigator.clipboard.writeText(text);
@@ -1595,6 +1662,56 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             document.body.appendChild(ta); ta.select();
             document.execCommand('copy'); document.body.removeChild(ta);
             showToast('', 'Pinterest package copied!', 'success');
+        }
+    }
+
+    // ── 2:3 Pinterest pin image download (1000x1500 JPEG) ──────────────────
+    async function downloadPinImage(imageUrl, productName) {
+        if (!imageUrl) {
+            showToast('No image', 'No image available for this winner.', 'warning');
+            return;
+        }
+        try {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.src = imageUrl;
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = () => reject(new Error('Image failed to load (CORS or invalid URL).'));
+            });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 1000;
+            canvas.height = 1500;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Fit & center the source image into the 2:3 frame
+            const hRatio = canvas.width / img.naturalWidth;
+            const vRatio = canvas.height / img.naturalHeight;
+            const ratio = Math.max(hRatio, vRatio);
+            const centerShiftX = (canvas.width - img.naturalWidth * ratio) / 2;
+            const centerShiftY = (canvas.height - img.naturalHeight * ratio) / 2;
+            ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
+                centerShiftX, centerShiftY,
+                img.naturalWidth * ratio, img.naturalHeight * ratio);
+
+            canvas.toBlob((blob) => {
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                const safeName = (productName || 'pin').replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 50);
+                a.download = 'pinterest-' + safeName + '-1000x1500.jpg';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+                showToast('', 'Pin image downloaded (1000x1500, 2:3).', 'success');
+            }, 'image/jpeg', 0.95);
+        } catch (err) {
+            console.error('Pin image download failed:', err);
+            showToast('Pin image failed', err && err.message || String(err), 'error');
         }
     }
 
@@ -1708,22 +1825,33 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             // 2. Pre-fill the product URL input (resilient to either id)
             if (urlInput) urlInput.value = data.url || '';
 
-            // 3. Display the winner card details (defensive â€” skip if not defined)
+            // 3. Display the winner card details (defensive — skip if not defined)
             if (typeof displayWinnerCard === 'function') {
                 displayWinnerCard(data);
             }
             lucide.createIcons();
 
-            // 4. Confirm and offer next steps. We deliberately do NOT auto-launch
-            //    against the Amazon search URL — the scraper often fails on Amazon
-            //    pages (anti-bot), which previously surfaced as "Untitled Product".
-            //    Instead, show the source URL inside the card so the user can
-            //    open it, and toast the win.
+            // 4. Auto-launch the Pinterest package (one-click flow). The user no
+            //    longer needs to press a second button. The "Retry Pinterest
+            //    Package" button in the card re-runs the same call.
+            let pinterestToastSuffix = '';
+            try {
+                await renderPinterestAd();
+                pinterestToastSuffix = ' · Pinterest package ready';
+            } catch (pe) {
+                console.warn('[find-winner] auto-Pinterest launch failed', pe);
+                pinterestToastSuffix = ' · Pinterest package failed (Retry available)';
+            }
+
+            // 5. Confirm and offer next steps. We deliberately do NOT auto-scrape
+            //    the Amazon URL — the scraper often fails on Amazon pages (anti-bot),
+            //    which previously surfaced as "Untitled Product". The safe
+            //    product_payload path is the only one we use here.
             showToast(
                 `Loaded Winner: ${data.name}`,
                 data.url
-                    ? `Source: ${data.url.replace(/^https?:\/\//, '').slice(0, 60)}…`
-                    : 'Pick a product URL to launch the campaign.',
+                    ? `Source: ${data.url.replace(/^https?:\/\//, '').slice(0, 60)}…${pinterestToastSuffix}`
+                    : `Pinterest package generated.${pinterestToastSuffix}`,
                 'success'
             );
         } catch (e) {

@@ -30,15 +30,20 @@ class ProductControlAgent:
                 raise ValueError(f"Product Control Violation: Semantic mismatch between category '{category}' and product name '{name}'.")
 
         image_url = product.get("image_url")
-        if not image_url or not image_url.startswith("http"):
+        if not image_url:
+            raise ValueError(f"Product Control Violation: Missing image_url.")
+        # Accept http(s) URLs (HEAD-checked) AND inline data: URIs (always-render SVG placeholders).
+        if image_url.startswith("data:"):
+            logger.info(f"[Product Control Agent] Inline data: URI accepted for '{product_id}' (no HEAD check).")
+        elif image_url.startswith(("http://", "https://")):
+            try:
+                head_res = requests.head(image_url, timeout=3, allow_redirects=True)
+                if head_res.status_code >= 400:
+                    logger.warning(f"[Agent Warning] Image URL returned status {head_res.status_code}: {image_url}")
+            except Exception as e:
+                logger.warning(f"[Agent Notice] Image reachability check failed: {str(e)}")
+        else:
             raise ValueError(f"Product Control Violation: Invalid image URL format '{image_url}'.")
-
-        try:
-            head_res = requests.head(image_url, timeout=3, allow_redirects=True)
-            if head_res.status_code >= 400:
-                logger.warning(f"[Agent Warning] Image URL returned status {head_res.status_code}: {image_url}")
-        except Exception as e:
-            logger.warning(f"[Agent Notice] Image reachability check failed: {str(e)}")
 
         logger.info(f"[Product Control Agent] Product '{product_id}' successfully audited and cleared.")
         return product
