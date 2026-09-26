@@ -113,9 +113,7 @@
                             <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
                                 class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
                         </div>
-                        <button onclick="fetchTrendingProduct()" id="findWinnerBtn"
-                            class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2"
-                            title="Spin a new trending winner — rotation + research metadata from /api/v1/find-winner">
+                        <button id="findWinnerBtn" type="button" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
                             <span>🎯</span>
                             <span class="hidden sm:inline">Find Winner</span>
                         </button>
@@ -359,12 +357,21 @@
     }
     let API_BASE = resolveApiBase();
 
-    // Helper: full URL for a given path. If API_BASE is empty we use same-origin.
+    // Helper: full URL for a given path. Strategy:
+    //   1. Use the smartly-resolved API_BASE (meta tag > localStorage > ?api=).
+    //   2. If API_BASE is empty, fall back to the Render production backend so
+    //      GitHub-Pages-style deployments still work out of the box.
+    //   3. localhost / file:// / 127.0.0.1 callers will get '' from resolveApiBase()
+    //      and we substitute 'http://localhost:8000' for them.
     function apiUrl(path) {
-    // Force direct absolute connection to Render backend
-    const base = "https://trafficlift-pro.onrender.com";
-    return base + (path.startsWith('/') ? path : '/' + path);
-}
+        let base = (typeof API_BASE !== 'undefined' && API_BASE) || '';
+        if (!base) {
+            const host = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
+            const isLocal = !host || host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1';
+            base = isLocal ? 'http://localhost:8000' : 'https://trafficlift-pro.onrender.com';
+        }
+        return base + (path.startsWith('/') ? path : '/' + path);
+    }
 
     // â”€â”€â”€ Channel Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const CHANNELS = {
@@ -1502,6 +1509,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     }
 
     async function fetchTrendingProduct() {
+        console.log('[find-winner] triggered', { hint: (document.getElementById('productUrl')||{}).value || '' });
         const btn = document.getElementById('findWinnerBtn');
         showLoadingState(btn, true);
         try {
@@ -1519,9 +1527,30 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             if (hint) params.set('url_or_keyword', hint);
             if (prev) params.set('exclude', prev);
             const qs = params.toString();
-            const r = await fetch(apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`));
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const endpoint = apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`);
+            console.log('[find-winner] → GET', endpoint);
+            let r;
+            try {
+                r = await fetch(endpoint, { method: 'GET', headers: { 'Accept': 'application/json' } });
+            } catch (networkErr) {
+                console.error('[find-winner] network error', networkErr);
+                throw new Error('Network error: ' + (networkErr && networkErr.message || networkErr));
+            }
+            console.log('[find-winner] ← status', r.status, r.statusText);
+            if (!r.ok) {
+                // Try to surface a server-provided detail for a clearer toast.
+                let serverDetail = '';
+                try {
+                    const errBody = await r.json();
+                    serverDetail = errBody?.detail || errBody?.message || '';
+                } catch (_) { /* body wasn't JSON */ }
+                throw new Error('HTTP ' + r.status + (serverDetail ? ' — ' + serverDetail : ''));
+            }
             const data = await r.json();
+            if (!data || !data.id) {
+                throw new Error('Server returned an empty payload.');
+            }
+            console.log('[find-winner] ✓', { id: data.id, name: data.name, category: data.category });
             window.__lastWinnerId = data.id;
 
             // 2. Pre-fill the product URL input (resilient to either id)
@@ -1570,6 +1599,8 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     </script>
 </body>
 </html>
+
+
 
 
 
