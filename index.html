@@ -361,9 +361,10 @@
 
     // Helper: full URL for a given path. If API_BASE is empty we use same-origin.
     function apiUrl(path) {
-        if (API_BASE) return API_BASE + path;
-        return window.location.origin + path;
-    }
+    // Force direct absolute connection to Render backend
+    const base = "https://trafficlift-pro.onrender.com";
+    return base + (path.startsWith('/') ? path : '/' + path);
+}
 
     // â”€â”€â”€ Channel Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const CHANNELS = {
@@ -1554,5 +1555,6 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     </script>
 </body>
 </html>
+
 
 
