@@ -77,6 +77,9 @@ class ResearchEnvelope:
     research_sources: list[dict] = field(default_factory=list)
     research_summary: str = ""
     research_query: str = ""
+    # Image URLs discovered alongside the text research. Used by the
+    # researcher to enrich candidates with real product photos.
+    research_image_urls: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -108,6 +111,7 @@ def _query_tavily(query: str, max_results: int) -> list[ResearchSource]:
                 "max_results": max_results,
                 "search_depth": "basic",
                 "include_answer": False,
+                "include_images": True,   # also surface image URLs for candidate enrichment
                 "topic": "general",
             },
             timeout=DEFAULT_TIMEOUT,
@@ -208,6 +212,23 @@ def _summarize_sources(query: str, sources: list[ResearchSource]) -> str:
 # ── Public entry point ───────────────────────────────────────────────────────
 
 
+def _collect_image_urls_from_sources(sources: list[ResearchSource]) -> list[str]:
+    """Best-effort: extract likely image URLs from research sources.
+
+    Research sources are search result pages, not images, but many
+    publishers embed product imagery in the page. We extract URLs whose
+    file extension looks like an image. The product control agent will
+    HEAD-validate each candidate before accepting it.
+    """
+    out: list[str] = []
+    image_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+    for s in sources:
+        url = (s.url or "").lower()
+        if any(url.endswith(ext) for ext in image_exts):
+            out.append(s.url)
+    return out
+
+
 def research(
     query: str,
     *,
@@ -237,6 +258,7 @@ def research(
     if _is_tavily_configured():
         tav_hits = _query_tavily(q, max_results)
         if tav_hits:
+            tav_images = _collect_image_urls_from_sources(tav_hits)
             return ResearchEnvelope(
                 research_status="live" if len(tav_hits) >= 3 else "partial",
                 research_timestamp=_now_iso(),
@@ -244,12 +266,14 @@ def research(
                 research_sources=[asdict(s) for s in tav_hits],
                 research_summary=_summarize_sources(q, tav_hits),
                 research_query=q,
+                research_image_urls=tav_images,
             )
         logger.info("Tavily returned no hits, falling back to DuckDuckGo")
 
     # 2. DuckDuckGo fallback
     ddg_hits = _query_duckduckgo(q, max_results)
     if ddg_hits:
+        ddg_images = _collect_image_urls_from_sources(ddg_hits)
         return ResearchEnvelope(
             research_status="live" if len(ddg_hits) >= 3 else "partial",
             research_timestamp=_now_iso(),
@@ -257,6 +281,7 @@ def research(
             research_sources=[asdict(s) for s in ddg_hits],
             research_summary=_summarize_sources(q, ddg_hits),
             research_query=q,
+            research_image_urls=ddg_images,
         )
 
     # 3. No evidence anywhere
@@ -267,6 +292,73 @@ def research(
         research_summary=f"Live research unavailable for '{q}'.",
         research_query=q,
     )
+
+
+def research_images(
+    query: str,
+    *,
+    max_results: int = 4,
+) -> list[str]:
+    """Image-focused research: returns a list of candidate image URLs.
+
+    Used by the product researcher to enrich candidates with real
+    product photos when the pool fallback is a data: URI placeholder.
+    The product control agent validates each URL via HEAD + content-type
+    before accepting it.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    urls: list[str] = []
+
+    # 1. Tavily image search
+    if _is_tavily_configured():
+        api_key = os.getenv("TAVILY_API_KEY", "").strip()
+        try:
+            resp = requests.post(
+                TAVILY_ENDPOINT,
+                json={
+                    "api_key": api_key,
+                    "query": f"{q} product photo",
+                    "max_results": max_results,
+                    "search_depth": "basic",
+                    "include_answer": False,
+                    "include_images": True,
+                    "topic": "general",
+                },
+                timeout=DEFAULT_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                # Tavily returns `images` as [{url, description}, ...]
+                for img in (data.get("images") or []):
+                    u = (img.get("url") or "").strip()
+                    if u.startswith(("http://", "https://")) and u not in urls:
+                        urls.append(u)
+        except Exception as exc:
+            logger.warning("Tavily image search failed: %s", exc)
+
+    # 2. DuckDuckGo image-search HTML fallback
+    try:
+        resp = requests.post(
+            "https://duckduckgo.com/",
+            data={"q": f"{q} product image", "iax": "images", "ia": "images"},
+            headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html"},
+            timeout=DEFAULT_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            from bs4 import BeautifulSoup  # local import
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for tile in soup.select("a.tile--img"):
+                href = tile.get("href") or ""
+                if href.startswith(("http://", "https://")) and href not in urls:
+                    urls.append(href)
+                if len(urls) >= max_results:
+                    break
+    except Exception as exc:
+        logger.warning("DDG image search failed: %s", exc)
+
+    return urls[:max_results]
 
 
 def is_configured() -> bool:
