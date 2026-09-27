@@ -104,7 +104,7 @@ def _looks_like_placeholder_url(url: str) -> bool:
     return False
 
 
-def _validate_image(url: Optional[str], *, head_timeout: float = 5.0) -> ImageCheckResult:
+def _validate_image(url: Optional[str], *, head_timeout: float = 3.0) -> ImageCheckResult:
     """Strictly validate a candidate image URL.
 
     Rejects (in order):
@@ -117,6 +117,10 @@ def _validate_image(url: Optional[str], *, head_timeout: float = 5.0) -> ImageCh
 
     On success returns ok=True with image_status="verified" and the
     HEAD response details for evidence.
+
+    Timeouts are STRICT (default 3s) and redirects are disabled on HEAD/GET
+    to prevent one slow mirror from holding the whole /find-winner
+    request open.
     """
     if not url or not isinstance(url, str) or not url.strip():
         return ImageCheckResult(ok=False, reason="missing_image_url",
@@ -136,13 +140,13 @@ def _validate_image(url: Optional[str], *, head_timeout: float = 5.0) -> ImageCh
         return ImageCheckResult(ok=False, reason="placeholder_image",
                                image_status="placeholder", image_url=url)
 
-    # HEAD the URL — keep the test surface small, allow override via
-    # PRODUCT_IMAGE_HEAD_TIMEOUT env if needed.
+    # HEAD the URL. Redirects are disabled — a redirect chain can be
+    # arbitrarily slow and we only care about the canonical image host.
     try:
-        head = requests.head(url, timeout=head_timeout, allow_redirects=True)
+        head = requests.head(url, timeout=head_timeout, allow_redirects=False)
     except Exception as exc:
         logger.warning("Image HEAD failed for %s: %s", url, exc)
-        return ImageCheckResult(ok=False, reason="image_load_failed",
+        return ImageCheckResult(ok=False, reason=f"image_load_failed: {type(exc).__name__}",
                                image_status="broken", image_url=url)
 
     http_status = head.status_code
@@ -166,7 +170,7 @@ def _validate_image(url: Optional[str], *, head_timeout: float = 5.0) -> ImageCh
         # Some servers omit Content-Length. Try a 0-1023 range request.
         try:
             r = requests.get(url, headers={"Range": "bytes=0-1023"},
-                             timeout=head_timeout, allow_redirects=True, stream=True)
+                             timeout=head_timeout, allow_redirects=False, stream=True)
             cr = r.headers.get("Content-Range")  # "bytes 0-1023/48231"
             if cr and "/" in cr:
                 size = int(cr.rsplit("/", 1)[1])

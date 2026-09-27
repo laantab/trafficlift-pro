@@ -49,7 +49,7 @@ logger = logging.getLogger("live_research")
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
 DDG_ENDPOINT = "https://html.duckduckgo.com/html/"
 
-DEFAULT_TIMEOUT = 12  # seconds
+DEFAULT_TIMEOUT = 5  # seconds per HTTP call (was 12 — too long)
 DEFAULT_MAX_RESULTS = 6
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -297,7 +297,7 @@ def research(
 def research_images(
     query: str,
     *,
-    max_results: int = 4,
+    max_results: int = 3,
 ) -> list[str]:
     """Image-focused research: returns a list of candidate image URLs.
 
@@ -305,13 +305,17 @@ def research_images(
     product photos when the pool fallback is a data: URI placeholder.
     The product control agent validates each URL via HEAD + content-type
     before accepting it.
+
+    Bounded by both per-request timeout (DEFAULT_TIMEOUT) and a maximum
+    number of URLs returned, so a single call cannot hang the
+    /find-winner pipeline.
     """
     q = (query or "").strip()
     if not q:
         return []
     urls: list[str] = []
 
-    # 1. Tavily image search
+    # 1. Tavily image search (only if configured — else skip to keep budget tight)
     if _is_tavily_configured():
         api_key = os.getenv("TAVILY_API_KEY", "").strip()
         try:
@@ -335,28 +339,33 @@ def research_images(
                     u = (img.get("url") or "").strip()
                     if u.startswith(("http://", "https://")) and u not in urls:
                         urls.append(u)
+                        if len(urls) >= max_results:
+                            break
         except Exception as exc:
             logger.warning("Tavily image search failed: %s", exc)
 
-    # 2. DuckDuckGo image-search HTML fallback
-    try:
-        resp = requests.post(
-            "https://duckduckgo.com/",
-            data={"q": f"{q} product image", "iax": "images", "ia": "images"},
-            headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html"},
-            timeout=DEFAULT_TIMEOUT,
-        )
-        if resp.status_code == 200:
-            from bs4 import BeautifulSoup  # local import
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tile in soup.select("a.tile--img"):
-                href = tile.get("href") or ""
-                if href.startswith(("http://", "https://")) and href not in urls:
-                    urls.append(href)
-                if len(urls) >= max_results:
-                    break
-    except Exception as exc:
-        logger.warning("DDG image search failed: %s", exc)
+    # 2. DuckDuckGo image-search HTML fallback. NOTE: this endpoint often
+    #    returns a JS shell that doesn't actually contain image tiles; we
+    #    cap the parse time and move on. Failure is silent.
+    if len(urls) < max_results:
+        try:
+            resp = requests.post(
+                "https://duckduckgo.com/",
+                data={"q": f"{q} product image", "iax": "images", "ia": "images"},
+                headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html"},
+                timeout=DEFAULT_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                from bs4 import BeautifulSoup  # local import
+                soup = BeautifulSoup(resp.text, "html.parser")
+                for tile in soup.select("a.tile--img"):
+                    href = tile.get("href") or ""
+                    if href.startswith(("http://", "https://")) and href not in urls:
+                        urls.append(href)
+                    if len(urls) >= max_results:
+                        break
+        except Exception as exc:
+            logger.warning("DDG image search failed: %s", exc)
 
     return urls[:max_results]
 

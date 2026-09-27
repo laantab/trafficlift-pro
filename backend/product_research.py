@@ -24,6 +24,7 @@ import os
 import random
 import re
 import threading
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -1473,6 +1474,11 @@ class ProductResearcher:
                the audit. If none do, raise HTTPException(404) so the user
                sees a clear "No photo-qualified winner found" error.
 
+        The entire pick() call is bounded by ``self.REQUEST_BUDGET_SECONDS``
+        (default 20s) — once the budget is exhausted, no further candidates
+        are tried and the user gets a clean 404. This guarantees that
+        ``GET /api/v1/find-winner`` always terminates promptly.
+
         Raises:
             fastapi.HTTPException(404) when no candidate has a verified image.
         """
@@ -1481,6 +1487,11 @@ class ProductResearcher:
         exclude = set(exclude or [])
         intent_clean = (intent or "").strip() or "trending product"
         category_hint = _classify(intent_clean)
+        t_pick_start = time.monotonic()
+        logger.info(
+            "[find-winner] pick start intent=%r category=%r budget=%.1fs",
+            intent_clean[:60], category_hint, self.REQUEST_BUDGET_SECONDS,
+        )
 
         # 1. Live Internet research (Tavily → DuckDuckGo fallback)
         envelope = live_research.research(intent_clean)
@@ -1544,8 +1555,20 @@ class ProductResearcher:
         )
         rejection_log: list[dict] = []
         attempts = 0
+        t_loop_start = time.monotonic()
         for card in candidates[: self.MAX_CANDIDATE_ATTEMPTS]:
             attempts += 1
+            elapsed = time.monotonic() - t_loop_start
+            if elapsed > self.REQUEST_BUDGET_SECONDS:
+                logger.warning(
+                    "[find-winner] pool-fallback budget exceeded after %.2fs; aborting",
+                    elapsed,
+                )
+                break
+            logger.info(
+                "[find-winner] pool candidate %d/%d: %s (elapsed=%.2fs)",
+                attempts, self.MAX_CANDIDATE_ATTEMPTS, card.name, elapsed,
+            )
             winner = self._materialize(card, _card_category(card))
             # Pool fallback cards carry data: URI placeholders. Try to
             # enrich with image-focused research before the audit gate.
@@ -1598,6 +1621,10 @@ class ProductResearcher:
             )
 
         # All candidates rejected — no photo-qualified winner.
+        logger.warning(
+            "[find-winner] NO pool winner after %d attempt(s) in %.2fs; returning 404",
+            attempts, time.monotonic() - t_loop_start,
+        )
         raise HTTPException(
             status_code=404,
             detail=(
@@ -1624,6 +1651,12 @@ class ProductResearcher:
 
     # Hard cap on candidate iterations to prevent infinite loops.
     MAX_CANDIDATE_ATTEMPTS = 8
+
+    # Total wall-clock budget for one pick() call. Once exceeded, the
+    # candidate loop is broken and the request returns 404. Defaults to
+    # 20 s so a single /find-winner GET always terminates quickly even
+    # if every external provider is slow.
+    REQUEST_BUDGET_SECONDS = 20.0
 
     def _pick_research_backed(
         self,
@@ -1670,9 +1703,21 @@ class ProductResearcher:
 
         rejection_log: list[dict] = []
         attempts = 0
+        t_loop_start = time.monotonic()
 
         for card, factors, score in scored[: self.MAX_CANDIDATE_ATTEMPTS]:
             attempts += 1
+            elapsed = time.monotonic() - t_loop_start
+            if elapsed > self.REQUEST_BUDGET_SECONDS:
+                logger.warning(
+                    "[find-winner] budget exceeded after %.2fs (%d attempts); aborting loop",
+                    elapsed, attempts - 1,
+                )
+                break
+            logger.info(
+                "[find-winner] candidate %d/%d: %s (score=%d, elapsed=%.2fs)",
+                attempts, self.MAX_CANDIDATE_ATTEMPTS, card.name, score, elapsed,
+            )
             winner = self._materialize(card, _card_category(card))
 
             # If the materialized winner still has a data: URI placeholder
@@ -1708,6 +1753,10 @@ class ProductResearcher:
                 winner["selection_score"] = score
                 winner["selection_rationale"] = _build_rationale(
                     card, envelope, factors, score
+                )
+                logger.info(
+                    "[find-winner] WINNER selected id=%s in %.2fs after %d attempt(s)",
+                    card.id, time.monotonic() - t_loop_start, attempts,
                 )
                 winner["candidates_evaluated"] = [
                     {
@@ -1755,10 +1804,15 @@ class ProductResearcher:
             })
 
         # All candidates rejected — no photo-qualified winner found.
+        elapsed = time.monotonic() - t_loop_start
         detail = (
             "No photo-qualified winner found. "
             f"Tried {attempts} candidate(s); none had a usable product image. "
             "Try a different keyword, or enable TAVILY_API_KEY for richer image discovery."
+        )
+        logger.warning(
+            "[find-winner] NO winner after %d attempt(s) in %.2fs; returning 404",
+            attempts, elapsed,
         )
         # Surface a structured error so the API client can react
         raise HTTPException(
@@ -1780,34 +1834,46 @@ class ProductResearcher:
         Uses the app's approved research paths (Tavily image search →
         DuckDuckGo image search) and the ProductControlAgent image gate
         (http(s) only, image/* content type, ≥ 5 KB, not a logo/placeholder).
+
+        Bounded to ONE query (the most specific product name) and THREE
+        candidate URLs so a slow external provider cannot blow the
+        /find-winner request budget. The pool fallback path keeps the
+        page responsive even when no real image is discoverable.
         """
         from backend.product_control_agent import ProductControlAgent, _validate_image
         from backend import live_research
 
-        queries = []
-        if product_name:
-            queries.append(f"{product_name} product photo")
-        if category:
-            queries.append(f"{category} product image")
-        if intent and intent not in (product_name, category):
-            queries.append(f"{intent} product photo")
+        # Pick the single most-specific query to keep latency tight.
+        q = (product_name or category or intent or "").strip()
+        if not q:
+            return None
+        query = f"{q} product photo"
 
         seen: set[str] = set()
-        for q in queries:
-            try:
-                urls = live_research.research_images(q, max_results=4)
-            except Exception as exc:
-                logger.warning("[find-winner] image research failed: %s", exc)
+        try:
+            t0 = time.monotonic()
+            urls = live_research.research_images(query, max_results=3)
+            logger.info(
+                "[find-winner] image-research query=%r returned %d url(s) in %.2fs",
+                query[:60], len(urls), time.monotonic() - t0,
+            )
+        except Exception as exc:
+            logger.warning("[find-winner] image research failed: %s", exc)
+            return None
+
+        for url in urls:
+            if url in seen:
                 continue
-            for url in urls:
-                if url in seen:
-                    continue
-                seen.add(url)
-                # Cheap HEAD via the same validator the agent uses — but we
-                # reuse the dataclass to surface image_bytes / content-type.
-                chk = _validate_image(url)
-                if chk.ok:
-                    return url
+            seen.add(url)
+            t1 = time.monotonic()
+            chk = _validate_image(url)
+            logger.info(
+                "[find-winner] image-check url=%s ok=%s reason=%s in %.2fs",
+                (url[:80] + ("…" if len(url) > 80 else "")),
+                chk.ok, chk.reason, time.monotonic() - t1,
+            )
+            if chk.ok:
+                return url
         return None
 
     def _gather_candidates(

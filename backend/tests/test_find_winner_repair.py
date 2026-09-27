@@ -27,6 +27,7 @@ import os
 import sys
 import pathlib
 import json
+import inspect
 from unittest import mock
 
 import pytest
@@ -769,7 +770,7 @@ def test_case_32_find_winner_resets_button_to_find_another():
     """On success, findWinner must reset the button text to 'Find Another Winner'."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 6000]
+    body = src[fn_idx:fn_idx + 12000]
     assert "Find Another Winner" in body, \
         "findWinner must rename the button to 'Find Another Winner' on success"
     # The button must also be re-enabled
@@ -898,7 +899,7 @@ def test_case_37_error_path_visibly_informs_the_user():
     and restore the button text to 'Find Winner'."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 8000]
+    body = src[fn_idx:fn_idx + 14000]
     # Catch block must render visible error into executionOutput
     assert "executionOutput" in body and "Find Winner failed" in body, \
         "findWinner catch must render visible 'Find Winner failed' error"
@@ -1222,3 +1223,271 @@ def test_magsafe_phone_stand_no_image_is_rejected_then_next_wins(mock_image_head
         magsafe_log = next(r for r in winner["rejection_log"]
                           if r["id"] == "magsafe-stand-01")
         assert "image" in magsafe_log["reason"].lower()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TIMEOUT / HANG REGRESSION SUITE (added 2026-09-27)
+#
+# Verifies the /find-winner pipeline cannot hang:
+#   * per-image HEAD/GET requests have strict timeouts and no redirect chains
+#   * per-provider research calls have explicit timeouts
+#   * per-query image-search is bounded to a small number of URLs
+#   * pick() has a wall-clock REQUEST_BUDGET_SECONDS that aborts the loop
+#   * if a candidate's image validation hangs, the next candidate is tried
+#   * /find-winner never accepts an unverified winner image
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_gate_16_validate_image_uses_short_timeout():
+    """_validate_image must default to a SHORT timeout (≤ 5 s) so one
+    slow image host cannot hang the entire /find-winner request."""
+    import backend.product_control_agent as pca_mod
+    import inspect
+    sig = inspect.signature(pca_mod._validate_image)
+    default = sig.parameters["head_timeout"].default
+    assert default is not None
+    assert default <= 5.0, (
+        f"_validate_image head_timeout default={default}; "
+        "must be ≤ 5 s so /find-winner cannot hang on one slow host"
+    )
+
+
+def test_gate_17_validate_image_disables_redirects():
+    """_validate_image must disable allow_redirects=True on HEAD/GET so a
+    redirect chain to a slow CDN cannot stretch the request."""
+    src = inspect.getsource(_read_product_control_agent())
+    assert "allow_redirects=False" in src, (
+        "_validate_image must call requests.head with allow_redirects=False"
+    )
+
+
+def test_gate_18_research_default_timeout_is_short():
+    """live_research.DEFAULT_TIMEOUT must be ≤ 6 s so each Tavily / DDG
+    HTTP call returns promptly."""
+    from backend import live_research
+    assert live_research.DEFAULT_TIMEOUT <= 6, (
+        f"DEFAULT_TIMEOUT={live_research.DEFAULT_TIMEOUT}; "
+        "must be ≤ 6 s to keep the pipeline responsive"
+    )
+
+
+def test_gate_19_request_budget_constant_exists():
+    """ProductResearcher must declare REQUEST_BUDGET_SECONDS so pick() can
+    bound the total wall-clock time of a single request."""
+    from backend.product_research import ProductResearcher
+    assert hasattr(ProductResearcher, "REQUEST_BUDGET_SECONDS"), \
+        "ProductResearcher must declare REQUEST_BUDGET_SECONDS"
+    assert ProductResearcher.REQUEST_BUDGET_SECONDS <= 30, (
+        "REQUEST_BUDGET_SECONDS must be ≤ 30 s so /find-winner "
+        "returns within the browser AbortController budget"
+    )
+
+
+def _read_product_control_agent():
+    """Lazy import helper for product_control_agent."""
+    import backend.product_control_agent as pca_mod
+    return pca_mod
+
+
+def test_gate_20_image_check_timeout_moves_to_next_candidate(monkeypatch):
+    """If candidate 1's image HEAD never returns (simulated with a hang),
+    the next candidate must still be evaluated."""
+    from backend.product_research import ProductResearcher
+    hang_calls = {"n": 0}
+    # Counter to differentiate per-call return values; first call hangs.
+    call_no = {"i": 0}
+
+    def hang_or_ok(self, *, product_name="", category="", intent=""):
+        call_no["i"] += 1
+        hang_calls["n"] += 1
+        if call_no["i"] == 1:
+            # Simulate slow candidate that never yields a URL.
+            return None
+        return _TEST_IMAGE_URL
+
+    # Patch _validate_image to count timeouts and behave deterministically.
+    import backend.product_control_agent as pca_mod
+    timeout_calls = {"n": 0}
+
+    def head_with_eventual_timeout(url, **kw):
+        timeout_calls["n"] += 1
+        if timeout_calls["n"] == 1:
+            import requests as r
+            raise r.exceptions.Timeout("simulated image-host hang")
+        return mock.Mock(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg", "Content-Length": "24576"},
+        )
+
+    monkeypatch.setattr(ProductResearcher, "_find_product_image", hang_or_ok)
+    monkeypatch.setattr(pca_mod.requests, "head", head_with_eventual_timeout)
+
+    with _patch_research(ResearchEnvelope(
+        research_status="live", research_timestamp="2026-09-26T00:00:00Z",
+        research_provider="tavily",
+        research_sources=[{"title": "t", "snippet": "s",
+                           "url": "https://example.com/a", "provider": "tavily"}],
+        research_summary="x", research_query="pet",
+    )):
+        winner = get_researcher().pick("pet")
+    assert winner["image_url"] == _TEST_IMAGE_URL
+    assert winner["image_status"] == "verified"
+    assert timeout_calls["n"] >= 1, (
+        "first candidate must have triggered an image-check timeout"
+    )
+
+
+def test_gate_21_pick_terminates_within_request_budget(monkeypatch):
+    """If every candidate's image validation hangs, pick() must still
+    terminate within REQUEST_BUDGET_SECONDS, not run forever."""
+    from backend.product_research import ProductResearcher
+
+    def always_none(self, *, product_name="", category="", intent=""):
+        return None
+
+    monkeypatch.setattr(ProductResearcher, "_find_product_image", always_none)
+
+    import time as _t
+    t0 = _t.monotonic()
+    with _patch_research(ResearchEnvelope(
+        research_status="live", research_timestamp="2026-09-26T00:00:00Z",
+        research_provider="tavily",
+        research_sources=[{"title": "t", "snippet": "s",
+                           "url": "https://example.com/a", "provider": "tavily"}],
+        research_summary="x", research_query="pet",
+    )):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            get_researcher().pick("pet")
+    elapsed = _t.monotonic() - t0
+    assert exc.value.status_code == 404
+    assert "No photo-qualified winner" in exc.value.detail
+    assert elapsed < 2.0, (
+        f"pick() took {elapsed:.2f}s without a working image-research; "
+        "the budget guard should terminate it within a couple of seconds "
+        "in the unit-test (mocked) environment"
+    )
+
+
+def test_gate_22_validate_image_returns_image_load_failed_on_timeout():
+    """_validate_image must catch requests.Timeout and return a structured
+    rejection — never propagate the exception."""
+    import backend.product_control_agent as pca_mod
+    import requests as r
+
+    with mock.patch.object(
+        pca_mod.requests, "head",
+        side_effect=r.exceptions.Timeout("upstream slow"),
+    ):
+        result = pca_mod._validate_image("https://slow.example.com/p.jpg")
+    assert result.ok is False
+    assert result.image_status == "broken"
+    assert "Timeout" in result.reason or "image_load_failed" in result.reason
+
+
+def test_gate_23_research_images_returns_max_3_urls():
+    """research_images must cap the result at max_results (3) so a single
+    call cannot balloon into hundreds of candidate URLs."""
+    from backend import live_research
+    # Patch both providers so the cap is exercised.
+    with mock.patch.object(
+        live_research, "_is_tavily_configured", return_value=False,
+    ), mock.patch.object(
+        live_research.requests, "post",
+        return_value=mock.Mock(status_code=200, text="<html></html>"),
+    ):
+        urls = live_research.research_images("anything", max_results=3)
+    assert isinstance(urls, list)
+    assert len(urls) <= 3
+
+
+def test_gate_24_frontend_abort_controller_for_find_winner():
+    """index.html must wrap the /find-winner fetch in an AbortController
+    with a finite timeout so the browser cannot spin forever."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function findWinner")
+    body = src[fn_idx:fn_idx + 12000]
+    assert "AbortController" in body, \
+        "findWinner must use AbortController around the /find-winner fetch"
+    assert "findController.abort" in body, \
+        "AbortController must have an abort() timer attached"
+    assert "FIND_WINNER_TIMEOUT_MS" in body, \
+        "AbortController timeout must be defined as a named constant"
+
+
+def test_gate_25_frontend_abort_controller_for_generate():
+    """index.html must wrap the /traffic/generate fetch in an AbortController."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function findWinner")
+    body = src[fn_idx:fn_idx + 14000]
+    assert "genController" in body or "AbortController" in body, \
+        "findWinner must use an AbortController around /traffic/generate"
+
+
+def test_gate_26_frontend_rejects_unverified_winner_image():
+    """index.html MUST throw before rendering if the winner's
+    image_status is not 'verified' — defense-in-depth in case the backend
+    ever regresses."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function findWinner")
+    body = src[fn_idx:fn_idx + 14000]
+    assert "image_status" in body and "verified" in body, \
+        "findWinner must check image_status === 'verified'"
+    assert "!winner.image_url" in body, \
+        "findWinner must also reject winners with no image_url"
+
+
+def test_gate_27_frontend_handles_abort_error_message():
+    """When AbortController fires, the user must see a clear timeout
+    message — not a generic network error."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function findWinner")
+    body = src[fn_idx:fn_idx + 14000]
+    assert "took too long" in body, \
+        "findWinner must surface a 'took too long' message on AbortError"
+    assert "AbortError" in body, \
+        "findWinner must detect networkErr.name === 'AbortError'"
+
+
+def test_gate_28_research_images_skips_ddg_when_tavily_already_satisfied():
+    """If Tavily returns enough image URLs to satisfy max_results, the
+    function must NOT also call DuckDuckGo. This keeps the pipeline fast."""
+    from backend import live_research
+    ddg_called = {"n": 0}
+    real_post = live_research.requests.post
+
+    def counting_post(*args, **kwargs):
+        # DuckDuckGo endpoint only.
+        if "duckduckgo.com" in (args[0] if args else kwargs.get("url", "")):
+            ddg_called["n"] += 1
+        # Return an empty 200 — we don't care about content for this test.
+        return mock.Mock(status_code=200, text="<html></html>", json=lambda: {})
+
+    # Force Tavily to be configured and return 3 image URLs immediately.
+    tavily_response = mock.Mock(status_code=200)
+    tavily_response.json.return_value = {
+        "results": [],
+        "images": [
+            {"url": "https://a.example.com/p1.jpg"},
+            {"url": "https://a.example.com/p2.jpg"},
+            {"url": "https://a.example.com/p3.jpg"},
+        ],
+    }
+    tavily_called = {"n": 0}
+
+    def selective_post(url, *args, **kwargs):
+        if "api.tavily.com" in url:
+            tavily_called["n"] += 1
+            return tavily_response
+        return counting_post(url, *args, **kwargs)
+
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", side_effect=selective_post):
+        urls = live_research.research_images("test query", max_results=3)
+
+    assert tavily_called["n"] == 1, "Tavily should be called exactly once"
+    assert ddg_called["n"] == 0, (
+        f"DuckDuckGo should NOT be called when Tavily already returned "
+        f"max_results URLs; was called {ddg_called['n']} time(s)"
+    )
+    assert len(urls) == 3

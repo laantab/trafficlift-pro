@@ -2122,16 +2122,33 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             const findWinnerUrl = apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`);
             console.log('[find-winner] → GET', findWinnerUrl);
 
+            // Front-end safety timeout: never let the spinner spin forever.
+            // The backend already bounds /find-winner to ~20 s; we wrap that
+            // with a 25 s AbortController so a hung connection is aborted
+            // and the button is restored.
+            const FIND_WINNER_TIMEOUT_MS = 25000;
+            const findController = new AbortController();
+            const findTimer = setTimeout(
+                () => findController.abort(),
+                FIND_WINNER_TIMEOUT_MS,
+            );
+
             let findResp;
             try {
                 findResp = await fetch(findWinnerUrl, {
                     method: 'GET',
                     headers: { 'Accept': 'application/json' },
+                    signal: findController.signal,
                 });
             } catch (networkErr) {
+                clearTimeout(findTimer);
+                if (networkErr && networkErr.name === 'AbortError') {
+                    throw new Error('Find Winner took too long. Please try again.');
+                }
                 throw new Error('Network error reaching /find-winner: '
                     + (networkErr && networkErr.message || networkErr));
             }
+            clearTimeout(findTimer);
             if (!findResp.ok) {
                 let detail = '';
                 try {
@@ -2144,6 +2161,16 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             const winner = await findResp.json();
             if (!winner || !winner.id) {
                 throw new Error('Find Winner returned an empty payload.');
+            }
+            // Defense-in-depth: the backend already guarantees this, but if a
+            // future regression returns an image-less winner we MUST NOT render
+            // it as a Pinterest-ready product.
+            if (winner.image_status && winner.image_status !== 'verified') {
+                throw new Error('Winner image was not verified by the Product Control Agent (status: '
+                    + winner.image_status + '). Please try again.');
+            }
+            if (!winner.image_url) {
+                throw new Error('Winner has no usable product image. Please try again.');
             }
             console.log('[find-winner] ✓', { id: winner.id, name: winner.name });
 
@@ -2166,6 +2193,12 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             // and "Untitled Product" can never appear from this flow.
             const genUrl = apiUrl('/api/v1/traffic/generate');
             console.log('[find-winner] → POST', genUrl, { id: winner.id });
+            const GENERATE_TIMEOUT_MS = 30000;
+            const genController = new AbortController();
+            const genTimer = setTimeout(
+                () => genController.abort(),
+                GENERATE_TIMEOUT_MS,
+            );
             let genResp;
             try {
                 genResp = await fetch(genUrl, {
@@ -2176,11 +2209,17 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                         target_channels: ['pinterest'],
                         product_payload: winner,
                     }),
+                    signal: genController.signal,
                 });
             } catch (networkErr) {
+                clearTimeout(genTimer);
+                if (networkErr && networkErr.name === 'AbortError') {
+                    throw new Error('Pinterest generation took too long. Please try again.');
+                }
                 throw new Error('Network error reaching /traffic/generate: '
                     + (networkErr && networkErr.message || networkErr));
             }
+            clearTimeout(genTimer);
             if (!genResp.ok) {
                 let detail = '';
                 try {
