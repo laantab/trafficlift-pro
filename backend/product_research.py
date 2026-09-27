@@ -25,6 +25,7 @@ import random
 import re
 import threading
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from typing import Optional
 
 from backend import live_research
@@ -1459,33 +1460,23 @@ class ProductResearcher:
         seed: Optional[int] = None,
         use_ai: bool = False,
     ) -> dict:
-        """
-        Pick a winner.
+        """Pick a winner — strict image-required pipeline.
 
         Pipeline:
             1. Run live Internet research (Tavily → DuckDuckGo fallback).
-               The 30-product pool is CANDIDATE INVENTORY, never source of truth.
-            2. If live research returned usable evidence (status=live|partial):
-               score 3-5 candidates and select the highest.
-            3. If research failed (status=fallback): explicitly mark the result
-               as ``source="fallback_pool"`` and DO NOT present the embedded
-               trend_signals as fresh evidence.
+            2. If research returned usable evidence (status=live|partial):
+               iterate ranked candidates, enrich with image search, audit.
+               Return the first candidate that passes the Product Control
+               Agent (including the strict image gate).
+            3. If research failed (status=fallback): try the AI path first,
+               then fall back to the pool — but ALL candidates must pass
+               the audit. If none do, raise HTTPException(404) so the user
+               sees a clear "No photo-qualified winner found" error.
 
-        Args:
-            intent:   Raw user input (URL or keyword). Used to bias the category.
-            exclude:  Optional list of product ids to avoid (e.g. last shown).
-            seed:     Optional deterministic seed for tests.
-            use_ai:   If True and OpenAI is configured, prefer a fresh AI pick
-                      when live research is unavailable.
-
-        Returns:
-            Audit-cleared product dict with a research envelope:
-              research_status, research_timestamp, research_provider,
-              research_sources, candidates_evaluated, selection_score,
-              selection_rationale, research_summary, source.
+        Raises:
+            fastapi.HTTPException(404) when no candidate has a verified image.
         """
-        # Lazy import to avoid circular dependency
-        from backend.product_control_agent import ProductControlAgent
+        from fastapi import HTTPException
 
         exclude = set(exclude or [])
         intent_clean = (intent or "").strip() or "trending product"
@@ -1494,7 +1485,7 @@ class ProductResearcher:
         # 1. Live Internet research (Tavily → DuckDuckGo fallback)
         envelope = live_research.research(intent_clean)
 
-        # 2. Branch on research status
+        # 2. Branch on research status — research-backed is the primary path
         if envelope.research_status in ("live", "partial"):
             return self._pick_research_backed(
                 intent=intent_clean,
@@ -1505,45 +1496,116 @@ class ProductResearcher:
                 use_ai=use_ai,
             )
 
-        # 3. Fallback path — explicit "fallback" status, never claim freshness
+        # 3. Fallback status — research failed. Try AI first, then pool.
+        # Both paths are wrapped so the audit rejection of every candidate
+        # yields a clean 404 instead of a 500.
         if use_ai and self._openai_available:
-            ai_card = self._ai_pick(intent_clean, category_hint=category_hint)
-            if ai_card is not None:
-                ai_card.update(_envelope_to_meta(envelope))
-                ai_card["source"] = "openai_research"
-                ai_card["selection_rationale"] = (
-                    "Live research unavailable; selected via GPT-4o knowledge."
-                )
-                ai_card["candidates_evaluated"] = [
-                    {
-                        "id": ai_card.get("id", "ai-pick"),
-                        "name": ai_card.get("name", "AI suggested product"),
-                        "score": 50,
-                        "factors": {"web_evidence": 0, "demand_signal": 50},
-                        "selected": True,
-                    }
-                ]
-                return ProductControlAgent.audit_product(ai_card)
+            try:
+                ai_card = self._ai_pick(intent_clean, category_hint=category_hint)
+                if ai_card is not None:
+                    ai_card.update(_envelope_to_meta(envelope))
+                    ai_card["source"] = "openai_research"
+                    ai_card["selection_rationale"] = (
+                        "Live research unavailable; selected via GPT-4o knowledge."
+                    )
+                    ai_card["candidates_evaluated"] = [
+                        {
+                            "id": ai_card.get("id", "ai-pick"),
+                            "name": ai_card.get("name", "AI suggested product"),
+                            "score": 50,
+                            "factors": {"web_evidence": 0, "demand_signal": 50},
+                            "selected": True,
+                        }
+                    ]
+                    # Validate the AI card's image — image_search may save it.
+                    if (ai_card.get("image_url") or "").startswith("data:"):
+                        enriched = self._find_product_image(
+                            product_name=ai_card.get("name") or "",
+                            category=ai_card.get("category") or "",
+                            intent=intent_clean,
+                        )
+                        if enriched:
+                            ai_card["image_url"] = enriched
+                            ai_card["image_source"] = "image_research"
+                    return ProductControlAgent.audit_product(ai_card)
+            except ValueError as exc:
+                logger.info("[find-winner] AI pick rejected by audit: %s", exc)
 
-        # Last-resort: pool rotation (clearly labeled as fallback)
-        if category_hint in POOLS:
-            winner = self._pick_from(category_hint, exclude=exclude, seed=seed)
-        else:
-            winner = self._pick_across(exclude=exclude, seed=seed)
-        winner.update(_envelope_to_meta(envelope))
-        winner["source"] = "fallback_pool"
-        winner["selection_rationale"] = (
-            "Live research unavailable — showing fallback suggestion from curated pool. "
-            "Trend signals shown are NOT fresh evidence; they are pool metadata."
+        # Last-resort: pool rotation, but every candidate must pass the
+        # image gate. We try them in deterministic order; if all fail we
+        # surface a 404 to the user.
+        from backend.product_control_agent import ProductControlAgent
+
+        # Try each pool candidate in turn (deterministic by seed).
+        candidates = self._gather_candidates(
+            category_hint=category_hint,
+            exclude=exclude, seed=seed,
+            max_n=self.MAX_CANDIDATE_ATTEMPTS,
         )
-        # Clear the misleading old trend_signals from pool cards when in fallback
-        # so the UI doesn't surface them as "live evidence"
-        if envelope.research_status == "fallback":
-            winner["trend_signals"] = []
-            winner["trend_signals_note"] = (
-                "Trend signals omitted because no live research was available."
+        rejection_log: list[dict] = []
+        attempts = 0
+        for card in candidates[: self.MAX_CANDIDATE_ATTEMPTS]:
+            attempts += 1
+            winner = self._materialize(card, _card_category(card))
+            # Pool fallback cards carry data: URI placeholders. Try to
+            # enrich with image-focused research before the audit gate.
+            if (winner.get("image_url") or "").startswith("data:"):
+                enriched = self._find_product_image(
+                    product_name=winner.get("name") or "",
+                    category=winner.get("category") or "",
+                    intent=intent_clean,
+                )
+                if enriched:
+                    winner["image_url"] = enriched
+                    winner["image_source"] = "image_research"
+            report = ProductControlAgent.evaluate(winner)
+            if report.ok:
+                winner = report.product
+                winner.update(_envelope_to_meta(envelope))
+                winner["source"] = "fallback_pool"
+                winner["selection_rationale"] = (
+                    "Fallback to internal pool: live research unavailable; "
+                    "first pool candidate with a verified product image was selected."
+                )
+                winner["candidates_evaluated"] = [
+                    {
+                        "id": c.id, "name": c.name, "category": c.category,
+                        "score": 0, "factors": {}, "selected": (c.id == card.id),
+                        "rejection_reason": next(
+                            (r["reason"] for r in rejection_log if r["id"] == c.id),
+                            None,
+                        ),
+                    } for c in candidates
+                ]
+                winner["rejection_log"] = rejection_log
+                winner["candidates_attempted"] = attempts
+                winner["trend_signals"] = []
+                winner["trend_signals_note"] = (
+                    "Trend signals omitted because no live research was available."
+                )
+                return winner
+            rejection_log.append({
+                "id": card.id,
+                "name": card.name,
+                "category": card.category,
+                "score": 0,
+                "reason": report.primary_reason,
+                "rejected_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info(
+                "[find-winner] REJECTED pool candidate id=%s reason=%s",
+                card.id, report.primary_reason,
             )
-        return ProductControlAgent.audit_product(winner)
+
+        # All candidates rejected — no photo-qualified winner.
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No photo-qualified winner found. "
+                f"Tried {attempts} candidate(s); none had a usable product image. "
+                "Try a different keyword, or enable TAVILY_API_KEY for richer image discovery."
+            ),
+        )
 
     def get_pool_summary(self) -> dict:
         """Return lightweight pool metadata for a 'browse all' view."""
@@ -1560,6 +1622,9 @@ class ProductResearcher:
 
     # ── Internal helpers ───────────────────────────────────────────────────
 
+    # Hard cap on candidate iterations to prevent infinite loops.
+    MAX_CANDIDATE_ATTEMPTS = 8
+
     def _pick_research_backed(
         self,
         *,
@@ -1570,19 +1635,29 @@ class ProductResearcher:
         seed: Optional[int],
         use_ai: bool,
     ) -> dict:
-        """Select a winner by scoring 3-5 candidates against live research.
+        """Select a winner by scoring candidates against live research.
 
-        Pool cards are CANDIDATE INVENTORY only. The selection is driven by the
-        strongest match between live evidence and candidate attributes.
+        NEW (2026-09-26): candidates are iterated in score order. Each
+        candidate is materialized, optionally enriched with a real product
+        photo (if the pool fallback is a data: URI placeholder), and run
+        through the Product Control Agent. If the audit rejects — usually
+        because the image is missing or invalid — we record the rejection
+        reason and try the next candidate. The bounded loop guarantees we
+        cannot spin forever. If NO candidate passes, we raise
+        ``NoPhotoQualifiedWinnerError`` so the API surfaces a clear 404.
         """
         from backend.product_control_agent import ProductControlAgent
+        from fastapi import HTTPException
 
         candidates = self._gather_candidates(
-            category_hint=category_hint, exclude=exclude, seed=seed
+            category_hint=category_hint, exclude=exclude, seed=seed,
+            max_n=max(self.MAX_CANDIDATE_ATTEMPTS, 5),
         )
         if not candidates:
-            # Should never happen — pool is always populated — but be safe.
-            return self._pick_across(exclude=exclude, seed=seed)
+            raise HTTPException(
+                status_code=404,
+                detail="No candidates available in the pool.",
+            )
 
         scored: list[tuple[ProductCard, dict, int]] = []
         for card in candidates:
@@ -1592,34 +1667,148 @@ class ProductResearcher:
         # Sort descending by score; break ties by rotation (deterministic)
         rng = random.Random(seed) if seed is not None else random.Random()
         scored.sort(key=lambda t: (-t[2], rng.random()))
-        winner_card, winner_factors, winner_score = scored[0]
 
-        winner = self._materialize(winner_card, _card_category(winner_card))
-        winner.update(_envelope_to_meta(envelope))
-        winner["selection_score"] = winner_score
-        winner["selection_rationale"] = _build_rationale(
-            winner_card, envelope, winner_factors, winner_score
-        )
-        winner["candidates_evaluated"] = [
-            {
-                "id": c.id,
-                "name": c.name,
-                "category": c.category,
-                "score": s,
-                "factors": f,
-                "selected": (c.id == winner_card.id),
-            }
-            for c, f, s in scored
-        ]
-        winner["source"] = "live_research" if envelope.research_status == "live" else "partial_research"
-        # When research is partial, trim the pool trend_signals so we don't
-        # present them as fresh evidence.
-        if envelope.research_status == "partial":
-            winner["trend_signals"] = []
-            winner["trend_signals_note"] = (
-                "Pool trend signals omitted because live evidence was sparse."
+        rejection_log: list[dict] = []
+        attempts = 0
+
+        for card, factors, score in scored[: self.MAX_CANDIDATE_ATTEMPTS]:
+            attempts += 1
+            winner = self._materialize(card, _card_category(card))
+
+            # If the materialized winner still has a data: URI placeholder
+            # (the pool always does), try to enrich it with a real photo
+            # from image-focused research. This is the "discovery pass"
+            # called out in the spec.
+            if (winner.get("image_url") or "").startswith("data:"):
+                enriched_url = self._find_product_image(
+                    product_name=winner.get("name") or "",
+                    category=winner.get("category") or "",
+                    intent=intent,
+                )
+                if enriched_url:
+                    logger.info(
+                        "[find-winner] enriched %s with image %s",
+                        winner.get("id"), enriched_url[:80],
+                    )
+                    winner["image_url"] = enriched_url
+                    winner["image_source"] = "image_research"
+                else:
+                    logger.info(
+                        "[find-winner] no real image found for %s; will reject if no fallback",
+                        winner.get("id"),
+                    )
+
+            # Audit (strict image gate + semantic + required-fields)
+            report = ProductControlAgent.evaluate(winner)
+
+            if report.ok:
+                winner = report.product
+                # Mark provenance / research metadata
+                winner.update(_envelope_to_meta(envelope))
+                winner["selection_score"] = score
+                winner["selection_rationale"] = _build_rationale(
+                    card, envelope, factors, score
+                )
+                winner["candidates_evaluated"] = [
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "category": c.category,
+                        "score": s,
+                        "factors": f,
+                        "selected": (c.id == card.id),
+                        "rejection_reason": next(
+                            (r["reason"] for r in rejection_log if r["id"] == c.id),
+                            None,
+                        ),
+                    }
+                    for c, f, s in scored
+                ]
+                # Include the rejection log so the UI can show what was
+                # tried and rejected.
+                winner["rejection_log"] = rejection_log
+                winner["candidates_attempted"] = attempts
+                winner["source"] = (
+                    "live_research" if envelope.research_status == "live"
+                    else "partial_research"
+                )
+                if envelope.research_status == "partial":
+                    winner["trend_signals"] = []
+                    winner["trend_signals_note"] = (
+                        "Pool trend signals omitted because live evidence was sparse."
+                    )
+                return winner
+
+            # Audit failed — record and move on
+            reason = report.primary_reason
+            logger.info(
+                "[find-winner] REJECTED candidate id=%s name=%s reason=%s",
+                card.id, card.name, reason,
             )
-        return ProductControlAgent.audit_product(winner)
+            rejection_log.append({
+                "id": card.id,
+                "name": card.name,
+                "category": card.category,
+                "score": score,
+                "reason": reason,
+                "rejected_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+        # All candidates rejected — no photo-qualified winner found.
+        detail = (
+            "No photo-qualified winner found. "
+            f"Tried {attempts} candidate(s); none had a usable product image. "
+            "Try a different keyword, or enable TAVILY_API_KEY for richer image discovery."
+        )
+        # Surface a structured error so the API client can react
+        raise HTTPException(
+            status_code=404,
+            detail=detail,
+        )
+
+    def _find_product_image(
+        self,
+        *,
+        product_name: str,
+        category: str,
+        intent: str,
+    ) -> Optional[str]:
+        """Image-focused discovery: returns the first URL whose HEAD returns
+        a usable image content type. Used to enrich a pool candidate whose
+        only image is a data: URI placeholder.
+
+        Uses the app's approved research paths (Tavily image search →
+        DuckDuckGo image search) and the ProductControlAgent image gate
+        (http(s) only, image/* content type, ≥ 5 KB, not a logo/placeholder).
+        """
+        from backend.product_control_agent import ProductControlAgent, _validate_image
+        from backend import live_research
+
+        queries = []
+        if product_name:
+            queries.append(f"{product_name} product photo")
+        if category:
+            queries.append(f"{category} product image")
+        if intent and intent not in (product_name, category):
+            queries.append(f"{intent} product photo")
+
+        seen: set[str] = set()
+        for q in queries:
+            try:
+                urls = live_research.research_images(q, max_results=4)
+            except Exception as exc:
+                logger.warning("[find-winner] image research failed: %s", exc)
+                continue
+            for url in urls:
+                if url in seen:
+                    continue
+                seen.add(url)
+                # Cheap HEAD via the same validator the agent uses — but we
+                # reuse the dataclass to surface image_bytes / content-type.
+                chk = _validate_image(url)
+                if chk.ok:
+                    return url
+        return None
 
     def _gather_candidates(
         self,
