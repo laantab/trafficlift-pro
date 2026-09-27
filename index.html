@@ -129,7 +129,7 @@
                             <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
                                 class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
                         </div>
-                        <button id="findWinnerBtn" type="button" onclick="return (window.__tlpFindWinner && window.__tlpFindWinner(event))" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
+                        <button id="findWinnerBtn" type="button" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
                             <span>🎯</span>
                             <span class="hidden sm:inline">Find Winner</span>
                         </button>
@@ -1749,11 +1749,15 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     }
 
     async function _loadImageWithCors(url) {
-        // Try crossOrigin='anonymous' first; if it fails, retry without
-        // crossOrigin (still useful for canvas drawing, just taints it).
-        // Returns { img, tainted } — tainted images can be drawn but their
-        // pixels cannot be read back; toBlob still works on the canvas
-        // because we draw first and read back the full canvas.
+        // Try to load the image WITH crossOrigin='anonymous' so the canvas
+        // can read back the pixels and produce an exportable JPEG. If the
+        // server doesn't send CORS headers (or returns any non-2xx), this
+        // rejects and we return null — caller MUST use the branded fallback.
+        //
+        // We deliberately do NOT retry without crossOrigin: that would
+        // silently taint the canvas and break downloadPinImage's toBlob()
+        // for the entire pipeline. A safe fallback is always preferable to
+        // a silently-broken download.
         if (!url) return null;
         try {
             const img = new Image();
@@ -1763,15 +1767,9 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 img.onload = resolve;
                 img.onerror = () => reject(new Error('cors-load-failed'));
             });
-            return { img, tainted: false };
+            return img;
         } catch (_) {
-            // Retry without CORS — works for same-origin + data: URIs.
-            return await new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve({ img, tainted: true });
-                img.onerror = () => resolve(null);
-                img.src = url;
-            });
+            return null;
         }
     }
 
@@ -1792,7 +1790,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         if (current && lines.length < maxLines) lines.push(current);
         // If we still have overflow, ellipsize the last line.
         if (lines.length === maxLines) {
-            const last = lines[lines.length - 1];
+            let last = lines[lines.length - 1];
             while (ctx.measureText(last + '…').width > maxWidth && last.length > 0) {
                 last = last.slice(0, -1);
             }
@@ -1955,8 +1953,8 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
 
         // 1. HERO (0..900)
         const hero = await _loadImageWithCors(winner && winner.image_url);
-        if (hero && hero.img && hero.img.naturalWidth > 0) {
-            _drawHeroImage(ctx, hero.img, W, 900);
+        if (hero && hero.naturalWidth > 0) {
+            _drawHeroImage(ctx, hero, W, 900);
         } else {
             _drawFallbackHero(ctx, W, 900, categoryKey, productName);
         }
@@ -2068,183 +2066,183 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
     }
 
-    async function fetchTrendingProduct() {
-        console.log('[find-winner] triggered', { hint: (document.getElementById('productUrl')||{}).value || '' });
+    // ── Clean one-click Find Winner ───────────────────────────────────────
+    // Single async function that owns the entire flow:
+    //   A. button state: disable + "Finding Winner..."
+    //   B. UI: hide #emptyState, show #loadingState + #resultsContent
+    //   C. GET /api/v1/find-winner
+    //   D. displayWinnerCard(winner)
+    //   E. POST /api/v1/traffic/generate with product_payload (safe path)
+    //   F. renderPinterestResult + renderPinPreview (designed 1000x1500 pin)
+    //   G. button → "Find Another Winner", re-enabled
+    // On any failure: visible error in #executionOutput, button restored.
+    async function findWinner() {
         const btn = document.getElementById('findWinnerBtn');
-        showLoadingState(btn, true);
+        const urlInput = document.getElementById('productUrl');
+
+        // ── A. Button state ────────────────────────────────────────────
+        if (btn) {
+            btn.disabled = true;
+            btn.dataset.labelDefault = btn.dataset.labelDefault
+                || btn.querySelector('span:nth-of-type(2)')?.textContent
+                || 'Find Winner';
+            const labelEl = btn.querySelector('span:nth-of-type(2)');
+            if (labelEl) labelEl.textContent = 'Finding Winner…';
+        }
+
+        // ── B. UI: show loading, hide empty state, ensure results visible ─
+        const emptyEl    = document.getElementById('emptyState');
+        const loadingEl  = document.getElementById('loadingState');
+        const resultsEl  = document.getElementById('resultsContent');
+        const executionEl = document.getElementById('executionOutput');
+        if (emptyEl)    emptyEl.classList.add('hidden');
+        if (resultsEl)  resultsEl.classList.remove('hidden');
+        if (loadingEl)  loadingEl.classList.remove('hidden');
+        // Clear any stale error from a prior run.
+        if (executionEl) {
+            executionEl.classList.add('hidden');
+            executionEl.innerHTML = '';
+        }
+
         try {
-            // 1. Fetch the winning product from /api/v1/find-winner.
-            //    If the user has typed something in the URL input, forward it
-            //    as a `url_or_keyword` hint so the synthesis can match intent.
-            //    Pass the previous winner's id as `exclude` so a click always
-            //    returns a DIFFERENT product — never the same one twice.
-            const urlInput =
-                document.getElementById('productUrl') ||
-                document.getElementById('product-url-input');
+            // ── C. GET /api/v1/find-winner ────────────────────────────────
             const hint = (urlInput && urlInput.value || '').trim();
             const prev = window.__lastWinnerId || '';
             const params = new URLSearchParams();
             if (hint) params.set('url_or_keyword', hint);
             if (prev) params.set('exclude', prev);
             const qs = params.toString();
-            const endpoint = apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`);
-            console.log('[find-winner] → GET', endpoint);
-            let r;
+            const findWinnerUrl = apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`);
+            console.log('[find-winner] → GET', findWinnerUrl);
+
+            let findResp;
             try {
-                r = await fetch(endpoint, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                findResp = await fetch(findWinnerUrl, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                });
             } catch (networkErr) {
-                console.error('[find-winner] network error', networkErr);
-                throw new Error('Network error: ' + (networkErr && networkErr.message || networkErr));
+                throw new Error('Network error reaching /find-winner: '
+                    + (networkErr && networkErr.message || networkErr));
             }
-            console.log('[find-winner] ← status', r.status, r.statusText);
-            if (!r.ok) {
-                // Try to surface a server-provided detail for a clearer toast.
-                let serverDetail = '';
+            if (!findResp.ok) {
+                let detail = '';
                 try {
-                    const errBody = await r.json();
-                    serverDetail = errBody?.detail || errBody?.message || '';
-                } catch (_) { /* body wasn't JSON */ }
-                throw new Error('HTTP ' + r.status + (serverDetail ? ' — ' + serverDetail : ''));
+                    const errBody = await findResp.json();
+                    detail = errBody?.detail || errBody?.message || '';
+                } catch (_) { /* not JSON */ }
+                throw new Error('Find Winner HTTP ' + findResp.status
+                    + (detail ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
             }
-            const data = await r.json();
-            if (!data || !data.id) {
-                throw new Error('Server returned an empty payload.');
+            const winner = await findResp.json();
+            if (!winner || !winner.id) {
+                throw new Error('Find Winner returned an empty payload.');
             }
-            console.log('[find-winner] ✓', { id: data.id, name: data.name, category: data.category });
-            window.__lastWinnerId = data.id;
-            window.__currentWinner = data;  // full payload — used by 1-click Pinterest launch
+            console.log('[find-winner] ✓', { id: winner.id, name: winner.name });
 
-            // 2. Pre-fill the product URL input (resilient to either id)
-            if (urlInput) urlInput.value = data.url || '';
+            window.__lastWinnerId = winner.id;
+            window.__currentWinner = winner;
+            if (urlInput) urlInput.value = winner.url || '';
 
-            // 3. Display the winner card details (defensive — skip if not defined)
-            if (typeof displayWinnerCard === 'function') {
-                displayWinnerCard(data);
+            // Hide loading now that we have content to show.
+            if (loadingEl) loadingEl.classList.add('hidden');
+
+            // ── D. Display the winner ───────────────────────────────────
+            displayWinnerCard(winner);
+            if (typeof lucide !== 'undefined' && lucide && lucide.createIcons) {
+                try { lucide.createIcons(); } catch (_) {}
             }
-            lucide.createIcons();
 
-            // 4. Auto-launch the Pinterest package (one-click flow). The user no
-            //    longer needs to press a second button. The "Retry Pinterest
-            //    Package" button in the card re-runs the same call.
-            let pinterestToastSuffix = '';
+            // ── E. Auto-generate the Pinterest package ──────────────────
+            // Safe path: forward the in-memory winner as product_payload so
+            // we never scrape the URL again. The winner name is preserved
+            // and "Untitled Product" can never appear from this flow.
+            const genUrl = apiUrl('/api/v1/traffic/generate');
+            console.log('[find-winner] → POST', genUrl, { id: winner.id });
+            let genResp;
             try {
-                await renderPinterestAd();
-                pinterestToastSuffix = ' · Pinterest package ready';
-            } catch (pe) {
-                console.warn('[find-winner] auto-Pinterest launch failed', pe);
-                pinterestToastSuffix = ' · Pinterest package failed (Retry available)';
+                genResp = await fetch(genUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        mode: 'organic',
+                        target_channels: ['pinterest'],
+                        product_payload: winner,
+                    }),
+                });
+            } catch (networkErr) {
+                throw new Error('Network error reaching /traffic/generate: '
+                    + (networkErr && networkErr.message || networkErr));
             }
+            if (!genResp.ok) {
+                let detail = '';
+                try {
+                    const errBody = await genResp.json();
+                    detail = errBody?.detail || errBody?.message || '';
+                } catch (_) { /* not JSON */ }
+                throw new Error('Pinterest generation HTTP ' + genResp.status
+                    + (detail ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
+            }
+            const genData = await genResp.json();
+            console.log('[find-winner] ✓ pinterest', { campaign_id: genData.campaign_id, source: genData.source });
 
-            // 5. Confirm and offer next steps. We deliberately do NOT auto-scrape
-            //    the Amazon URL — the scraper often fails on Amazon pages (anti-bot),
-            //    which previously surfaced as "Untitled Product". The safe
-            //    product_payload path is the only one we use here.
-            showToast(
-                `Loaded Winner: ${data.name}`,
-                data.url
-                    ? `Source: ${data.url.replace(/^https?:\/\//, '').slice(0, 60)}…${pinterestToastSuffix}`
-                    : `Pinterest package generated.${pinterestToastSuffix}`,
-                'success'
-            );
-        } catch (e) {
-            console.error('Failed to fetch trending product', e);
-            showToast('Failed to fetch winner', e?.message || String(e), 'error');
-        } finally {
-            showLoadingState(btn, false);
+            // ── F. Render Pinterest result + designed pin ───────────────
+            renderPinterestResult(genData, winner);
+
+            // ── G. Done — restore button to "Find Another Winner" ─────
+            if (btn) {
+                btn.disabled = false;
+                const labelEl = btn.querySelector('span:nth-of-type(2)');
+                if (labelEl) labelEl.textContent = 'Find Another Winner';
+            }
+            if (typeof showToast === 'function') {
+                showToast('Pinterest Ready', winner.name, 'success');
+            }
+        } catch (err) {
+            console.error('[find-winner] failed:', err);
+            // Visible error in #executionOutput — user always sees why.
+            const msg = (err && err.message) || String(err);
+            const isWinnerStage = !window.__currentWinner;
+            const heading = isWinnerStage
+                ? 'Find Winner failed'
+                : 'Pinterest generation failed';
+            const body = isWinnerStage
+                ? 'Could not find a winner. Please try again.'
+                : 'Winner found, but Pinterest generation failed.';
+            if (executionEl) {
+                executionEl.classList.remove('hidden');
+                executionEl.innerHTML = `
+                    <div class="bg-rose-900/40 border border-rose-700/40 text-rose-200 rounded-xl p-5 space-y-2">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-300"></i>
+                            <strong class="font-semibold">${heading}</strong>
+                        </div>
+                        <p class="text-sm">${body}</p>
+                        <p class="text-xs text-rose-300/80 font-mono">${msg}</p>
+                    </div>`;
+                try { lucide.createIcons(); } catch (_) {}
+            }
+            if (loadingEl) loadingEl.classList.add('hidden');
+            // Restore button to "Find Winner" so user can retry.
+            if (btn) {
+                btn.disabled = false;
+                const labelEl = btn.querySelector('span:nth-of-type(2)');
+                if (labelEl) labelEl.textContent = 'Find Winner';
+            }
+            if (typeof showToast === 'function') {
+                showToast(heading, msg, 'error');
+            }
         }
     }
     </script>
     <script>
-    // ── Robust binding for #findWinnerBtn ─────────────────────────────────
-    // Strategy:
-    //  1. Expose a single entry point on window.__tlpFindWinner — bound to
-    //     the inline onclick on the button so it works EVEN IF the rest of
-    //     the script never loads (e.g. CDN blocked, parse error somewhere).
-    //  2. The handler shows a visible toast + sets button state on error.
-    //  3. We also addEventListener('click', ...) for a second binding path,
-    //     and we handle BOTH the DOMContentLoaded event AND the readyState
-    //     'interactive'/'complete' cases so the binding runs no matter when
-    //     this script executes.
-    //  4. We poll for #findWinnerBtn for up to 5 seconds in case the body
-    //     is reparsed or the element is added later by JS.
-    (function bindFindWinner() {
-        let bound = false;
-
-        function attempt(fn) {
-            if (bound) return;
-            const btn = document.getElementById('findWinnerBtn');
-            if (!btn) return false;
-            try {
-                btn.addEventListener('click', fn);
-                bound = true;
-                console.log('[bind] findWinnerBtn listener attached');
-                return true;
-            } catch (err) {
-                console.warn('[bind] addEventListener failed:', err);
-                return false;
-            }
-        }
-
-        function handler(ev) {
-            if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
-            if (typeof fetchTrendingProduct === 'function') {
-                fetchTrendingProduct();
-                return false;
-            }
-            // Defensive: fetchTrendingProduct is not defined (parse error, blocked script, etc.)
-            console.error('[findwinner] fetchTrendingProduct is not defined.');
-            const btn = document.getElementById('findWinnerBtn');
-            if (btn) {
-                btn.disabled = true;
-                btn.classList.add('opacity-50', 'cursor-not-allowed');
-            }
-            // Visible error: toast + a banner inside #executionOutput so the
-            // user knows why nothing happened.
-            try {
-                if (typeof showToast === 'function') {
-                    showToast('Find Winner is unavailable',
-                        'JS error blocked fetchTrendingProduct — check console.',
-                        'error');
-                }
-                const out = document.getElementById('executionOutput')
-                         || document.getElementById('execution-output');
-                if (out) {
-                    out.classList.remove('hidden');
-                    out.innerHTML = `
-                        <div class="bg-rose-900/40 border border-rose-700/40 text-rose-200 rounded-xl p-5 space-y-2">
-                            <div class="flex items-center gap-2">
-                                <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-300"></i>
-                                <strong class="font-semibold">Find Winner is unavailable.</strong>
-                            </div>
-                            <p class="text-sm">The page loaded, but <code>fetchTrendingProduct</code> is not defined.
-                            This usually means a JavaScript error earlier in the page broke script execution.
-                            Check the browser console (F12 → Console) for the error and reload.</p>
-                        </div>`;
-                }
-            } catch (_) { /* toast helper itself not loaded — silent */ }
-            return false;
-        }
-
-        // Expose as the global entry point used by the button's inline onclick.
-        window.__tlpFindWinner = handler;
-
-        // Try now (in case DOMContentLoaded already fired before this script).
-        if (attempt(handler)) return;
-
-        // Otherwise wait for DOMContentLoaded.
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => attempt(handler), { once: true });
-        }
-
-        // Belt-and-braces: also try on full window load + a delayed poll
-        // (in case the button is added by JS after page parse).
-        window.addEventListener('load', () => attempt(handler), { once: true });
-        let tries = 0;
-        const iv = setInterval(() => {
-            if (bound || ++tries > 50) { clearInterval(iv); return; } // 50 * 100ms = 5s
-            attempt(handler);
-        }, 100);
-    })();
+    // ── Single clean binding for #findWinnerBtn ───────────────────────────
+    // Exactly ONE binding. No wrappers, no polling, no fallback paths.
+    // If findWinner is undefined when the user clicks, the browser will
+    // throw a ReferenceError into the console — that's the ONLY failure
+    // mode, and it's a real bug worth seeing.
+    document.getElementById('findWinnerBtn')
+        .addEventListener('click', findWinner);
     </script>
 </body>
 </html>
