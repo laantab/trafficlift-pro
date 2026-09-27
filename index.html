@@ -249,8 +249,8 @@
                 <div id="loadingState" class="hidden flex-1 flex flex-col items-center justify-center py-24 space-y-4">
                     <div class="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
                     <div class="text-center">
-                        <p class="text-slate-200 font-medium">Generating your campaign...</p>
-                        <p class="text-sm text-slate-500 mt-1">Scraping URL and synthesizing AI assets</p>
+                        <p id="loadingHeading" class="text-slate-200 font-medium">Generating your campaign...</p>
+                        <p id="loadingSub" class="text-sm text-slate-500 mt-1">Scraping URL and synthesizing AI assets</p>
                     </div>
                     <div id="loadingSteps" class="space-y-1 text-xs text-slate-500"></div>
                 </div>
@@ -412,6 +412,21 @@
         updateChannelGrid();
         fetchHealthStatus();
         loadHistory();
+        // Warm-up ping: hit /api/v1/health immediately so Render's free-tier
+        // cold start happens BEFORE the user clicks Find Winner. The fetch
+        // is fire-and-forget; failures are silently ignored.
+        try {
+            fetch(apiUrl('/api/v1/health'), { method: 'GET', cache: 'no-store' })
+                .catch(() => { /* warm-up is best-effort */ });
+        } catch (_) { /* apiUrl may not be defined yet on very early errors */ }
+        // A second warm-up ping after a short delay catches workers that
+        // take longer than 50s to come back online after idling.
+        setTimeout(() => {
+            try {
+                fetch(apiUrl('/api/v1/health'), { method: 'GET', cache: 'no-store' })
+                    .catch(() => { /* warm-up is best-effort */ });
+            } catch (_) { /* ignore */ }
+        }, 30000);
         lucide.createIcons();
     });
 
@@ -2100,11 +2115,29 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         // ── B. UI: show loading, hide empty state, ensure results visible ─
         const emptyEl    = document.getElementById('emptyState');
         const loadingEl  = document.getElementById('loadingState');
+        const loadingH   = document.getElementById('loadingHeading');
+        const loadingSub = document.getElementById('loadingSub');
         const resultsEl  = document.getElementById('resultsContent');
         const executionEl = document.getElementById('executionOutput');
         if (emptyEl)    emptyEl.classList.add('hidden');
         if (resultsEl)  resultsEl.classList.remove('hidden');
         if (loadingEl)  loadingEl.classList.remove('hidden');
+        // Update the loading text so the user sees what stage the request
+        // is in (research → image validation → audit). A tick counter also
+        // reassures the user that something is happening during long waits.
+        const stages = [
+            'Researching trending products…',
+            'Scoring candidates…',
+            'Verifying product images…',
+            'Selecting winner…',
+        ];
+        let stageIdx = 0;
+        if (loadingH)   loadingH.textContent = stages[0];
+        if (loadingSub) loadingSub.textContent = 'First request after idle may take ~60 s while the server warms up.';
+        const stageTimer = setInterval(() => {
+            stageIdx = (stageIdx + 1) % stages.length;
+            if (loadingH) loadingH.textContent = stages[stageIdx];
+        }, 5000);
         // Clear any stale error from a prior run.
         if (executionEl) {
             executionEl.classList.add('hidden');
@@ -2122,11 +2155,15 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             const findWinnerUrl = apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`);
             console.log('[find-winner] → GET', findWinnerUrl);
 
-            // Front-end safety timeout: never let the spinner spin forever.
-            // The backend already bounds /find-winner to ~20 s; we wrap that
-            // with a 25 s AbortController so a hung connection is aborted
-            // and the button is restored.
-            const FIND_WINNER_TIMEOUT_MS = 25000;
+            // Front-end safety timeout. We pick 75 s because:
+            //   * Render free-tier cold start can be 30–60 s.
+            //   * Backend REQUEST_BUDGET_SECONDS = 20 s.
+            //   * Buffer for slow network on the client side.
+            // The backend budget itself is what guarantees the request
+            // cannot hang in the Python code; this timer is just a safety
+            // net for cases where the request never even reaches the
+            // backend (DNS, Render sleeping, network partition).
+            const FIND_WINNER_TIMEOUT_MS = 75000;
             const findController = new AbortController();
             const findTimer = setTimeout(
                 () => findController.abort(),
@@ -2179,6 +2216,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             if (urlInput) urlInput.value = winner.url || '';
 
             // Hide loading now that we have content to show.
+            clearInterval(stageTimer);
             if (loadingEl) loadingEl.classList.add('hidden');
 
             // ── D. Display the winner ───────────────────────────────────
@@ -2193,7 +2231,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             // and "Untitled Product" can never appear from this flow.
             const genUrl = apiUrl('/api/v1/traffic/generate');
             console.log('[find-winner] → POST', genUrl, { id: winner.id });
-            const GENERATE_TIMEOUT_MS = 30000;
+            const GENERATE_TIMEOUT_MS = 75000;
             const genController = new AbortController();
             const genTimer = setTimeout(
                 () => genController.abort(),
@@ -2245,22 +2283,33 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 showToast('Pinterest Ready', winner.name, 'success');
             }
         } catch (err) {
+            clearInterval(stageTimer);
             console.error('[find-winner] failed:', err);
             // Visible error in #executionOutput — user always sees why.
             const msg = (err && err.message) || String(err);
             const isWinnerStage = !window.__currentWinner;
-            // Detect the "no photo-qualified winner" 404 from the backend so
-            // the user sees the specific reason instead of a generic message.
+            // Detect specific reasons so the user sees the right message.
+            const isTimeout = /took too long/i.test(msg);
             const isNoPhotoError = /No photo-qualified winner|photo[- ]qualified/i.test(msg)
                 || /HTTP 404\b/i.test(msg);
             const heading = isWinnerStage
-                ? (isNoPhotoError ? 'No photo-qualified winner found' : 'Find Winner failed')
-                : 'Pinterest generation failed';
+                ? (isTimeout
+                    ? 'Server is waking up — please try again'
+                    : isNoPhotoError
+                        ? 'No photo-qualified winner found'
+                        : 'Find Winner failed')
+                : (isTimeout
+                    ? 'Server is waking up — please try again'
+                    : 'Pinterest generation failed');
             const body = isWinnerStage
-                ? (isNoPhotoError
-                    ? 'No product candidate in this category had a usable product photo. Try a different keyword or a different category — the system will not show an image-less product.'
-                    : 'Could not find a winner. Please try again.')
-                : 'Winner found, but Pinterest generation failed.';
+                ? (isTimeout
+                    ? 'The first request after a quiet period can take a moment while the server warms up. Click Find Winner once more and the result should appear in a few seconds.'
+                    : isNoPhotoError
+                        ? 'No product candidate in this category had a usable product photo. Try a different keyword or a different category — the system will not show an image-less product.'
+                        : 'Could not find a winner. Please try again.')
+                : (isTimeout
+                    ? 'Pinterest generation is taking longer than usual. Click Find Winner again.'
+                    : 'Winner found, but Pinterest generation failed.');
             if (executionEl) {
                 executionEl.classList.remove('hidden');
                 executionEl.innerHTML = `

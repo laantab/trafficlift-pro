@@ -739,7 +739,7 @@ def test_case_30_find_winner_calls_find_winner_then_traffic_generate():
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 6000]
+    body = src[fn_idx:fn_idx + 14000]
     # Both API calls must appear in findWinner's body
     assert "/api/v1/find-winner" in body, "findWinner must call /api/v1/find-winner"
     assert "/api/v1/traffic/generate" in body, \
@@ -1491,3 +1491,58 @@ def test_gate_28_research_images_skips_ddg_when_tavily_already_satisfied():
         f"max_results URLs; was called {ddg_called['n']} time(s)"
     )
     assert len(urls) == 3
+
+
+def test_gate_29_frontend_timeout_is_at_least_60_seconds():
+    """FIND_WINNER_TIMEOUT_MS must be at least 60 s so Render cold-start
+    (free tier: 30-60 s) does not abort the very first request after the
+    app has been idle. Without this, a freshly-loaded page would always
+    fail its first Find Winner click."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    import re
+    m = re.search(r"FIND_WINNER_TIMEOUT_MS\s*=\s*(\d+)", src)
+    assert m, "findWinner must declare FIND_WINNER_TIMEOUT_MS"
+    val = int(m.group(1))
+    assert val >= 60_000, (
+        f"FIND_WINNER_TIMEOUT_MS = {val}; must be ≥ 60 000 (60 s) so "
+        "Render's cold start cannot abort the first request"
+    )
+
+
+def test_gate_30_frontend_warms_up_backend_on_load():
+    """The page must fire-and-forget ping /api/v1/health on load so Render
+    is warm before the user clicks Find Winner. This eliminates the
+    'server is waking up' error on first click after the app has been idle."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("DOMContentLoaded")
+    body = src[fn_idx:fn_idx + 4000]
+    assert "/api/v1/health" in body, (
+        "DOMContentLoaded must fire a /api/v1/health warm-up fetch"
+    )
+
+
+def test_gate_31_frontend_shows_progress_stages():
+    """findWinner must cycle the loading text through progress stages so
+    the user sees activity during long waits (Render cold start, slow
+    network, slow research providers)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function findWinner")
+    body = src[fn_idx:fn_idx + 14000]
+    assert "Researching trending products" in body, \
+        "findWinner must show 'Researching trending products' stage"
+    assert "Verifying product images" in body, \
+        "findWinner must show 'Verifying product images' stage"
+    assert "stageTimer" in body, \
+        "findWinner must use a stageTimer to cycle the progress text"
+
+
+def test_gate_32_frontend_timeout_message_mentions_warm_up():
+    """When the AbortController fires, the error message must reassure
+    the user that the server is waking up — not blame them."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_idx = src.index("async function findWinner")
+    body = src[fn_idx:fn_idx + 14000]
+    assert "waking up" in body or "warms up" in body, \
+        "findWinner catch must explain that the server may be warming up"
+    assert "try again" in body.lower(), \
+        "findWinner catch must tell the user to try again"
