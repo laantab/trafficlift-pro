@@ -26,6 +26,22 @@
         }
     </script>
     <script src="https://unpkg.com/lucide@0.469.0"></script>
+    <script>
+    // Lucide CDN safety net: if the unpkg CDN was blocked or the script
+    // failed to load, install a no-op fallback so every lucide.createIcons()
+    // call below simply becomes a no-op instead of throwing ReferenceError.
+    (function () {
+        if (typeof window.lucide === 'undefined' || !window.lucide) {
+            console.warn('Lucide not loaded — using no-op fallback for createIcons().');
+            window.lucide = {
+                createIcons: function () { /* no-op */ },
+                create:       function () { return ''; },
+                icons:        {},
+                replace:      function () { /* no-op */ },
+            };
+        }
+    })();
+    </script>
     <style>
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 6px; }
@@ -113,7 +129,7 @@
                             <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
                                 class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
                         </div>
-                        <button id="findWinnerBtn" type="button" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
+                        <button id="findWinnerBtn" type="button" onclick="return (window.__tlpFindWinner && window.__tlpFindWinner(event))" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
                             <span>🎯</span>
                             <span class="hidden sm:inline">Find Winner</span>
                         </button>
@@ -326,7 +342,11 @@
 
     <!-- â•â•â• JAVASCRIPT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <script>
-    lucide.createIcons();
+    // Safe Lucide render: the safety-net <script> above installed a no-op
+    // fallback if the unpkg CDN failed to load, so createIcons() here is
+    // guaranteed not to throw. We still try/catch in case the fallback
+    // itself errors.
+    try { lucide.createIcons(); } catch (e) { console.warn('lucide.createIcons() failed:', e); }
 
     // â”€â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let currentMode = 'organic';
@@ -1670,7 +1690,6 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             }
         });
     }
-    }
 
     async function copyPinterestPackage(btn) {
         const text = [
@@ -2136,19 +2155,96 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     }
     </script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+    // ── Robust binding for #findWinnerBtn ─────────────────────────────────
+    // Strategy:
+    //  1. Expose a single entry point on window.__tlpFindWinner — bound to
+    //     the inline onclick on the button so it works EVEN IF the rest of
+    //     the script never loads (e.g. CDN blocked, parse error somewhere).
+    //  2. The handler shows a visible toast + sets button state on error.
+    //  3. We also addEventListener('click', ...) for a second binding path,
+    //     and we handle BOTH the DOMContentLoaded event AND the readyState
+    //     'interactive'/'complete' cases so the binding runs no matter when
+    //     this script executes.
+    //  4. We poll for #findWinnerBtn for up to 5 seconds in case the body
+    //     is reparsed or the element is added later by JS.
+    (function bindFindWinner() {
+        let bound = false;
+
+        function attempt(fn) {
+            if (bound) return;
+            const btn = document.getElementById('findWinnerBtn');
+            if (!btn) return false;
+            try {
+                btn.addEventListener('click', fn);
+                bound = true;
+                console.log('[bind] findWinnerBtn listener attached');
+                return true;
+            } catch (err) {
+                console.warn('[bind] addEventListener failed:', err);
+                return false;
+            }
+        }
+
+        function handler(ev) {
+            if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+            if (typeof fetchTrendingProduct === 'function') {
+                fetchTrendingProduct();
+                return false;
+            }
+            // Defensive: fetchTrendingProduct is not defined (parse error, blocked script, etc.)
+            console.error('[findwinner] fetchTrendingProduct is not defined.');
             const btn = document.getElementById('findWinnerBtn');
             if (btn) {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (typeof fetchTrendingProduct === 'function') {
-                        fetchTrendingProduct();
-                    } else {
-                        console.error('fetchTrendingProduct function is not defined.');
-                    }
-                });
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
             }
-        });
+            // Visible error: toast + a banner inside #executionOutput so the
+            // user knows why nothing happened.
+            try {
+                if (typeof showToast === 'function') {
+                    showToast('Find Winner is unavailable',
+                        'JS error blocked fetchTrendingProduct — check console.',
+                        'error');
+                }
+                const out = document.getElementById('executionOutput')
+                         || document.getElementById('execution-output');
+                if (out) {
+                    out.classList.remove('hidden');
+                    out.innerHTML = `
+                        <div class="bg-rose-900/40 border border-rose-700/40 text-rose-200 rounded-xl p-5 space-y-2">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-300"></i>
+                                <strong class="font-semibold">Find Winner is unavailable.</strong>
+                            </div>
+                            <p class="text-sm">The page loaded, but <code>fetchTrendingProduct</code> is not defined.
+                            This usually means a JavaScript error earlier in the page broke script execution.
+                            Check the browser console (F12 → Console) for the error and reload.</p>
+                        </div>`;
+                }
+            } catch (_) { /* toast helper itself not loaded — silent */ }
+            return false;
+        }
+
+        // Expose as the global entry point used by the button's inline onclick.
+        window.__tlpFindWinner = handler;
+
+        // Try now (in case DOMContentLoaded already fired before this script).
+        if (attempt(handler)) return;
+
+        // Otherwise wait for DOMContentLoaded.
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => attempt(handler), { once: true });
+        }
+
+        // Belt-and-braces: also try on full window load + a delayed poll
+        // (in case the button is added by JS after page parse).
+        window.addEventListener('load', () => attempt(handler), { once: true });
+        let tries = 0;
+        const iv = setInterval(() => {
+            if (bound || ++tries > 50) { clearInterval(iv); return; } // 50 * 100ms = 5s
+            attempt(handler);
+        }, 100);
+    })();
     </script>
 </body>
 </html>

@@ -536,3 +536,118 @@ def test_case_24_pin_uses_pinterest_brand_color():
     # CTA bar should use pink/rose gradient
     assert "#ec4899" in src or "#f43f5e" in src or "pink" in src.lower(), \
         "CTA bar must use brand pink/rose colors"
+
+
+# ── BUTTON-BINDING REPAIR (third repair pass) ──────────────────────────────
+
+
+def test_case_25_no_stray_brace_orphaning_fetch_trending_product():
+    """The block containing fetchTrendingProduct MUST parse without errors.
+
+    Bug: a stray `}` after a properly-closed function caused the JS parser
+    to bail, leaving fetchTrendingProduct (and everything after it) undefined.
+    """
+    import tree_sitter_javascript as tsjs
+    from tree_sitter import Language, Parser
+    import re as _re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    blocks = _re.findall(r'<script(?![^>]*src=)[^>]*>(.*?)</script>', src, flags=_re.DOTALL)
+    JS_LANG = Language(tsjs.language())
+    parser = Parser(JS_LANG)
+    errors = []
+    for i, b in enumerate(blocks):
+        tree = parser.parse(b.encode("utf-8"))
+        def _walk(node):
+            if node.has_error and (node.type == "ERROR" or node.is_missing):
+                errors.append((i, node.start_point[0] + 1, node.type))
+            for c in node.children:
+                _walk(c)
+        _walk(tree.root_node)
+    assert not errors, f"Found {len(errors)} JS syntax error(s): {errors[:5]}"
+    # The function fetchTrendingProduct must be declared in the parsed blocks
+    found = any("function fetchTrendingProduct" in b for b in blocks)
+    assert found, "fetchTrendingProduct is not declared in any script block"
+
+
+def test_case_26_button_has_inline_onclick_safety_net():
+    """The #findWinnerBtn button MUST have an inline onclick as a safety net.
+
+    This is critical so the button works even if the bottom-of-body binding
+    script never runs (e.g. parse error earlier in the page).
+    """
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    import re
+    m = re.search(r'<button[^>]*id="findWinnerBtn"[^>]*>', src)
+    assert m, "findWinnerBtn button not found"
+    btn_html = m.group(0)
+    assert "onclick" in btn_html, "findWinnerBtn must have inline onclick"
+    assert "__tlpFindWinner" in btn_html, \
+        "findWinnerBtn's onclick must call window.__tlpFindWinner"
+
+
+def test_case_27_window_helper_exposed():
+    """window.__tlpFindWinner must be exposed by the binding IIFE."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "window.__tlpFindWinner" in src, \
+        "window.__tlpFindWinner must be exposed for inline onclick + safety net"
+
+
+def test_case_28_binding_polls_for_button():
+    """The binding IIFE MUST poll for #findWinnerBtn (in case the element
+    is added by JS after page parse)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    bind_idx = src.index("function bindFindWinner")
+    snippet = src[bind_idx:bind_idx + 4000]
+    assert "setInterval" in snippet or "setTimeout" in snippet, \
+        "Binding must poll for #findWinnerBtn element"
+    assert "getElementById('findWinnerBtn')" in snippet, \
+        "Binding must look up #findWinnerBtn"
+
+
+def test_case_29_binding_handles_already_ready_state():
+    """If document.readyState !== 'loading', the binding must attempt
+    immediately (not wait for an already-fired DOMContentLoaded)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    bind_idx = src.index("function bindFindWinner")
+    snippet = src[bind_idx:bind_idx + 4000]
+    assert "readyState" in snippet, \
+        "Binding must check document.readyState to handle already-loaded pages"
+
+
+def test_case_30_binding_shows_visible_error_when_fetchTrending_missing():
+    """If fetchTrendingProduct is missing, the binding must surface a visible
+    error inside #executionOutput (so the user sees WHY nothing happens)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    bind_idx = src.index("function bindFindWinner")
+    snippet = src[bind_idx:bind_idx + 4000]
+    assert "executionOutput" in snippet, \
+        "Binding must render visible error into #executionOutput"
+    assert "showToast" in snippet, \
+        "Binding must also show a toast on missing fetchTrendingProduct"
+    assert "not defined" in snippet or "not a function" in snippet, \
+        "Binding must call out that fetchTrendingProduct is not defined"
+
+
+def test_case_31_lucide_noop_fallback_installed():
+    """A no-op Lucide fallback MUST be installed if the CDN fails to load,
+    so every lucide.createIcons() call later is safe."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    safety_idx = src.index('unpkg.com/lucide@0.469.0')
+    safety_snippet = src[safety_idx:safety_idx + 2000]
+    assert "window.lucide" in safety_snippet, \
+        "Safety net must install window.lucide fallback"
+    assert "no-op" in safety_snippet, \
+        "Safety net must label the fallback as a no-op"
+    assert "createIcons" in safety_snippet
+
+
+def test_case_32_inline_onclick_passes_event():
+    """The inline onclick must pass the event object to the handler."""
+    import re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    m = re.search(r'<button[^>]*id="findWinnerBtn"[^>]*onclick="([^"]+)"', src)
+    assert m, "findWinnerBtn must have onclick attribute"
+    onclick_value = m.group(1)
+    assert "__tlpFindWinner" in onclick_value
+    assert "event" in onclick_value, \
+        "onclick must pass the event object to __tlpFindWinner(event)"
