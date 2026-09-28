@@ -153,9 +153,17 @@ class ProductCard:
 
 
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    # NOTE: "kitchen" was previously listed under cleaning as a generic
+    # location word, which caused _classify("kitchen organizer") to tie
+    # 1-1 with the kitchen bucket and resolve to "cleaning" (because
+    # "cleaning" is iterated first in dict order). That wrongly routed
+    # kitchen-organizer queries into the CLEANING_POOL and caused a 404
+    # for "kitchen organizer". The generic noun has been removed here
+    # and the kitchen organizer/storage nouns are added to the kitchen
+    # bucket so the correct category wins decisively.
     "cleaning": [
         "clean", "scrub", "brush", "mop", "wash", "wipe", "vacuum",
-        "grout", "ultrasonic", "soap", "tile", "kitchen", "bathroom",
+        "grout", "ultrasonic", "soap", "tile", "bathroom",
         "toilet", "shower", "stain", "dust",
     ],
     "tech": [
@@ -183,6 +191,11 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
         "kitchen", "cook", "chef", "air fryer", "knife", "spice",
         "coffee", "mug", "lunch", "bento", "pan", "skillet", "meal",
         "recipe", "bake", "grocery",
+        # Kitchen-org/storage nouns — make queries like
+        # "kitchen organizer", "spice rack", "pantry organizer"
+        # classify to "kitchen" even when only one keyword matches.
+        "organizer", "storage", "rack", "shelf", "holder", "bin",
+        "cabinet", "pantry", "container", "countertop",
     ],
 }
 

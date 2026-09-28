@@ -2441,3 +2441,96 @@ def test_cascade_constants_are_sane():
     assert pca_mod.STRONG_IMAGE_SCORE >= pca_mod.MIN_PRODUCT_IMAGE_SCORE
     assert pca_mod.MAX_IMAGE_SEARCH_QUERIES >= 1
     assert pca_mod.MAX_IMAGE_SEARCH_QUERIES <= 5
+
+
+# ── CATEGORY CLASSIFIER REGRESSION (added 2026-09-28) ─────────────────────
+# Previously _CATEGORY_KEYWORDS['cleaning'] contained the generic noun
+# "kitchen", which caused _classify("kitchen organizer") to tie 1-1
+# between cleaning and kitchen and resolve to cleaning (because cleaning
+# is iterated first in dict order). That misrouted the whole pipeline to
+# CLEANING_POOL, which has no organizer product, and /find-winner 404'd.
+# These tests lock the corrected keyword lists.
+
+
+def test_classify_kitchen_organizer_routes_to_kitchen_pool():
+    """'_classify' must route 'kitchen organizer' to 'kitchen', not 'cleaning'."""
+    from backend.product_research import _classify, KITCHEN_POOL, CLEANING_POOL
+
+    hint = _classify("kitchen organizer")
+    assert hint == "kitchen", (
+        f"kitchen organizer must classify to 'kitchen' (has organizer); got {hint!r}"
+    )
+    # The KITCHEN_POOL must contain a candidate whose name includes
+    # 'organizer' so the cascade can actually run on it.
+    assert any("organizer" in c.name.lower() for c in KITCHEN_POOL), (
+        f"KITCHEN_POOL must contain an organizer candidate; "
+        f"got {[c.name for c in KITCHEN_POOL]}"
+    )
+    # And the CLEANING_POOL must NOT contain one (otherwise the
+    # misroute would not have caused a 404).
+    assert not any("organizer" in c.name.lower() for c in CLEANING_POOL), (
+        f"CLEANING_POOL must NOT contain an organizer candidate; "
+        f"got {[c.name for c in CLEANING_POOL]}"
+    )
+
+
+def test_classify_cleaning_brush_still_routes_to_cleaning():
+    """The fix must not regress cleaning-tool queries."""
+    from backend.product_research import _classify
+
+    assert _classify("cleaning brush") == "cleaning"
+    assert _classify("toilet brush") == "cleaning"
+    assert _classify("shower caddy") == "cleaning"
+    assert _classify("bathroom cleaner") == "cleaning"
+
+
+def test_classify_all_live_queries_route_to_correct_pool():
+    """The five live /find-winner queries must all route correctly."""
+    from backend.product_research import _classify
+
+    expected = {
+        "kitchen organizer":  "kitchen",
+        "phone stand":        "tech",
+        "pet bed":            "pet",
+        "desk lamp":          "tech",
+        "cleaning brush":     "cleaning",
+    }
+    for query, want in expected.items():
+        got = _classify(query)
+        assert got == want, (
+            f"live query {query!r} must classify to {want!r}; got {got!r}"
+        )
+
+
+def test_classify_spice_rack_organizer_routes_to_kitchen():
+    """'spice rack organizer' must route to kitchen (spice + rack + organizer)."""
+    from backend.product_research import _classify
+
+    assert _classify("spice rack organizer") == "kitchen"
+    assert _classify("pantry organizer") == "kitchen"
+    assert _classify("kitchen storage") == "kitchen"
+
+
+def test_classify_cleaning_keywords_no_longer_contain_generic_nouns():
+    """The cleaning bucket must not contain the generic noun 'kitchen' anymore.
+
+    This is the exact word that caused the kitchen-organizer tie-break bug.
+    """
+    from backend.product_research import _CATEGORY_KEYWORDS
+
+    assert "kitchen" not in _CATEGORY_KEYWORDS["cleaning"], (
+        f"'kitchen' in cleaning keywords re-introduces the tie-break bug; "
+        f"got {_CATEGORY_KEYWORDS['cleaning']}"
+    )
+
+
+def test_classify_kitchen_keywords_contain_organizer_nouns():
+    """The kitchen bucket must include organizer/storage nouns so queries
+    like 'kitchen organizer' classify decisively to kitchen."""
+    from backend.product_research import _CATEGORY_KEYWORDS
+
+    kitchen_words = set(_CATEGORY_KEYWORDS["kitchen"])
+    for must in ("organizer", "storage", "rack"):
+        assert must in kitchen_words, (
+            f"kitchen keywords missing {must!r}; got {sorted(kitchen_words)}"
+        )
