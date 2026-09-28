@@ -2626,3 +2626,115 @@ def test_no_winner_detail_empty_rejection_log_says_try_a_keyword():
     assert "keyword" in detail.lower() or "candidate" in detail.lower(), (
         f"empty-log detail must suggest typing a keyword; got {detail!r}"
     )
+
+
+# ── FRONTEND INPUT-CONTRACT REGRESSION (added 2026-09-28) ────────────────
+# User-reported bug: the live page showed 'Find Winner failed' even when
+# the user typed a keyword. The cause was the previous empty-input guard
+# throwing silently when urlInput.value was unexpectedly empty (browser
+# autofill / password-manager races). The fix removed the harsh throw and
+# instead passes the value through to the backend (which returns a clear
+# 404 message). These tests lock the new input-contract invariants.
+
+
+def test_index_html_input_element_id_is_productUrl():
+    """index.html MUST keep exactly one input field with id='productUrl'
+    so the Find Winner flow reads the same element the user typed into."""
+    import re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    matches = re.findall(r'<input[^>]*\bid=["\']productUrl["\']', src)
+    assert len(matches) == 1, (
+        f"index.html must have exactly one input with id='productUrl'; "
+        f"found {len(matches)}"
+    )
+
+
+def test_index_html_input_has_no_inline_onclick():
+    """The input field must not have inline JS handlers."""
+    import re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    for m in re.finditer(r'<input[^>]*\bid=["\']productUrl["\'][^>]*>', src):
+        assert "onclick" not in m.group(0).lower(), (
+            f"productUrl input has an inline onclick; should use the listener"
+        )
+
+
+def test_index_html_findWinner_reads_latest_input_value():
+    """findWinner() must read input.value fresh from the DOM (not from a
+    captured reference) so password-manager autofill races don't produce
+    an empty-value bug."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # Must query for productUrl inside the candidate list.
+    assert "candidateIds" in src or "productUrl" in src, (
+        "findWinner must read from the productUrl element (freshly each call)"
+    )
+    # Must log the input value for diagnostics.
+    assert "[find-winner] input value" in src, (
+        "findWinner must log the actual input value for diagnostics"
+    )
+
+
+def test_index_html_findWinner_does_not_throw_on_empty_input():
+    """findWinner() must NOT silently throw on empty input — the previous
+    implementation did, which caused the 'Could not find a winner'
+    misleading body. Empty input now passes through to the backend."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # Locate the findWinner function body.
+    fn_start = src.index("async function findWinner(")
+    fn_end = src.index("    }", fn_start + 100)
+    fn_body = src[fn_start:fn_end]
+    # The old guard had: throw new Error('Please paste a product URL...')
+    assert "throw new Error(\n                    'Please paste a product URL" not in fn_body, (
+        "findWinner must NOT throw on empty input — the silent throw caused "
+        "the misleading 'Could not find a winner' error message."
+    )
+
+
+def test_index_html_error_renderer_recognizes_new_relevance_message():
+    """The catch-block error renderer must recognize the new relevance-
+    vs-image 404 message so the user sees the helpful body instead of
+    the misleading 'Could not find a winner. Please try again.'"""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "matched your query" in src, (
+        "error renderer must recognize the new 'matched your query' 404 message"
+    )
+    assert "verified product photo" in src, (
+        "error renderer must recognize the new 'verified product photo' "
+        "404 message"
+    )
+
+
+def test_index_html_has_exactly_one_findWinner_binding():
+    """Exactly one addEventListener('click', findWinner) on findWinnerBtn."""
+    import re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    matches = re.findall(
+        r"document\.getElementById\(['\"]findWinnerBtn['\"]\)\s*"
+        r"\.addEventListener\(\s*['\"]click['\"]\s*,\s*findWinner\s*\)",
+        src,
+    )
+    assert len(matches) == 1, (
+        f"index.html must have exactly one findWinner binding; "
+        f"found {len(matches)}"
+    )
+
+
+def test_index_html_no_inline_onclick_on_find_winner_button():
+    """The Find Winner button must rely solely on the addEventListener."""
+    import re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    for m in re.finditer(r'<button[^>]*\bid=["\']findWinnerBtn["\'][^>]*>', src):
+        assert "onclick" not in m.group(0).lower(), (
+            "findWinnerBtn must not have an inline onclick — use the listener"
+        )
+
+
+def test_index_html_passes_url_or_keyword_param():
+    """findWinner must send 'url_or_keyword' (the live backend's contract)."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "url_or_keyword" in src, (
+        "findWinner must POST/GET 'url_or_keyword' to the backend"
+    )
+    assert "/api/v1/find-winner" in src, (
+        "findWinner must call /api/v1/find-winner"
+    )

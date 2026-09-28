@@ -128,6 +128,7 @@
                             <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
                             <input type="url" id="productUrl" placeholder="Paste a product URL or type a keyword, e.g. 'kitchen organizer'"
                                 class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
+                            <p id="productUrlError" class="hidden mt-1.5 text-xs text-rose-400"></p>
                         </div>
                         <button id="findWinnerBtn" type="button" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
                             <span>🎯</span>
@@ -2152,25 +2153,47 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
 
         try {
             // ── C. GET /api/v1/find-winner ────────────────────────────────
-            const hint = (urlInput && urlInput.value || '').trim();
-            if (!hint) {
-                // Empty input guard — common when a user clicks "Find Winner"
-                // without replacing the placeholder text. Without this guard
-                // the request would fall through to the backend default
-                // "trending product" which fails the relevance gate for every
-                // pool candidate and returns 404.
-                throw new Error(
-                    'Please paste a product URL or type a keyword like '
-                    + '"kitchen organizer", "desk lamp", or "phone stand" '
-                    + 'before clicking Find Winner.'
-                );
+            // Read the input value at the LATEST possible moment — directly
+            // from the DOM, not from any cached reference. Some browser
+            // extensions (password managers, autofill, form-restoration) can
+            // overwrite or clear the field between when we capture
+            // urlInput and when we read urlInput.value, so we re-query each
+            // time and try several known input ids as a fallback.
+            let hint = '';
+            const candidateIds = ['productUrl', 'productUrlInput', 'urlInput', 'productUrlField'];
+            for (const id of candidateIds) {
+                const el = document.getElementById(id);
+                if (el && typeof el.value === 'string' && el.value.trim().length > 0) {
+                    hint = el.value.trim();
+                    break;
+                }
+            }
+            if (!hint && urlInput && typeof urlInput.value === 'string') {
+                hint = urlInput.value.trim();
+            }
+            // Diagnostic: log exactly what was read, so any future "empty
+            // value" mystery is trivially diagnosable from the browser
+            // console.
+            console.log('[find-winner] input value =', JSON.stringify(hint),
+                'len=', hint.length,
+                'urlInput=', !!urlInput,
+                'inputPresent=', urlInput ? urlInput.value.length : 'n/a');
+            // Clear any previous inline error.
+            const inlineErrEl = document.getElementById('productUrlError');
+            if (inlineErrEl) {
+                inlineErrEl.textContent = '';
+                inlineErrEl.classList.add('hidden');
             }
             const prev = window.__lastWinnerId || '';
             const params = new URLSearchParams();
-            if (hint) params.set('url_or_keyword', hint);
+            // Always pass the input value — even when empty. The backend
+            // returns a clear, actionable 404 message in every case, so a
+            // silent UI throw here is worse UX than letting the user see
+            // the backend's helpful guidance.
+            params.set('url_or_keyword', hint || 'trending product');
             if (prev) params.set('exclude', prev);
             const qs = params.toString();
-            const findWinnerUrl = apiUrl(`/api/v1/find-winner${qs ? '?' + qs : ''}`);
+            const findWinnerUrl = apiUrl(`/api/v1/find-winner?${qs}`);
             console.log('[find-winner] → GET', findWinnerUrl);
 
             // Front-end safety timeout. We pick 75 s because:
@@ -2308,8 +2331,14 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             const isWinnerStage = !window.__currentWinner;
             // Detect specific reasons so the user sees the right message.
             const isTimeout = /took too long/i.test(msg);
+            // "isNoPhotoError" is true when the message comes from the
+            // backend's structured 404 (either the old phrase or the new
+            // relevance-vs-image wording that was added in commit 1538b14).
             const isNoPhotoError = /No photo-qualified winner|photo[- ]qualified/i.test(msg)
-                || /HTTP 404\b/i.test(msg);
+                || /HTTP 404\b/i.test(msg)
+                || /No product candidate in our pool/i.test(msg)
+                || /matched your query/i.test(msg)
+                || /verified product photo/i.test(msg);
             const heading = isWinnerStage
                 ? (isTimeout
                     ? 'Server is waking up — please try again'
@@ -2319,12 +2348,21 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 : (isTimeout
                     ? 'Server is waking up — please try again'
                     : 'Pinterest generation failed');
+            // Body now surfaces the BACKEND's actual message when one is
+            // available (the new structured 404 is more helpful than the
+            // generic "Could not find a winner"). Only fall back to the
+            // generic body when the backend didn't tell us anything.
+            const backendDetail = (msg.match(/HTTP 404\s*—\s*(.+)$/)
+                || msg.match(/No product candidate in our pool[^\"]*/)
+                || msg.match(/We found matching products[^\"]*/))[0] || '';
             const body = isWinnerStage
                 ? (isTimeout
                     ? 'The first request after a quiet period can take a moment while the server warms up. Click Find Winner once more and the result should appear in a few seconds.'
-                    : isNoPhotoError
-                        ? 'No product candidate in this category had a usable product photo. Try a different keyword or a different category — the system will not show an image-less product.'
-                        : 'Could not find a winner. Please try again.')
+                    : (isNoPhotoError && backendDetail)
+                        ? backendDetail
+                        : isNoPhotoError
+                            ? 'No product candidate matched your query. Try a specific keyword like "kitchen organizer", "desk lamp", "phone stand", "pet bed", or "cleaning brush".'
+                            : 'Find Winner failed — check your network and try again.')
                 : (isTimeout
                     ? 'Pinterest generation is taking longer than usual. Click Find Winner again.'
                     : 'Winner found, but Pinterest generation failed.');
@@ -2337,7 +2375,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                             <strong class="font-semibold">${heading}</strong>
                         </div>
                         <p class="text-sm">${body}</p>
-                        <p class="text-xs text-rose-300/80 font-mono">${msg}</p>
+                        <p class="text-xs text-rose-300/80 font-mono">${escapeHtml(msg)}</p>
                     </div>`;
                 try { lucide.createIcons(); } catch (_) {}
             }
