@@ -147,14 +147,17 @@ def diagnostics_raw_tavily(q: str = Query("phone stand", max_length=100)) -> dic
             timeout=10,
         )
         body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        first_image = (body.get("images") or [None])[0]
+        first_image_type = type(first_image).__name__
         return {
             "query": q,
             "http_status": resp.status_code,
             "keys_in_response": list(body.keys()),
             "results_count": len(body.get("results") or []),
             "images_count": len(body.get("images") or []),
+            "first_image_type": first_image_type,
+            "first_image_repr": str(first_image)[:200],
             "answer": (body.get("answer") or "")[:200],
-            "first_image": (body.get("images") or [None])[0],
             "first_result_url": ((body.get("results") or [{}])[0]).get("url"),
         }
     except Exception as exc:
