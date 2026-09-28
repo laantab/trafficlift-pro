@@ -323,40 +323,137 @@ def _safe_get(url: str, *, timeout: float = 5.0) -> tuple[Optional[str], Optiona
 
 # ── Tavily fallback for title resolution ─────────────────────────────────
 
-def _resolve_title_via_tavily(asin: str, *, timeout: float = 8.0) -> Optional[str]:
-    """Last-resort title resolution: ask Tavily for the ASIN's product.
+# Titles that look fake / generic and must NEVER be accepted as a
+# product title. These come back from Tavily when no real coverage
+# exists for the ASIN.
+_BAD_TAVILY_TITLES = frozenset({
+    "asin", "asn", "amazon", "amazon.com", "amazon asin",
+    "amazon product", "amazon listing", "product",
+    "asin lookup", "find asin", "search asin",
+    "lookup", "results", "search results",
+    "amazon product photo", "amazon product photography",
+    "amazon.com. spend less. smile more.",  # Amazon homepage
+    "online shopping", "amazon - official site",
+})
 
-    Tavily is configured on Render and returns real Amazon product
-    pages for ASIN queries. We pull the title from the first result
-    whose URL is on an Amazon domain.
+
+def _tavily_title_has_product_signals(t: str) -> bool:
+    """Real product titles contain a noun describing the item AND
+    usually a qualifier (size, count, brand). Reject titles that look
+    like just a category word or a generic phrase.
     """
-    try:
-        from backend import live_research
-        envelope = live_research.research(
-            f"Amazon product ASIN {asin}",
-            max_results=5,
-        )
-        if envelope.research_status not in ("live", "partial"):
-            return None
-        # Prefer results whose URL is on amazon.
-        for src in envelope.research_sources or []:
-            url = (src.get("url") or "").lower()
-            if "amazon." in url:
+    if not t:
+        return False
+    low = t.lower().strip()
+    # Must have at least 4 words (real product titles).
+    words = [w for w in low.split() if len(w) > 1]
+    if len(words) < 4:
+        return False
+    # Generic marketing / article phrases to reject.
+    generic_phrases = (
+        "everything you need to know", "the ultimate guide",
+        "official site", "spend less smile more",
+        "what you need to know", "best practices",
+        "complete guide", "tips for",
+    )
+    for phrase in generic_phrases:
+        if phrase in low:
+            return False
+    return True
+
+
+def _tavily_title_acceptable(t: str) -> bool:
+    """Reject generic / placeholder Tavily titles."""
+    if not t:
+        return False
+    low = t.strip().lower()
+    if len(low) < 6 or len(low) > 200:
+        return False
+    # Must have at least 3 words (real product titles have words).
+    if len(low.split()) < 3:
+        return False
+    if low in _BAD_TAVILY_TITLES:
+        return False
+    if low.startswith("asin") or low == "amazon":
+        return False
+    return True
+
+
+def _score_tavily_result(src: dict, asin: str) -> int:
+    """Higher = more likely to be the actual product page.
+
+    Scoring:
+        +5  URL contains the ASIN
+        +3  title contains the ASIN
+        +3  snippet/content contains the ASIN
+        +4  URL is on amazon.com (not just amazon.*)
+        +2  URL is on any amazon.* domain
+        -5  title is a generic photography / listing / how-to phrase
+    """
+    score = 0
+    asin_low = (asin or "").lower()
+    url = (src.get("url") or "").lower()
+    title = (src.get("title") or "")
+    content = src.get("content") or src.get("snippet") or ""
+    title_low = title.lower()
+    content_low = content.lower()
+    if asin_low and asin_low in url:
+        score += 5
+    if asin_low and asin_low in title_low:
+        score += 3
+    if asin_low and asin_low in content_low:
+        score += 3
+    if "amazon.com" in url or "amzn.to" in url or "amzn.asia" in url:
+        score += 4
+    elif "amazon." in url:
+        score += 2
+    # Penalize generic article titles that often dominate search results.
+    bad_phrases = (
+        "amazon product photo", "product photography",
+        "amazon listing", "amazon seo", "amazon title",
+        "how to sell", "amazon fba", "asin lookup",
+    )
+    for phrase in bad_phrases:
+        if phrase in title_low:
+            score -= 5
+    return score
+
+
+def _resolve_title_via_tavily(asin: str, *, timeout: float = 8.0) -> Optional[str]:
+    """Last-resort title resolution via Tavily.
+
+    Tries multiple query variations and picks the best-scoring result
+    that looks like a real product page. Falls back to None rather
+    than returning a generic / placeholder title.
+    """
+    queries = [
+        f'"{asin}" Amazon product',
+        f"Amazon ASIN {asin}",
+        f"Amazon product {asin}",
+    ]
+    best: tuple[int, str] = (-1000, "")
+    for q in queries:
+        try:
+            from backend import live_research
+            envelope = live_research.research(q, max_results=5)
+            if envelope.research_status not in ("live", "partial"):
+                continue
+            for src in envelope.research_sources or []:
                 t = (src.get("title") or "").strip()
-                if t:
-                    # Strip "Amazon.com: " prefix if present.
-                    t = re.sub(r"^Amazon\.com\s*:\s*", "", t, flags=re.IGNORECASE)
-                    if t and len(t) < 200:
-                        return t
-        # Fall back to the first result with a usable title.
-        for src in envelope.research_sources or []:
-            t = (src.get("title") or "").strip()
-            if t and "Amazon" not in t.lower() or "amazon." in (src.get("url") or "").lower():
+                if not _tavily_title_acceptable(t):
+                    continue
+                if not _tavily_title_has_product_signals(t):
+                    continue
+                # Strip "Amazon.com: " prefix if present.
                 t = re.sub(r"^Amazon\.com\s*:\s*", "", t, flags=re.IGNORECASE)
-                if t and len(t) < 200:
-                    return t
-    except Exception as exc:
-        logger.info("Tavily title fallback failed for ASIN %s: %s", asin, exc)
+                s = _score_tavily_result(src, asin)
+                if s > best[0]:
+                    best = (s, t)
+        except Exception as exc:
+            logger.info("Tavily query %r failed: %s", q, exc)
+            continue
+    if best[0] >= 0 and best[1]:
+        return best[1]
     return None
 
 
