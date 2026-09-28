@@ -120,21 +120,41 @@
                     <i data-lucide="sliders-horizontal" class="w-4 h-4 text-brand-400"></i> Campaign Parameters
                 </h2>
 
-                <!-- URL Input -->
-                <div class="space-y-1.5">
-                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Product / Landing Page URL</label>
+                <!-- PATH A — Find a winning product (no input required) -->
+                <div class="space-y-2 p-4 rounded-xl bg-gradient-to-br from-brand-500/10 to-indigo-500/10 border border-brand-500/30">
                     <div class="flex items-center gap-2">
-                        <div class="relative flex-1">
-                            <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
-                            <input type="url" id="productUrl" placeholder="Paste a product URL or type a keyword, e.g. 'kitchen organizer'"
-                                class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
-                            <p id="productUrlError" class="hidden mt-1.5 text-xs text-rose-400"></p>
-                        </div>
-                        <button id="findWinnerBtn" type="button" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
-                            <span>🎯</span>
-                            <span class="hidden sm:inline">Find Winner</span>
-                        </button>
+                        <i data-lucide="sparkles" class="w-4 h-4 text-brand-400"></i>
+                        <h3 class="text-sm font-semibold text-slate-100">Find a Winning Product</h3>
                     </div>
+                    <p class="text-xs text-slate-400 leading-relaxed">Let TrafficLift Pro research and choose a product opportunity for you.</p>
+                    <button id="findWinningProductBtn" type="button"
+                        class="w-full bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-400 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-brand-500/25 transition flex items-center justify-center gap-2"
+                        title="Discover a winning product for you — no input required">
+                        <i data-lucide="zap" class="w-4 h-4"></i>
+                        <span class="findWinningProductLabel">Find Winning Product</span>
+                    </button>
+                </div>
+
+                <!-- PATH B — Analyze an existing product URL -->
+                <div class="space-y-2 p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="link" class="w-4 h-4 text-slate-400"></i>
+                        <h3 class="text-sm font-semibold text-slate-200">I Already Have a Product</h3>
+                    </div>
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Product URL</label>
+                    <div class="relative">
+                        <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
+                        <input type="url" id="productUrl"
+                            placeholder="Paste Amazon, Shopify, WooCommerce, or product URL"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition">
+                    </div>
+                    <p id="productUrlError" class="hidden mt-1.5 text-xs text-rose-400"></p>
+                    <button id="analyzeProductBtn" type="button"
+                        class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-medium py-3 px-4 rounded-xl transition flex items-center justify-center gap-2"
+                        title="Analyze the specific product at this URL">
+                        <i data-lucide="search" class="w-4 h-4"></i>
+                        <span class="analyzeProductLabel">Analyze Product</span>
+                    </button>
                 </div>
 
                 <!-- Strategy Mode Toggle -->
@@ -2105,21 +2125,39 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     //   F. renderPinterestResult + renderPinPreview (designed 1000x1500 pin)
     //   G. button → "Find Another Winner", re-enabled
     // On any failure: visible error in #executionOutput, button restored.
-    async function findWinner() {
-        const btn = document.getElementById('findWinnerBtn');
-        const urlInput = document.getElementById('productUrl');
+    //
+    // TWO SEPARATE WORKFLOWS:
+    //   findWinningProduct() â€” PATH A. No input required. Live discovery.
+    //   analyzeProductUrl()   â€” PATH B. URL required. Analyzes a specific URL.
+    //
+    // They share the downstream pipeline (_runPickPipeline) but have
+    // independent input contracts, button bindings, loading stages, and
+    // error messages. They never share input assumptions.
 
-        // ── A. Button state ────────────────────────────────────────────
+    async function _runPickPipeline(opts) {
+        const {
+            btn,
+            urlInput,           // may be null for PATH A
+            requestUrl,
+            readUrlField,       // boolean â€” PATH A ignores the field
+            workingLabel,
+            idleLabel,
+            successIdleLabel,
+            stages,
+            subtext,
+            noPhotoHeading,
+            failHeading,
+            failBody,
+        } = opts;
+
+        // â”€â”€ A. Button state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (btn) {
             btn.disabled = true;
-            btn.dataset.labelDefault = btn.dataset.labelDefault
-                || btn.querySelector('span:nth-of-type(2)')?.textContent
-                || 'Find Winner';
-            const labelEl = btn.querySelector('span:nth-of-type(2)');
-            if (labelEl) labelEl.textContent = 'Finding Winner…';
+            const labelEl = btn.querySelector('span');
+            if (labelEl) labelEl.textContent = workingLabel;
         }
 
-        // ── B. UI: show loading, hide empty state, ensure results visible ─
+        // â”€â”€ B. UI: show loading, hide empty state, ensure results visible â”€
         const emptyEl    = document.getElementById('emptyState');
         const loadingEl  = document.getElementById('loadingState');
         const loadingH   = document.getElementById('loadingHeading');
@@ -2129,199 +2167,85 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         if (emptyEl)    emptyEl.classList.add('hidden');
         if (resultsEl)  resultsEl.classList.remove('hidden');
         if (loadingEl)  loadingEl.classList.remove('hidden');
-        // Update the loading text so the user sees what stage the request
-        // is in (research → image validation → audit). A tick counter also
-        // reassures the user that something is happening during long waits.
-        const stages = [
-            'Researching trending products…',
-            'Scoring candidates…',
-            'Verifying product images…',
-            'Selecting winner…',
-        ];
         let stageIdx = 0;
-        if (loadingH)   loadingH.textContent = stages[0];
-        // Smarter subtext: only show the "warm-up" message on the very
-        // first request of the session. Subsequent clicks are typically
-        // 2-5 s — the warning just confuses users into thinking the
-        // request is slow.
-        const isFirstRun = !window.__findWinnerRanOnce;
-        window.__findWinnerRanOnce = true;
-        if (loadingSub) {
-            loadingSub.textContent = isFirstRun
-                ? 'First request after idle may take ~60 s while the server warms up.'
-                : 'Researching the product, finding a verified photo, generating your pin.';
-        }
+        if (loadingH) loadingH.textContent = stages[0];
+        if (loadingSub && subtext) loadingSub.textContent = subtext;
         const stageTimer = setInterval(() => {
             stageIdx = (stageIdx + 1) % stages.length;
             if (loadingH) loadingH.textContent = stages[stageIdx];
         }, 5000);
-        // Clear any stale error from a prior run.
         if (executionEl) {
             executionEl.classList.add('hidden');
             executionEl.innerHTML = '';
         }
 
-        // Track whether the request actually succeeded so the finally
-        // block can choose the right button label.
         let success = false;
         try {
-            // ── C. GET /api/v1/find-winner ────────────────────────────────
-            // Read the input value at the LATEST possible moment — directly
-            // from the DOM, not from any cached reference. Some browser
-            // extensions (password managers, autofill, form-restoration) can
-            // overwrite or clear the field between when we capture
-            // urlInput and when we read urlInput.value, so we re-query each
-            // time and try several known input ids as a fallback.
-            let hint = '';
-            const candidateIds = ['productUrl', 'productUrlInput', 'urlInput', 'productUrlField'];
-            for (const id of candidateIds) {
-                const el = document.getElementById(id);
-                if (el && typeof el.value === 'string' && el.value.trim().length > 0) {
-                    hint = el.value.trim();
-                    break;
-                }
-            }
-            if (!hint && urlInput && typeof urlInput.value === 'string') {
-                hint = urlInput.value.trim();
-            }
-            // Diagnostic: log exactly what was read, so any future "empty
-            // value" mystery is trivially diagnosable from the browser
-            // console.
-            console.log('[find-winner] input value =', JSON.stringify(hint),
-                'len=', hint.length,
-                'urlInput=', !!urlInput,
-                'inputPresent=', urlInput ? urlInput.value.length : 'n/a');
+            console.log('[pick-pipeline] â†’ GET', requestUrl);
 
-            // ── C.1 EXPLICIT empty-input handling ─────────────────────────
-            // If the input is empty, do NOT substitute "trending product"
-            // (or any other fallback) and do NOT call the backend. Show an
-            // inline validation message, focus the input, leave the button
-            // ready for retry. Sending a substitute would either silently
-            // "succeed" with a random winner or, more likely, 404 with the
-            // backend's relevance message — both hide the fact that the
-            // user simply forgot to type.
-            if (!hint) {
-                const inlineErrEl = document.getElementById('productUrlError');
-                if (inlineErrEl) {
-                    inlineErrEl.textContent =
-                        'Please paste a product URL or type a keyword '
-                        + '(e.g. "kitchen organizer", "desk lamp", "phone stand").';
-                    inlineErrEl.classList.remove('hidden');
-                }
-                if (urlInput) {
-                    urlInput.focus();
-                }
-                // Hide loading state (we never entered the network stage).
-                if (loadingEl) loadingEl.classList.add('hidden');
-                // Restore button.
-                if (btn) {
-                    btn.disabled = false;
-                    const labelEl = btn.querySelector('span:nth-of-type(2)');
-                    if (labelEl) labelEl.textContent = 'Find Winner';
-                }
-                return;
-            }
+            // Front-end safety timeout.
+            const TIMEOUT_MS = 30000;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-            // Clear any previous inline error now that we have a real
-            // value and are about to send.
-            const inlineErrEl = document.getElementById('productUrlError');
-            if (inlineErrEl) {
-                inlineErrEl.textContent = '';
-                inlineErrEl.classList.add('hidden');
-            }
-            const prev = window.__lastWinnerId || '';
-            const params = new URLSearchParams();
-            // Send EXACTLY what the user typed. Empty input is handled
-            // above (early return with inline validation) — we never reach
-            // here with an empty hint, so no fallback substitution.
-            params.set('url_or_keyword', hint);
-            if (prev) params.set('exclude', prev);
-            const qs = params.toString();
-            const findWinnerUrl = apiUrl(`/api/v1/find-winner?${qs}`);
-            console.log('[find-winner] → GET', findWinnerUrl);
-
-            // Front-end safety timeout. Tuned to 30 s because:
-            //   * Render free-tier cold start can be 30-60 s but the
-            //     warm-up ping (immediate + 30 s after DOMContentLoaded)
-            //     keeps the server awake for the first user click.
-            //   * Backend REQUEST_BUDGET_SECONDS = 20 s, so a healthy
-            //     server returns well under 10 s.
-            //   * A shorter timeout lets the user retry quickly instead
-            //     of staring at a spinner for 75 s.
-            const FIND_WINNER_TIMEOUT_MS = 30000;
-            const findController = new AbortController();
-            const findTimer = setTimeout(
-                () => findController.abort(),
-                FIND_WINNER_TIMEOUT_MS,
-            );
-
-            let findResp;
+            let resp;
             try {
-                findResp = await fetch(findWinnerUrl, {
+                resp = await fetch(requestUrl, {
                     method: 'GET',
                     headers: { 'Accept': 'application/json' },
-                    signal: findController.signal,
+                    signal: controller.signal,
                 });
             } catch (networkErr) {
-                clearTimeout(findTimer);
+                clearTimeout(timer);
                 if (networkErr && networkErr.name === 'AbortError') {
-                    throw new Error('Find Winner took too long. Please try again.');
+                    throw new Error('Request took too long. Please try again.');
                 }
-                throw new Error('Network error reaching /find-winner: '
+                throw new Error('Network error: '
                     + (networkErr && networkErr.message || networkErr));
             }
-            clearTimeout(findTimer);
-            if (!findResp.ok) {
+            clearTimeout(timer);
+            if (!resp.ok) {
                 let detail = '';
                 try {
-                    const errBody = await findResp.json();
+                    const errBody = await resp.json();
                     detail = errBody?.detail || errBody?.message || '';
                 } catch (_) { /* not JSON */ }
-                throw new Error('Find Winner HTTP ' + findResp.status
-                    + (detail ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
+                throw new Error('HTTP ' + resp.status
+                    + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
             }
-            const winner = await findResp.json();
+            const winner = await resp.json();
             if (!winner || !winner.id) {
-                throw new Error('Find Winner returned an empty payload.');
+                throw new Error('Server returned an empty payload.');
             }
-            // Defense-in-depth: the backend already guarantees this, but if a
-            // future regression returns an image-less winner we MUST NOT render
-            // it as a Pinterest-ready product.
             if (winner.image_status && winner.image_status !== 'verified') {
-                throw new Error('Winner image was not verified by the Product Control Agent (status: '
+                throw new Error('Winner image was not verified (status: '
                     + winner.image_status + '). Please try again.');
             }
             if (!winner.image_url) {
                 throw new Error('Winner has no usable product image. Please try again.');
             }
-            console.log('[find-winner] ✓', { id: winner.id, name: winner.name });
+            console.log('[pick-pipeline] âœ“', { id: winner.id, name: winner.name });
 
             window.__lastWinnerId = winner.id;
             window.__currentWinner = winner;
-            if (urlInput) urlInput.value = winner.url || '';
+            // PATH A never reads the URL field. PATH B may update it with
+            // the resolved final URL so the user sees what we analyzed.
+            if (readUrlField && urlInput && winner.url) {
+                urlInput.value = winner.url;
+            }
 
-            // Hide loading now that we have content to show.
-            clearInterval(stageTimer);
             if (loadingEl) loadingEl.classList.add('hidden');
-
-            // ── D. Display the winner ───────────────────────────────────
             displayWinnerCard(winner);
             if (typeof lucide !== 'undefined' && lucide && lucide.createIcons) {
                 try { lucide.createIcons(); } catch (_) {}
             }
 
-            // ── E. Auto-generate the Pinterest package ──────────────────
-            // Safe path: forward the in-memory winner as product_payload so
-            // we never scrape the URL again. The winner name is preserved
-            // and "Untitled Product" can never appear from this flow.
+            // â”€â”€ E. Auto-generate the Pinterest package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             const genUrl = apiUrl('/api/v1/traffic/generate');
-            console.log('[find-winner] → POST', genUrl, { id: winner.id });
-            const GENERATE_TIMEOUT_MS = 30000;
+            console.log('[pick-pipeline] â†’ POST', genUrl, { id: winner.id });
+            const GEN_TIMEOUT_MS = 30000;
             const genController = new AbortController();
-            const genTimer = setTimeout(
-                () => genController.abort(),
-                GENERATE_TIMEOUT_MS,
-            );
+            const genTimer = setTimeout(() => genController.abort(), GEN_TIMEOUT_MS);
             let genResp;
             try {
                 genResp = await fetch(genUrl, {
@@ -2350,29 +2274,21 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                     detail = errBody?.detail || errBody?.message || '';
                 } catch (_) { /* not JSON */ }
                 throw new Error('Pinterest generation HTTP ' + genResp.status
-                    + (detail ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
+                    + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
             }
             const genData = await genResp.json();
-            console.log('[find-winner] ✓ pinterest', { campaign_id: genData.campaign_id, source: genData.source });
-
-            // ── F. Render Pinterest result + designed pin ───────────────
+            console.log('[pick-pipeline] âœ“ pinterest', { campaign_id: genData.campaign_id });
             renderPinterestResult(genData, winner);
 
-            // ── G. Done — flag success so finally sets the right label. ─
             success = true;
             if (typeof showToast === 'function') {
                 showToast('Pinterest Ready', winner.name, 'success');
             }
         } catch (err) {
-            console.error('[find-winner] failed:', err);
-            // Visible error in #executionOutput — user always sees why.
+            console.error('[pick-pipeline] failed:', err);
             const msg = (err && err.message) || String(err);
             const isWinnerStage = !window.__currentWinner;
-            // Detect specific reasons so the user sees the right message.
             const isTimeout = /took too long/i.test(msg);
-            // "isNoPhotoError" is true when the message comes from the
-            // backend's structured 404 (either the old phrase or the new
-            // relevance-vs-image wording that was added in commit 1538b14).
             const isNoPhotoError = /No photo-qualified winner|photo[- ]qualified/i.test(msg)
                 || /HTTP 404\b/i.test(msg)
                 || /No product candidate in our pool/i.test(msg)
@@ -2380,30 +2296,24 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 || /verified product photo/i.test(msg);
             const heading = isWinnerStage
                 ? (isTimeout
-                    ? 'Server is waking up — please try again'
+                    ? 'Server is waking up â€” please try again'
                     : isNoPhotoError
-                        ? 'No photo-qualified winner found'
-                        : 'Find Winner failed')
+                        ? noPhotoHeading
+                        : failHeading)
                 : (isTimeout
-                    ? 'Server is waking up — please try again'
+                    ? 'Server is waking up â€” please try again'
                     : 'Pinterest generation failed');
-            // Body now surfaces the BACKEND's actual message when one is
-            // available (the new structured 404 is more helpful than the
-            // generic "Could not find a winner"). Only fall back to the
-            // generic body when the backend didn't tell us anything.
-            const backendDetail = (msg.match(/HTTP 404\s*—\s*(.+)$/)
-                || msg.match(/No product candidate in our pool[^\"]*/)
-                || msg.match(/We found matching products[^\"]*/))[0] || '';
+            const backendDetail = (msg.match(/HTTP 404\s*â€”\s*(.+)$/)
+                || msg.match(/No product candidate in our pool[^"]*/)
+                || msg.match(/We found matching products[^"]*/))[0] || '';
             const body = isWinnerStage
                 ? (isTimeout
-                    ? 'The first request after a quiet period can take a moment while the server warms up. Click Find Winner once more and the result should appear in a few seconds.'
+                    ? 'The first request after a quiet period can take a moment while the server warms up. Click the button once more and the result should appear in a few seconds.'
                     : (isNoPhotoError && backendDetail)
                         ? backendDetail
-                        : isNoPhotoError
-                            ? 'No product candidate matched your query. Try a specific keyword like "kitchen organizer", "desk lamp", "phone stand", "pet bed", or "cleaning brush".'
-                            : 'Find Winner failed — check your network and try again.')
+                        : failBody)
                 : (isTimeout
-                    ? 'Pinterest generation is taking longer than usual. Click Find Winner again.'
+                    ? 'Pinterest generation is taking longer than usual. Click again.'
                     : 'Winner found, but Pinterest generation failed.');
             if (executionEl) {
                 executionEl.classList.remove('hidden');
@@ -2422,36 +2332,142 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 showToast(heading, msg, 'error');
             }
         } finally {
-            // ALWAYS restore the button + hide loading state, no matter
-            // what happened above (success, thrown error, or any future
-            // regression that bypasses the catch block). Without this
-            // guard a single hung promise can leave the user staring at
-            // "Finding Winner…" forever.
             clearInterval(stageTimer);
             if (loadingEl) loadingEl.classList.add('hidden');
             if (btn) {
                 btn.disabled = false;
-                const labelEl = btn.querySelector('span:nth-of-type(2)');
+                const labelEl = btn.querySelector('span');
                 if (labelEl) {
                     labelEl.textContent = success
-                        ? 'Find Another Winner'
-                        : 'Find Winner';
+                        ? successIdleLabel
+                        : idleLabel;
                 }
             }
         }
     }
+
+    // â”€â”€ PATH A â€” Find a Winning Product (no input required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Reads NOTHING from the URL field. Always hits the discovery
+    // endpoint with the default 'trending product' seed.
+    async function findWinningProduct() {
+        const btn = document.getElementById('findWinningProductBtn');
+        // Note: we deliberately do NOT read #productUrl here.
+        const isFirstRun = !window.__pickPipelineRanOnce;
+        window.__pickPipelineRanOnce = true;
+        const prev = window.__lastWinnerId || '';
+        const params = new URLSearchParams();
+        params.set('url_or_keyword', 'trending product');
+        if (prev) params.set('exclude', prev);
+        const requestUrl = apiUrl(`/api/v1/find-winner?${params.toString()}`);
+        await _runPickPipeline({
+            btn,
+            urlInput: null,
+            requestUrl,
+            readUrlField: false,
+            workingLabel: 'Finding Winnerâ€¦',
+            idleLabel: 'Find Winning Product',
+            successIdleLabel: 'Find Another Winner',
+            stages: [
+                'Researching productsâ€¦',
+                'Scoring opportunitiesâ€¦',
+                'Verifying product imagesâ€¦',
+                'Selecting winnerâ€¦',
+                'Creating your pinâ€¦',
+            ],
+            subtext: isFirstRun
+                ? 'First request after idle may take ~60 s while the server warms up.'
+                : 'Researching trending products and finding the strongest qualified winner.',
+            noPhotoHeading: "We couldn't find a qualified product right now. Try again.",
+            failHeading: 'Find Winning Product failed',
+            failBody: 'Find Winning Product failed â€” check your network and try again.',
+        });
+    }
+
+    // â”€â”€ PATH B â€” Analyze a specific product URL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Reads ONLY the URL field. Empty input shows an inline error and
+    // never calls the backend. Hits /analyze-product-url so the
+    // backend returns the resolved title / image / ASIN for THIS
+    // specific product.
+    async function analyzeProductUrl() {
+        const btn = document.getElementById('analyzeProductBtn');
+        const urlInput = document.getElementById('productUrl');
+        const inlineErrEl = document.getElementById('productUrlError');
+
+        let url = '';
+        if (urlInput && typeof urlInput.value === 'string') {
+            url = urlInput.value.trim();
+        }
+        if (!url) {
+            if (inlineErrEl) {
+                inlineErrEl.textContent =
+                    'Paste an Amazon, Shopify, WooCommerce, or other product URL to analyze.';
+                inlineErrEl.classList.remove('hidden');
+            }
+            if (urlInput) urlInput.focus();
+            return;
+        }
+        if (inlineErrEl) {
+            inlineErrEl.textContent = '';
+            inlineErrEl.classList.add('hidden');
+        }
+        // Client-side guard: must be a URL. The backend also rejects
+        // non-URL inputs but a fast inline error is friendlier.
+        if (!/^https?:\/\//i.test(url)) {
+            if (inlineErrEl) {
+                inlineErrEl.textContent =
+                    'That doesn\'t look like a URL. Paste a full product page URL (must start with http:// or https://).';
+                inlineErrEl.classList.remove('hidden');
+            }
+            if (urlInput) urlInput.focus();
+            return;
+        }
+        const isFirstRun = !window.__pickPipelineRanOnce;
+        window.__pickPipelineRanOnce = true;
+        const prev = window.__lastWinnerId || '';
+        const params = new URLSearchParams();
+        params.set('url', url);
+        if (prev) params.set('exclude', prev);
+        const requestUrl = apiUrl(`/api/v1/analyze-product-url?${params.toString()}`);
+        await _runPickPipeline({
+            btn,
+            urlInput,
+            requestUrl,
+            readUrlField: true,
+            workingLabel: 'Analyzing Productâ€¦',
+            idleLabel: 'Analyze Product',
+            successIdleLabel: 'Analyze Another URL',
+            stages: [
+                'Reading productâ€¦',
+                'Resolving product detailsâ€¦',
+                'Verifying imageâ€¦',
+                'Evaluating opportunityâ€¦',
+                'Creating your pinâ€¦',
+            ],
+            subtext: 'Resolving the URL, extracting product identity, and verifying the image.',
+            noPhotoHeading: "We couldn't identify or validate that product URL. Try the full product page URL.",
+            failHeading: 'Analyze Product failed',
+            failBody: 'Analyze Product failed â€” check your network and try again.',
+        });
+    }
     </script>
     <script>
-    // ── Single clean binding for #findWinnerBtn ───────────────────────────
-    // Exactly ONE binding. No wrappers, no polling, no fallback paths.
-    // If findWinner is undefined when the user clicks, the browser will
-    // throw a ReferenceError into the console — that's the ONLY failure
-    // mode, and it's a real bug worth seeing.
-    document.getElementById('findWinnerBtn')
-        .addEventListener('click', findWinner);
+    // â”€â”€ TWO single clean bindings (one per workflow) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Exactly one binding per button. No wrappers, no polling. If either
+    // function is undefined when the user clicks, the browser will throw
+    // a ReferenceError into the console â€” that's the ONLY failure mode,
+    // and it's a real bug worth seeing.
+    document.getElementById('findWinningProductBtn')
+        .addEventListener('click', findWinningProduct);
+    document.getElementById('analyzeProductBtn')
+        .addEventListener('click', analyzeProductUrl);
     </script>
 </body>
 </html>
+;
+    </script>
+</body>
+</html>
+
 
 
 

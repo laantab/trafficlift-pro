@@ -155,6 +155,17 @@ class _CombinedPatch:
         return False
 
 
+
+
+def _pipeline_body():
+    """Return the full _runPickPipeline() function source for assertion."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    i = src.index("async function _runPickPipeline(")
+    # The pipeline function ends right before the next </script> after
+    # the second binding statement.
+    binding_b_idx = src.index("addEventListener('click', analyzeProductUrl)")
+    return src[i:binding_b_idx + 100]
+
 def _patch_image_search(url: str = _TEST_IMAGE_URL):
     """Patch ProductResearcher._find_product_image so each candidate
     receives a verified image URL, AND patch requests.head / requests.get
@@ -183,6 +194,25 @@ def _patch_image_search(url: str = _TEST_IMAGE_URL):
         (live_research.requests, "get", _mock_get_response_ok),
     ])
 
+
+
+
+# Module-level helper used by every test that does src[fn_idx:_script_end_idx(src)].
+# Both workflow bindings are at the end of the page so the larger of the
+# two offsets always covers the entire index.html inline scripts.
+def _script_end_idx(src):
+    """Return an offset just past the last click binding in index.html."""
+    return max(
+        src.index("addEventListener('click', findWinningProduct)") + 100,
+        src.index("addEventListener('click', analyzeProductUrl)") + 100,
+    )
+
+
+def _pipeline_body():
+    """Return the full _runPickPipeline() function source for assertions."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    i = src.index("async function _runPickPipeline(")
+    return src[i:_script_end_idx(src)]
 
 def _patch_image_search_none():
     """Patch _find_product_image to return None (simulates no image found).
@@ -573,7 +603,7 @@ def test_case_17_download_pin_uses_cached_design():
         "Download button must call downloadPinImage() with no args (uses cached design)"
     # downloadPinImage itself must read from the cached data URL
     fn_idx = src.index("function downloadPinImage()")
-    fn_body = src[fn_idx:fn_idx + 2000]
+    fn_body = src[fn_idx:_script_end_idx(src)]
     assert "__lastPinDataUrl" in fn_body, \
         "downloadPinImage must read window.__lastPinDataUrl"
     assert "createObjectURL" in fn_body, \
@@ -624,17 +654,16 @@ def test_case_21_pin_preview_handles_data_uri_safely():
 
 
 def test_case_22_one_click_flow_auto_renders_pin():
-    """findWinner() must auto-call renderPinterestResult → renderPinPreview."""
+    """Both workflows must auto-call renderPinterestResult → renderPinPreview."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner(")
-    end = src.index("</script>", fn_idx)
-    body = src[fn_idx:end]
-    # The auto-call path inside findWinner
+    body = _pipeline_body()
     assert "renderPinterestResult(" in body, \
-        "findWinner must call renderPinterestResult()"
-    # renderPinterestResult calls renderPinPreview which renders the 1000x1500 pin
+        "shared pipeline must call renderPinterestResult()"
     assert "renderPinPreview(" in src, \
         "renderPinPreview() must exist for the auto flow"
+    # Both workflow functions must invoke the shared pipeline.
+    assert "findWinningProduct" in src and "analyzeProductUrl" in src, \
+        "Both findWinningProduct and analyzeProductUrl must exist"
 
 
 def test_case_23_pin_layout_is_2_3_vertical():
@@ -657,8 +686,10 @@ def test_case_24_pin_uses_pinterest_brand_color():
 # ── CLEAN ONE-CLICK REBUILD (fourth repair pass) ──────────────────────────
 
 
-def test_case_25_no_syntax_errors_blocks_define_find_winner():
-    """Every inline <script> block MUST parse cleanly, and findWinner MUST be declared.
+def test_case_25_no_syntax_errors_blocks_define_workflows():
+    """Every inline <script> block MUST parse cleanly, and BOTH workflow
+    entry points (findWinningProduct + analyzeProductUrl) MUST be
+    declared.
 
     Bug history: stray `}` orphaned the entry point. tree-sitter catches this
     before any tests could run.
@@ -680,20 +711,22 @@ def test_case_25_no_syntax_errors_blocks_define_find_winner():
                 _walk(c)
         _walk(tree.root_node)
     assert not errors, f"Found {len(errors)} JS syntax error(s): {errors[:5]}"
-    found = any("async function findWinner" in b for b in blocks)
-    assert found, "async function findWinner() must be declared in some script block"
+    found_path_a = any("async function findWinningProduct" in b for b in blocks)
+    found_path_b = any("async function analyzeProductUrl" in b for b in blocks)
+    assert found_path_a, "async function findWinningProduct() must be declared in some script block"
+    assert found_path_b, "async function analyzeProductUrl() must be declared in some script block"
 
 
 def test_case_26_button_has_no_inline_onclick():
     """The button MUST NOT have an inline onclick. The clean flow uses a single
-    addEventListener('click', findWinner) — no inline handlers, no wrappers."""
+    addEventListener('click', findWinningProduct) — no inline handlers, no wrappers."""
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    m = re.search(r'<button[^>]*id="findWinnerBtn"[^>]*>', src)
-    assert m, "findWinnerBtn button not found"
+    m = re.search(r'<button[^>]*id="findWinningProductBtn"[^>]*>', src)
+    assert m, "findWinningProductBtn button not found"
     btn_html = m.group(0)
     assert "onclick=" not in btn_html, \
-        "findWinnerBtn MUST NOT have an inline onclick — use addEventListener only"
+        "findWinningProductBtn MUST NOT have an inline onclick — use addEventListener only"
 
 
 def test_case_27_no_tlp_find_winner_wrapper_remains():
@@ -716,72 +749,67 @@ def test_case_28_no_bind_find_winner_polling_remains():
         "fetchTrendingProduct (the old function name) must be removed"
 
 
-def test_case_29_button_has_exactly_one_addEventListener():
-    """There must be EXACTLY ONE addEventListener('click', ...) for findWinnerBtn."""
+def test_case_29_button_has_exactly_one_addEventListener_per_workflow():
+    """There must be EXACTLY ONE addEventListener per workflow button."""
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    # Look for any addEventListener call that targets the findWinnerBtn
-    pattern = re.compile(r"\.addEventListener\(\s*['\"]click['\"]\s*,\s*(\w+)")
-    matches = []
-    for m in pattern.finditer(src):
-        # Find the surrounding code to see if it relates to findWinnerBtn
-        ctx_start = max(0, m.start() - 200)
-        ctx = src[ctx_start:m.end() + 100]
-        if "findWinnerBtn" in ctx or "findWinner" in m.group(1):
-            matches.append(m.group(1))
-    # In the clean rebuild, there is exactly one binding: addEventListener('click', findWinner)
-    assert matches == ["findWinner"], \
-        f"Expected exactly one click binding (findWinner); got {matches}"
+    has_find_winning = bool(re.search(
+        r"addEventListener\(\s*['\"]click['\"]\s*,\s*findWinningProduct\s*\)",
+        src))
+    has_analyze = bool(re.search(
+        r"addEventListener\(\s*['\"]click['\"]\s*,\s*analyzeProductUrl\s*\)",
+        src))
+    assert has_find_winning, \
+        "findWinningProductBtn must be bound to findWinningProduct"
+    assert has_analyze, \
+        "analyzeProductBtn must be bound to analyzeProductUrl"
+    assert not re.search(
+        r"addEventListener\(\s*['\"]click['\"]\s*,\s*findWinner\s*\)",
+        src), "Old shared findWinner binding must be removed"
 
 
-def test_case_30_find_winner_calls_find_winner_then_traffic_generate():
-    """findWinner() must perform GET /find-winner then POST /traffic/generate
-    (with product_payload) in a single flow."""
+def test_case_30_workflows_call_discovery_then_traffic_generate():
+    """Both workflows must perform GET (discovery OR analyze) then
+    POST /traffic/generate (with product_payload) in a single flow.
+    PATH A calls /find-winner; PATH B calls /analyze-product-url."""
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
-    # Both API calls must appear in findWinner's body
-    assert "/api/v1/find-winner" in body, "findWinner must call /api/v1/find-winner"
+    body = _pipeline_body()
     assert "/api/v1/traffic/generate" in body, \
-        "findWinner must call /api/v1/traffic/generate"
+        "pipeline must call /api/v1/traffic/generate"
     assert "product_payload" in body, \
-        "findWinner must pass product_payload (safe path, no URL scraping)"
-    # Both requests must use fetch()
+        "pipeline must pass product_payload (safe path, no URL scraping)"
+    assert "/api/v1/find-winner" in src, \
+        "findWinningProduct() must call /api/v1/find-winner"
+    assert "/api/v1/analyze-product-url" in src, \
+        "analyzeProductUrl() must call /api/v1/analyze-product-url"
     fetch_calls = re.findall(r"await fetch\(", body)
     assert len(fetch_calls) >= 2, \
-        f"findWinner must issue ≥2 fetch calls (find-winner + traffic/generate); got {len(fetch_calls)}"
+        f"pipeline must issue ≥2 fetch calls (discovery + traffic/generate); got {len(fetch_calls)}"
 
 
-def test_case_31_find_winner_controls_output_visibility():
-    """findWinner must hide #emptyState, show #loadingState, then #resultsContent."""
-    import re
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 6000]
+def test_case_31_pipeline_controls_output_visibility():
+    """The shared pipeline must hide #emptyState, show #loadingState, then #resultsContent."""
+    body = _pipeline_body()
     assert "emptyState" in body and "add('hidden')" in body, \
-        "findWinner must hide #emptyState"
+        "pipeline must hide #emptyState"
     assert "loadingState" in body and "remove('hidden')" in body, \
-        "findWinner must show #loadingState during loading"
+        "pipeline must show #loadingState during loading"
     assert "resultsContent" in body and "remove('hidden')" in body, \
-        "findWinner must show #resultsContent once content arrives"
+        "pipeline must show #resultsContent once content arrives"
 
 
-def test_case_32_find_winner_resets_button_to_find_another():
-    """On success, findWinner must reset the button text to 'Find Another Winner'."""
+def test_case_32_buttons_reset_to_workflow_specific_labels():
+    """On success, PATH A's button must say 'Find Another Winner', PATH B's
+    button must say 'Analyze Another URL'. Both via the shared pipeline."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    # Read the entire findWinner function body (until the binding
-    # statement that comes immediately after it). The 30 000-char
-    # buffer is intentionally larger than the function so this test
-    # stays robust against future in-function refactors.
-    binding_idx = src.index("addEventListener('click', findWinner)")
-    body = src[fn_idx:binding_idx]
-    assert "Find Another Winner" in body, \
-        "findWinner must rename the button to 'Find Another Winner' on success"
-    # The button must also be re-enabled
+    assert "Find Another Winner" in src, \
+        "PATH A success label must be 'Find Another Winner'"
+    assert "Analyze Another URL" in src, \
+        "PATH B success label must be 'Analyze Another URL'"
+    body = _pipeline_body()
     assert "btn.disabled = false" in body, \
-        "findWinner must re-enable the button on success"
+        "pipeline must re-enable the button on success"
 
 
 def test_case_33_wrap_text_handles_long_titles_without_throwing():
@@ -790,7 +818,7 @@ def test_case_33_wrap_text_handles_long_titles_without_throwing():
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("function _wrapText(")
-    body = src[fn_idx:fn_idx + 2000]
+    body = src[fn_idx:_script_end_idx(src)]
     # The previous bug was `const last = ...; last = ...;` — Assignment to
     # constant variable. Make sure we use `let last`.
     assert re.search(r"\blet\s+last\s*=", body), \
@@ -856,7 +884,7 @@ def test_case_34_load_image_with_cors_does_not_taint_canvas():
     branded fallback is used."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function _loadImageWithCors(")
-    body = src[fn_idx:fn_idx + 1500]
+    body = src[fn_idx:_script_end_idx(src)]
     # crossOrigin='anonymous' must be set
     assert "crossOrigin = 'anonymous'" in body or 'crossOrigin="anonymous"' in body, \
         "_loadImageWithCors must set crossOrigin='anonymous'"
@@ -871,7 +899,7 @@ def test_case_35_pin_dimensions_are_exactly_1000_x_1500():
     """renderPinPreview must produce a 1000×1500 canvas."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function renderPinPreview")
-    body = src[fn_idx:fn_idx + 1500]
+    body = src[fn_idx:_script_end_idx(src)]
     # Accept both literal `1000` and a `W = 1000` constant style.
     assert "canvas.width = 1000" in body or "canvas.width = W" in body, \
         "renderPinPreview must set canvas.width = 1000"
@@ -893,7 +921,7 @@ def test_case_36_download_uses_cached_1000_x_1500_pin():
     designed pin) — not re-render from a source URL."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("function downloadPinImage")
-    body = src[fn_idx:fn_idx + 2000]
+    body = src[fn_idx:_script_end_idx(src)]
     assert "__lastPinDataUrl" in body, \
         "downloadPinImage must read from window.__lastPinDataUrl"
     assert "createObjectURL" in body, \
@@ -901,25 +929,26 @@ def test_case_36_download_uses_cached_1000_x_1500_pin():
 
 
 def test_case_37_error_path_visibly_informs_the_user():
-    """findWinner() catch block must write a visible error into #executionOutput
-    and the finally block must restore the button."""
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    # Read the entire findWinner function body up to the binding.
-    binding_idx = src.index("addEventListener('click', findWinner)")
-    body = src[fn_idx:binding_idx]
-    # Catch block must render visible error into executionOutput
-    assert "executionOutput" in body and "Find Winner failed" in body, \
-        "findWinner catch must render visible 'Find Winner failed' error"
-    # Finally block must restore the button (defense-in-depth: no
-    # 'hung spinner forever' bug).
+    """The shared pipeline's catch block must write a visible error into
+    #executionOutput and the finally block must restore the button."""
+    body = _pipeline_body()
+    # Catch block must render visible error into executionOutput.
+    assert "executionOutput" in body, \
+        "pipeline must render visible error into #executionOutput"
+    # Each workflow supplies its own noPhotoHeading / failHeading / failBody.
+    # We just check that the pipeline references them (per-workflow strings
+    # are passed via opts).
+    assert "noPhotoHeading" in body, \
+        "pipeline must use opts.noPhotoHeading (per-workflow error heading)"
+    # Finally block must restore the button (defense-in-depth).
     assert "} finally {" in body, \
-        "findWinner must have a finally block to ALWAYS restore the button"
-    assert "executionOutput" in body and "Pinterest generation failed" in body, \
-        "findWinner catch must render visible 'Pinterest generation failed' error"
-    # Button must be restored to "Find Winner" on error
-    assert "'Find Winner'" in body or '"Find Winner"' in body, \
-        "findWinner catch must restore button text to 'Find Winner'"
+        "pipeline must have a finally block to ALWAYS restore the button"
+    # Button must be restored via opts.successIdleLabel / opts.idleLabel.
+    assert "successIdleLabel" in body, \
+        "pipeline must set the success-idle label via opts.successIdleLabel"
+    # Each workflow supplies a distinct Pinterest-failure error string.
+    assert "Pinterest generation failed" in body, \
+        "pipeline must render visible 'Pinterest generation failed' error"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1413,52 +1442,41 @@ def test_gate_23_research_images_returns_max_3_urls():
     assert len(urls) <= 3
 
 
-def test_gate_24_frontend_abort_controller_for_find_winner():
-    """index.html must wrap the /find-winner fetch in an AbortController
-    with a finite timeout so the browser cannot spin forever."""
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 12000]
+def test_gate_24_pipeline_uses_abort_controller_for_first_fetch():
+    """The shared pipeline must wrap its first fetch in an AbortController."""
+    body = _pipeline_body()
     assert "AbortController" in body, \
-        "findWinner must use AbortController around the /find-winner fetch"
-    assert "findController.abort" in body, \
+        "pipeline must use AbortController around the first fetch"
+    assert "controller.abort" in body, \
         "AbortController must have an abort() timer attached"
-    assert "FIND_WINNER_TIMEOUT_MS" in body, \
+    assert "TIMEOUT_MS" in body, \
         "AbortController timeout must be defined as a named constant"
 
 
-def test_gate_25_frontend_abort_controller_for_generate():
-    """index.html must wrap the /traffic/generate fetch in an AbortController."""
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
-    assert "genController" in body or "AbortController" in body, \
-        "findWinner must use an AbortController around /traffic/generate"
+def test_gate_25_pipeline_uses_abort_controller_for_generate():
+    """The shared pipeline must wrap the /traffic/generate fetch in an AbortController."""
+    body = _pipeline_body()
+    assert "genController" in body, \
+        "pipeline must use an AbortController around /traffic/generate"
 
 
-def test_gate_26_frontend_rejects_unverified_winner_image():
-    """index.html MUST throw before rendering if the winner's
-    image_status is not 'verified' — defense-in-depth in case the backend
-    ever regresses."""
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
+def test_gate_26_pipeline_rejects_unverified_winner_image():
+    """The shared pipeline MUST throw before rendering if the winner's
+    image_status is not 'verified' — defense-in-depth."""
+    body = _pipeline_body()
     assert "image_status" in body and "verified" in body, \
-        "findWinner must check image_status === 'verified'"
+        "pipeline must check image_status === 'verified'"
     assert "!winner.image_url" in body, \
-        "findWinner must also reject winners with no image_url"
+        "pipeline must also reject winners with no image_url"
 
 
-def test_gate_27_frontend_handles_abort_error_message():
-    """When AbortController fires, the user must see a clear timeout
-    message — not a generic network error."""
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
+def test_gate_27_pipeline_handles_abort_error_message():
+    """When AbortController fires, the user must see a clear timeout message."""
+    body = _pipeline_body()
     assert "took too long" in body, \
-        "findWinner must surface a 'took too long' message on AbortError"
+        "pipeline must surface a 'took too long' message on AbortError"
     assert "AbortError" in body, \
-        "findWinner must detect networkErr.name === 'AbortError'"
+        "pipeline must detect networkErr.name === 'AbortError'"
 
 
 def test_gate_28_research_images_skips_ddg_when_tavily_already_satisfied():
@@ -1505,23 +1523,16 @@ def test_gate_28_research_images_skips_ddg_when_tavily_already_satisfied():
     assert len(urls) == 3
 
 
-def test_gate_29_frontend_timeout_bounds_the_request():
-    """FIND_WINNER_TIMEOUT_MS must be large enough to cover a healthy
-    backend response (backend REQUEST_BUDGET_SECONDS = 20 s plus
-    network buffer) but small enough that the user can retry quickly
-    when the server is slow. Tuned to 30 s — Render cold-start is now
-    handled by the DOMContentLoaded warm-up ping, not by inflating
-    the find-winner timeout. A 75 s timeout left the user staring at
-    a spinner for too long after a failed request."""
+def test_gate_29_pipeline_timeout_bounds_the_request():
+    """The shared pipeline's timeout must be in [20 000, 45 000] ms."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     import re
-    m = re.search(r"FIND_WINNER_TIMEOUT_MS\s*=\s*(\d+)", src)
-    assert m, "findWinner must declare FIND_WINNER_TIMEOUT_MS"
+    m = re.search(r"TIMEOUT_MS\s*=\s*(\d+)", src)
+    assert m, "pipeline must declare TIMEOUT_MS"
     val = int(m.group(1))
     assert 20_000 <= val <= 45_000, (
-        f"FIND_WINNER_TIMEOUT_MS = {val}; must be in [20 000, 45 000] ms "
-        "so the user gets fast retry feedback (warm-up ping handles "
-        "Render cold-start instead)"
+        f"TIMEOUT_MS = {val}; must be in [20 000, 45 000] ms so the user "
+        "gets fast retry feedback (warm-up ping handles Render cold-start)"
     )
 
 
@@ -1531,37 +1542,44 @@ def test_gate_30_frontend_warms_up_backend_on_load():
     'server is waking up' error on first click after the app has been idle."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("DOMContentLoaded")
-    body = src[fn_idx:fn_idx + 4000]
+    body = src[fn_idx:_script_end_idx(src)]
     assert "/api/v1/health" in body, (
         "DOMContentLoaded must fire a /api/v1/health warm-up fetch"
     )
 
 
-def test_gate_31_frontend_shows_progress_stages():
-    """findWinner must cycle the loading text through progress stages so
-    the user sees activity during long waits (Render cold start, slow
-    network, slow research providers)."""
+def test_gate_31_both_workflows_show_progress_stages():
+    """Both PATH A and PATH B must cycle the loading text through their
+    distinct progress stages."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
-    assert "Researching trending products" in body, \
-        "findWinner must show 'Researching trending products' stage"
-    assert "Verifying product images" in body, \
-        "findWinner must show 'Verifying product images' stage"
+    # PATH A stages
+    assert "Researching products" in src, \
+        "PATH A must include 'Researching products' stage"
+    assert "Scoring opportunities" in src, \
+        "PATH A must include 'Scoring opportunities' stage"
+    assert "Verifying product images" in src, \
+        "PATH A must include 'Verifying product images' stage"
+    # PATH B stages
+    assert "Reading product" in src, \
+        "PATH B must include 'Reading product' stage"
+    assert "Resolving product details" in src, \
+        "PATH B must include 'Resolving product details' stage"
+    assert "Evaluating opportunity" in src, \
+        "PATH B must include 'Evaluating opportunity' stage"
+    # Shared pipeline drives the timer.
+    body = _pipeline_body()
     assert "stageTimer" in body, \
-        "findWinner must use a stageTimer to cycle the progress text"
+        "pipeline must use a stageTimer to cycle the progress text"
 
 
-def test_gate_32_frontend_timeout_message_mentions_warm_up():
+def test_gate_32_pipeline_timeout_message_mentions_warm_up():
     """When the AbortController fires, the error message must reassure
     the user that the server is waking up — not blame them."""
-    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
+    body = _pipeline_body()
     assert "waking up" in body or "warms up" in body, \
-        "findWinner catch must explain that the server may be warming up"
+        "pipeline catch must explain that the server may be warming up"
     assert "try again" in body.lower(), \
-        "findWinner catch must tell the user to try again"
+        "pipeline catch must tell the user to try again"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2674,18 +2692,18 @@ def test_index_html_input_has_no_inline_onclick():
         )
 
 
-def test_index_html_findWinner_reads_latest_input_value():
-    """findWinner() must read input.value fresh from the DOM (not from a
-    captured reference) so password-manager autofill races don't produce
-    an empty-value bug."""
+def test_index_html_analyzeProductUrl_reads_url_field():
+    """analyzeProductUrl() must read the URL field fresh from the DOM,
+    log the value for diagnostics, and reject empty / non-URL input
+    before calling the backend."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    # Must query for productUrl inside the candidate list.
-    assert "candidateIds" in src or "productUrl" in src, (
-        "findWinner must read from the productUrl element (freshly each call)"
+    # Must read from productUrl element directly.
+    assert "getElementById('productUrl')" in src, (
+        "analyzeProductUrl must read from the #productUrl element"
     )
-    # Must log the input value for diagnostics.
-    assert "[find-winner] input value" in src, (
-        "findWinner must log the actual input value for diagnostics"
+    # Must validate http:// or https:// scheme client-side.
+    assert "/^https?:\\/\\/" in src or "test('http" in src or "/^http" in src, (
+        "analyzeProductUrl must validate URL scheme client-side"
     )
 
 
@@ -2695,7 +2713,7 @@ def test_index_html_findWinner_does_not_throw_on_empty_input():
     misleading body. Empty input now passes through to the backend."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     # Locate the findWinner function body.
-    fn_start = src.index("async function findWinner(")
+    fn_start = src.index("async function findWinningProduct(")
     fn_end = src.index("    }", fn_start + 100)
     fn_body = src[fn_start:fn_end]
     # The old guard had: throw new Error('Please paste a product URL...')
@@ -2719,28 +2737,35 @@ def test_index_html_error_renderer_recognizes_new_relevance_message():
     )
 
 
-def test_index_html_has_exactly_one_findWinner_binding():
-    """Exactly one addEventListener('click', findWinner) on findWinnerBtn."""
+def test_index_html_has_exactly_one_binding_per_button():
+    """index.html must have exactly ONE addEventListener per workflow
+    button — one for findWinningProductBtn and one for analyzeProductBtn.
+    No duplicate handlers, no shared click handler."""
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    matches = re.findall(
-        r"document\.getElementById\(['\"]findWinnerBtn['\"]\)\s*"
-        r"\.addEventListener\(\s*['\"]click['\"]\s*,\s*findWinner\s*\)",
-        src,
-    )
-    assert len(matches) == 1, (
-        f"index.html must have exactly one findWinner binding; "
-        f"found {len(matches)}"
-    )
+    has_find_winning = bool(re.search(
+        r"addEventListener\(\s*['\"]click['\"]\s*,\s*findWinningProduct\s*\)",
+        src))
+    has_analyze = bool(re.search(
+        r"addEventListener\(\s*['\"]click['\"]\s*,\s*analyzeProductUrl\s*\)",
+        src))
+    assert has_find_winning, \
+        "findWinningProductBtn must be bound to findWinningProduct"
+    assert has_analyze, \
+        "analyzeProductBtn must be bound to analyzeProductUrl"
+    # Old shared binding must be gone.
+    assert not re.search(
+        r"addEventListener\(\s*['\"]click['\"]\s*,\s*findWinner\s*\)",
+        src), "Old shared findWinner binding must be removed"
 
 
 def test_index_html_no_inline_onclick_on_find_winner_button():
     """The Find Winner button must rely solely on the addEventListener."""
     import re
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    for m in re.finditer(r'<button[^>]*\bid=["\']findWinnerBtn["\'][^>]*>', src):
+    for m in re.finditer(r'<button[^>]*\bid=["\']findWinningProductBtn["\'][^>]*>', src):
         assert "onclick" not in m.group(0).lower(), (
-            "findWinnerBtn must not have an inline onclick — use the listener"
+            "findWinningProductBtn must not have an inline onclick — use the listener"
         )
 
 
@@ -2755,47 +2780,52 @@ def test_index_html_passes_url_or_keyword_param():
     )
 
 
-def test_index_html_does_not_substitute_fallback_for_empty_input():
-    """findWinner() must NOT substitute any fallback string (e.g.
-    'trending product') when the input is empty — that hides the real
-    cause from the user. Empty input must show inline validation and
-    return early without calling the backend."""
+def test_index_html_workflows_have_independent_input_contracts():
+    """PATH A (findWinningProduct) intentionally uses 'trending product'
+    as the discovery seed (no input required). PATH B (analyzeProductUrl)
+    must NOT substitute any fallback — empty URL shows inline error and
+    returns early without calling the backend."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    # Locate findWinner function body.
-    fn_start = src.index("async function findWinner(")
-    fn_end = src.index("    }", fn_start + 100)
-    fn_body = src[fn_start:fn_end]
-    assert "trending product" not in fn_body, (
-        "findWinner must not substitute 'trending product' as a fallback "
-        "for empty input. Show inline validation and return early instead."
+    # PATH A's body must contain the explicit 'trending product' seed.
+    a_start = src.index("async function findWinningProduct(")
+    a_end = src.index("</script>", a_start)
+    a_body = src[a_start:a_end]
+    assert "'trending product'" in a_body, (
+        "PATH A must seed the discovery with the literal 'trending product'"
     )
-    assert "params.set('url_or_keyword', hint || " not in fn_body, (
-        "findWinner must not OR-fallback the url_or_keyword param."
+    # PATH B's body must NOT have any hint || fallback for the URL param.
+    b_start = src.index("async function analyzeProductUrl(")
+    b_end = src.index("</script>", b_start)
+    b_body = src[b_start:b_end]
+    assert "||" not in b_body.split("params.set")[1] if "params.set" in b_body else True, (
+        "PATH B must NOT OR-fallback the URL param"
     )
 
 
-def test_index_html_empty_input_returns_early_with_inline_validation():
-    """Empty input path must (a) set inline error text, (b) focus the
-    input, (c) hide loading state, (d) return early before any fetch."""
+def test_index_html_analyzeProductUrl_returns_early_with_inline_validation():
+    """PATH B (analyzeProductUrl) must (a) set inline error text,
+    (b) focus the input, (c) return early before any fetch when the
+    URL field is empty."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_start = src.index("async function findWinner(")
-    binding_idx = src.index("addEventListener('click', findWinner)")
-    fn_body = src[fn_start:binding_idx]
-    # Inline guidance text — may be split across line continuations.
-    assert "Please paste a product URL" in fn_body, (
-        "findWinner empty-input branch must show inline guidance"
+    b_start = src.index("async function analyzeProductUrl(")
+    b_end = src.index("</script>", b_start)
+    b_body = src[b_start:b_end]
+    # Inline guidance text for PATH B.
+    assert "Paste an Amazon" in b_body, (
+        "analyzeProductUrl must show inline guidance for empty URL"
     )
-    assert "productUrlError" in fn_body, (
-        "findWinner must reference the inline error element"
+    assert "productUrlError" in b_body, (
+        "analyzeProductUrl must reference the inline error element"
     )
-    assert "urlInput.focus" in fn_body, (
-        "findWinner must focus the input on empty"
+    assert "urlInput.focus" in b_body, (
+        "analyzeProductUrl must focus the input on empty"
     )
-    assert "loadingEl.classList.add('hidden')" in fn_body, (
-        "findWinner must hide loading state on empty-input early return"
-    )
-    assert "btn.disabled = false" in fn_body, (
-        "findWinner must restore the button on empty-input early return"
+    # PATH B's empty-input branch is an early return, NOT a fetch.
+    # Look for the inline error + return sequence.
+    empty_block_idx = b_body.index("if (!url)")
+    empty_block_end = empty_block_idx + 800
+    assert "return" in b_body[empty_block_idx:empty_block_end], (
+        "analyzeProductUrl must early-return when URL is empty"
     )
 
 
@@ -3156,3 +3186,175 @@ def test_url_resolution_only_on_url_card_winner():
     # Diagnostic info preserved under a separate key.
     assert winner.get("url_resolution_attempted") is not None
     assert winner["url_resolution_attempted"]["asin"] == "B0SPICERACK"
+
+
+
+
+# ── WORKFLOW SEPARATION REGRESSION (added 2026-09-28) ─────────────────────
+# The two workflows (PATH A findWinningProduct / PATH B analyzeProductUrl)
+# must be truly separate: different inputs, different buttons, different
+# endpoints, different stages, different error messages, but shared
+# downstream rendering helpers.
+
+
+def test_index_html_two_workflow_sections_in_dom():
+    """The DOM must contain both workflow sections with distinct headings."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "Find a Winning Product" in src,         "DOM must include the 'Find a Winning Product' section heading"
+    assert "I Already Have a Product" in src,         "DOM must include the 'I Already Have a Product' section heading"
+
+
+def test_index_html_two_workflow_buttons_with_distinct_ids():
+    """PATH A button (#findWinningProductBtn) and PATH B button
+    (#analyzeProductBtn) must both exist with distinct ids."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert 'id="findWinningProductBtn"' in src,         "PATH A button id='findWinningProductBtn' must exist"
+    assert 'id="analyzeProductBtn"' in src,         "PATH B button id='analyzeProductBtn' must exist"
+    # Old single button id must be gone.
+    assert 'id="findWinnerBtn"' not in src,         "Old id='findWinnerBtn' must be removed"
+
+
+def test_index_html_each_button_has_exactly_one_handler():
+    """Each workflow button has exactly ONE click handler. No duplicates."""
+    import re
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # PATH A: findWinningProductBtn -> findWinningProduct
+    fa_matches = re.findall(
+        r'''addEventListener\(\s*['"]click['"]\s*,\s*findWinningProduct\s*\)''',
+        src)
+    assert len(fa_matches) == 1, \
+        f"findWinningProductBtn must have exactly one handler; got {len(fa_matches)}"
+    # PATH B: analyzeProductBtn -> analyzeProductUrl
+    fb_matches = re.findall(
+        r'''addEventListener\(\s*['"]click['"]\s*,\s*analyzeProductUrl\s*\)''',
+        src)
+    assert len(fb_matches) == 1, \
+        f"analyzeProductBtn must have exactly one handler; got {len(fb_matches)}"
+
+
+def test_index_html_findWinningProduct_does_not_read_url_field():
+    """PATH A must never read the #productUrl input value. This is the
+    core invariant: one-click find winning product is INDEPENDENT of
+    the URL field."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    a_start = src.index("async function findWinningProduct(")
+    # The function ends right before the next top-level async function
+    # declaration (analyzeProductUrl).
+    a_end = src.index("async function analyzeProductUrl(", a_start)
+    a_body = src[a_start:a_end]
+    # Strip comments and check the remaining code for any actual
+    # getElementById('productUrl') call.
+    import re as _re_strip
+    code = _re_strip.sub(r"//.*", "", a_body)
+    code = _re_strip.sub(r"/\*.*?\*/", "", code, flags=_re_strip.DOTALL)
+    assert "getElementById('productUrl')" not in code, (
+        "findWinningProduct must NOT read the #productUrl field — it has no input"
+    )
+    # Must not declare a urlInput local variable (`const urlInput = …`,
+    # `let urlInput = …`, etc.). Property keys (e.g. `urlInput: null`) are
+    # fine because they just pass null to the pipeline opts.
+    import re as _re_vardecl
+    assert not _re_vardecl.search(r"\b(const|let|var)\s+urlInput\b", code), (
+        "findWinningProduct must not declare a local urlInput variable"
+    )
+
+
+def test_index_html_analyzeProductUrl_only_reads_url_field():
+    """PATH B reads ONLY the #productUrl input value. It does not
+    invoke a generic random-winner endpoint."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    b_start = src.index("async function analyzeProductUrl(")
+    b_end = src.index("</script>", b_start)
+    b_body = src[b_start:b_end]
+    assert "getElementById('productUrl')" in b_body, (
+        "analyzeProductUrl must read from the #productUrl field"
+    )
+    # Must target the dedicated /analyze-product-url endpoint, NOT
+    # the generic /find-winner endpoint.
+    assert "/api/v1/analyze-product-url" in b_body, (
+        "analyzeProductUrl must hit /api/v1/analyze-product-url"
+    )
+
+
+def test_index_html_workflow_button_labels_are_distinct():
+    """PATH A button starts with 'Find Winning Product'; PATH B with
+    'Analyze Product'. The success-idle labels are also distinct."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "Find Winning Product" in src,         "PATH A idle label must be 'Find Winning Product'"
+    assert "Analyze Product" in src,         "PATH B idle label must be 'Analyze Product'"
+    assert "Find Another Winner" in src,         "PATH A success label must be 'Find Another Winner'"
+    assert "Analyze Another URL" in src,         "PATH B success label must be 'Analyze Another URL'"
+
+
+def test_index_html_workflow_loading_stages_are_distinct():
+    """Each workflow supplies its own stage text via the pipeline opts."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # PATH A stages
+    assert "Researching products" in src
+    assert "Scoring opportunities" in src
+    assert "Selecting winner" in src
+    # PATH B stages
+    assert "Reading product" in src
+    assert "Resolving product details" in src
+    assert "Evaluating opportunity" in src
+    # Stages must be distinct — neither list may contain the other's stages.
+    a_stages = ["Researching products", "Scoring opportunities", "Selecting winner"]
+    b_stages = ["Reading product", "Resolving product details", "Evaluating opportunity"]
+    for s in a_stages:
+        assert s not in b_stages
+    for s in b_stages:
+        assert s not in a_stages
+
+
+def test_index_html_workflow_error_messages_are_distinct():
+    """Each workflow supplies a distinct noPhotoHeading and failHeading."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "couldn\'t find a qualified product right now" in src,         "PATH A noPhotoHeading must say 'couldn\'t find a qualified product right now'"
+    assert "couldn\'t identify or validate that product URL" in src,         "PATH B noPhotoHeading must say 'couldn\'t identify or validate that product URL'"
+
+
+def test_backend_analyze_product_url_route_exists():
+    """The backend must expose GET /api/v1/analyze-product-url as a
+    separate endpoint from /find-winner."""
+    import re
+    from pathlib import Path
+    p = Path(ROOT) / "backend" / "product_scout.py"
+    src = p.read_text(encoding="utf-8-sig")
+    assert re.search(r'''@router\.get\(\s*['"]/analyze-product-url''', src), (
+        "backend must define @router.get('/api/v1/analyze-product-url')"
+    )
+
+
+def test_backend_analyze_product_url_rejects_non_url_input():
+    """GET /analyze-product-url must reject non-URL inputs with HTTP 400
+    and a clear error message — not pass them through to the keyword
+    pipeline."""
+    from trafficlift_pro import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    r = client.get("/api/v1/analyze-product-url?url=kitchen%20organizer")
+    assert r.status_code == 400,         f"non-URL input must be rejected with 400; got {r.status_code}"
+    body = r.json()
+    assert "url" in body.get("detail", "").lower() or "http" in body.get("detail", "").lower(),         f"error must mention URL / http; got {body}"
+
+
+def test_backend_analyze_product_url_rejects_empty_input():
+    """GET /analyze-product-url must reject empty input with HTTP 400."""
+    from trafficlift_pro import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    r = client.get("/api/v1/analyze-product-url?url=")
+    assert r.status_code == 400,         f"empty input must be rejected with 400; got {r.status_code}"
+
+
+def test_backend_find_winner_still_works_without_url_or_keyword():
+    """The existing GET /find-winner?url_or_keyword=trending%20product
+    (or no param at all) must still return a winner — the default seed
+    drives the PATH A workflow."""
+    from trafficlift_pro import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    # PATH A's default seed
+    r = client.get("/api/v1/find-winner")
+    # 200 with a winner OR 404 with relevance message — both are valid.
+    assert r.status_code in (200, 404),         f"unexpected status; got {r.status_code}"

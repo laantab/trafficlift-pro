@@ -308,7 +308,13 @@ def find_winner_get(
         description="Generate via GPT-4o (requires OPENAI_API_KEY).",
     ),
 ) -> dict:
-    """GET variant. Query params for browser/curl/handshake calls."""
+    """GET variant. Query params for browser/curl/handshake calls.
+
+    PATH A — discovery. The frontend calls this with NO URL/keyword to
+    launch the 'Find Winning Product' flow: live research, candidate
+    ranking, image cascade. The default 'trending product' seeds
+    Tavily's trending-products search.
+    """
     excl = [x for x in (exclude or "").split(",") if x] if exclude else []
     return _synthesize(
         url_or_keyword=url_or_keyword,
@@ -316,6 +322,52 @@ def find_winner_get(
         seed=seed,
         exclude=excl,
         use_ai=use_ai,
+    )
+
+
+@router.get("/analyze-product-url")
+def analyze_product_url_get(
+    url: str = Query(
+        ...,
+        max_length=2000,
+        description="Product URL (Amazon / Shopify / WooCommerce / etc.). "
+                    "The frontend's 'Analyze Product' button hits this.",
+    ),
+    exclude: Optional[str] = Query(
+        None,
+        description="Comma-separated product ids to avoid.",
+    ),
+    seed: Optional[int] = Query(None, ge=0, le=10_000),
+) -> dict:
+    """PATH B — analyze a specific product URL.
+
+    Resolves redirects, extracts ASIN / title / category, runs the
+    standard Product Control Agent gate, and returns either a verified
+    winner payload or a structured 404 with a clear reason. The URL
+    is the user's explicit ask — we MUST NOT substitute a random
+    pool candidate when the URL can't be resolved.
+    """
+    from fastapi import HTTPException
+    if not url or not url.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="URL is required for /analyze-product-url.",
+        )
+    if not (url.lower().startswith("http://") or url.lower().startswith("https://")):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "We couldn't identify or validate that product URL. "
+                "Try the full product page URL (must start with http:// or https://)."
+            ),
+        )
+    excl = [x for x in (exclude or "").split(",") if x] if exclude else []
+    return _synthesize(
+        url_or_keyword=url.strip(),
+        category="Trending General",
+        seed=seed,
+        exclude=excl,
+        use_ai=False,
     )
 
 
