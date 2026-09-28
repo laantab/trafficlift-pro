@@ -186,6 +186,273 @@ LIFESTYLE_FILENAME_TOKENS = (
 )
 
 
+# ── Query-to-product relevance ───────────────────────────────────────────────
+#
+# The user's query (e.g. "kitchen organizer", "desk lamp") is a hard
+# eligibility constraint, NOT a loose inspiration signal. A product must
+# semantically match the query before trend score or any other factor can
+# make it a winner.
+#
+# The scorer below is deterministic and model-free. It uses:
+#   1. Direct token overlap with the query
+#   2. Category-family synonyms (e.g. "organizer" family includes rack,
+#      shelf, storage, holder, bin, drawer, pantry, cabinet, etc.)
+#   3. Negative-category guards (e.g. "kitchen organizer" must NOT match
+#      brushes, scrubbers, lamps, pet supplies, etc.)
+#
+# Returns a float in [0.0, 1.0] plus a list of matched tokens for logging.
+
+CATEGORY_FAMILIES: dict[str, list[str]] = {
+    # kitchen organizer / storage
+    "kitchen_org": [
+        "organizer", "storage", "rack", "shelf", "shelves", "holder",
+        "bin", "baskets", "basket", "drawer", "pantry", "cabinet",
+        "countertop", "utensil", "spice", "drying", "dish", "tray",
+        "container", "caddy", "organize",
+    ],
+    "kitchen_cook": [
+        "kitchen", "cook", "chef", "fryer", "airfryer", "knife",
+        "coffee", "mug", "lunch", "bento", "pan", "skillet", "meal",
+        "recipe", "bake", "grocery", "pot", "wok", "rice",
+    ],
+    # phone stand
+    "phone": [
+        "phone", "iphone", "smartphone", "mobile", "magsafe", "android",
+        "stand", "holder", "mount", "dock", "cradle", "charging",
+    ],
+    # desk lamp / task lamp
+    "lamp": [
+        "lamp", "light", "lighting", "led", "task", "desk",
+        "study", "reading", "bedside", "table", "bulb",
+    ],
+    # pet bed
+    "pet_bed": [
+        "dog", "cat", "pet", "pup", "puppy", "kitten", "bed",
+        "calming", "orthopedic", "kennel", "crate", "cuddler",
+        "self-warming", "plush",
+    ],
+    # pet general
+    "pet": [
+        "dog", "cat", "pet", "pup", "puppy", "kitten",
+        "leash", "grooming", "feeder", "litter", "treat",
+        "tree", "scratching", "toy", "bowl",
+    ],
+    # cleaning brush / scrubber
+    "cleaning_brush": [
+        "brush", "scrubber", "scrub", "cleaning", "spin",
+        "electric", "toilet", "bathroom", "scrubbing",
+    ],
+    # general cleaning
+    "cleaning": [
+        "clean", "scrub", "brush", "mop", "wash", "wipe", "vacuum",
+        "grout", "ultrasonic", "soap", "tile", "stain", "dust",
+    ],
+    # fitness
+    "fitness": [
+        "yoga", "fitness", "workout", "exercise", "gym", "stretch",
+        "posture", "massage", "foam", "roller", "resistance", "band",
+        "dumbbell", "pilates", "wellness", "pain",
+    ],
+    # decor
+    "decor": [
+        "lamp", "sunset", "projection", "light", "decor", "aesthetic",
+        "ambient", "mood", "bedroom", "cozy", "throw", "candle",
+        "plant", "shelf", "mirror",
+    ],
+}
+
+# Tokens that, when present in the PRODUCT, contradict a query family.
+# Each entry: query_family → list of product tokens that DISQUALIFY.
+QUERY_NEGATIVES: dict[str, list[str]] = {
+    "kitchen_org": [
+        # unrelated families
+        "lamp", "light", "pet", "dog", "cat", "pup",
+        "phone", "iphone", "yoga", "fitness",
+        "brush", "scrubber", "mop", "vacuum",
+    ],
+    "kitchen_cook": [
+        "lamp", "phone", "pet", "dog", "cat",
+        "brush", "scrubber", "yoga", "fitness",
+    ],
+    "phone": [
+        "lamp", "light", "dog", "cat", "pet", "bed", "brush",
+        "scrubber", "mop", "cookware", "skillet", "fryer",
+        "yoga", "fitness",
+    ],
+    "lamp": [
+        "organizer", "shelf", "bin", "dog", "cat", "pet",
+        "bed", "brush", "scrubber", "mop", "pan", "skillet",
+        "cookware", "knife", "yoga", "fitness",
+    ],
+    "pet_bed": [
+        "lamp", "phone", "organizer", "shelf", "brush",
+        "scrubber", "mop", "cookware", "yoga", "fitness",
+    ],
+    "pet": [
+        "lamp", "phone", "organizer", "cookware", "yoga",
+    ],
+    "cleaning_brush": [
+        "lamp", "phone", "dog", "cat", "pet", "bed",
+        "organizer", "shelf", "yoga", "fitness",
+    ],
+    "cleaning": [
+        "lamp", "phone", "dog", "cat", "pet", "bed",
+        "organizer", "shelf", "yoga", "fitness",
+    ],
+    "fitness": [
+        "lamp", "phone", "dog", "cat", "pet", "bed",
+        "organizer", "brush", "scrubber",
+    ],
+    "decor": [
+        "phone", "brush", "scrubber", "pet", "dog",
+    ],
+}
+
+
+def _tokenize(s: str) -> set[str]:
+    """Lowercase tokenization that keeps compound tokens (kitchen-organizer
+    → {kitchen, organizer, kitchen-organizer})."""
+    if not s:
+        return set()
+    low = s.lower()
+    # Replace non-alphanumeric with space, but preserve hyphenated words.
+    import re as _re
+    parts = _re.split(r"[^a-z0-9\-]+", low)
+    out: set[str] = set()
+    for p in parts:
+        if not p:
+            continue
+        out.add(p)
+        # also break on hyphens so 'kitchen-organizer' → {kitchen, organizer}
+        for sub in p.split("-"):
+            if sub and len(sub) > 1:
+                out.add(sub)
+    return out
+
+
+def _classify_query_families(query: str) -> set[str]:
+    """Map a free-form query to one or more category families.
+
+    Uses EXACT token matching (with a small allowance for plural forms
+    ending in 's'). We intentionally avoid substring matching because
+    words like "bed" appear in unrelated family tokens (e.g. "bedside"
+    in the lamp family) and would falsely activate the wrong family.
+    """
+    q_tokens = _tokenize(query)
+    families: set[str] = set()
+    for family_name, family_tokens in CATEGORY_FAMILIES.items():
+        for ft in family_tokens:
+            for qt in q_tokens:
+                if _tokens_match(qt, ft):
+                    families.add(family_name)
+                    break
+    return families
+
+
+def _tokens_match(a: str, b: str) -> bool:
+    """True if two tokens refer to the same concept.
+
+    Allows exact match, plural-vs-singular, and very small stems only
+    (≥4 chars). Avoids substring matching ("bed" vs "bedside") which
+    causes false-positive family activations.
+    """
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    # Plurals: drop trailing 's' if both ≥4 chars.
+    if len(a) >= 4 and len(b) >= 4:
+        if a.endswith("s") and a[:-1] == b:
+            return True
+        if b.endswith("s") and b[:-1] == a:
+            return True
+    return False
+
+
+def compute_query_product_relevance(
+    query: str,
+    product_name: str,
+    product_category: str = "",
+) -> tuple[float, list[str]]:
+    """Deterministic relevance score in [0.0, 1.0].
+
+    Logic:
+      * +0.45 if any query token appears directly in the product name/category.
+      * +0.55 if the query maps to a category family whose tokens appear in
+              the product name/category.
+      * -0.30 per query-family negative token present in the product
+              (capped at -0.70).
+      * Floor at 0.0.
+      * Default 0.50 when the query is empty (no constraint to apply).
+
+    A score of >= 0.50 is the default acceptance threshold; the researcher
+    can configure MIN_RELEVANCE_SCORE up or down.
+    """
+    if not query or not query.strip():
+        return 0.50, []
+
+    q_tokens = _tokenize(query)
+    product_text = f"{product_name or ''} {product_category or ''}".strip()
+    p_tokens = _tokenize(product_text)
+
+    if not q_tokens:
+        return 0.50, []
+
+    # ── 1. Direct token overlap ─────────────────────────────────────
+    matched: list[str] = []
+    direct_hits = 0
+    for qt in q_tokens:
+        for pt in p_tokens:
+            if _tokens_match(qt, pt) or (len(qt) >= 4 and (qt in pt or pt in qt)):
+                direct_hits += 1
+                matched.append(qt)
+                break
+
+    direct_score = min(direct_hits / max(len(q_tokens), 1), 1.0)
+
+    # ── 2. Category-family overlap ──────────────────────────────────
+    families = _classify_query_families(query)
+    family_score = 0.0
+    if families:
+        matched_families: set[str] = set()
+        for fam in families:
+            fams_tokens = CATEGORY_FAMILIES.get(fam, [])
+            for ft in fams_tokens:
+                for pt in p_tokens:
+                    if _tokens_match(ft, pt) or (len(ft) >= 4 and (ft in pt or pt in ft)):
+                        matched_families.add(fam)
+                        break
+                if fam in matched_families:
+                    break
+        family_score = min(len(matched_families) / max(len(families), 1), 1.0)
+
+    # ── 3. Negative guard ────────────────────────────────────────────
+    negative_penalty = 0.0
+    for fam in families:
+        for neg_tok in QUERY_NEGATIVES.get(fam, []):
+            for pt in p_tokens:
+                if _tokens_match(neg_tok, pt) or (len(neg_tok) >= 4 and (neg_tok in pt)):
+                    negative_penalty += 0.30
+                    break
+
+    negative_penalty = min(negative_penalty, 0.70)
+
+    # ── Combine ─────────────────────────────────────────────────────
+    raw = (direct_score * 0.45) + (family_score * 0.55)
+    final = max(0.0, min(1.0, raw - negative_penalty))
+    return round(final, 3), matched
+
+
+# Hard threshold: an image URL whose ranker score is below this is
+# treated as "least bad" and the candidate is REJECTED rather than
+# accepting a poor image just because no better candidate exists.
+MIN_PRODUCT_IMAGE_SCORE = 25
+
+# Hard threshold: a candidate whose query-product relevance is below
+# this is REJECTED before trend score or any other factor can promote it.
+MIN_RELEVANCE_SCORE = 0.50
+
+
 def rank_image_candidates(
     urls: list[str],
     *,

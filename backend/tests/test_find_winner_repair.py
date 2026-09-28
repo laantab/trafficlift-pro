@@ -95,9 +95,11 @@ def _patch_research(envelope: ResearchEnvelope):
 
 # Real-looking http(s) image URL that the Product Control Agent would
 # accept if HEAD returned 2xx + image/* + sufficient size. The tests mock
-# requests.head so we don't need a real network call.
+# requests.head so we don't need a real network call. The URL is from a
+# retailer product CDN so the visual-dominance ranker scores it well
+# above MIN_PRODUCT_IMAGE_SCORE.
 _TEST_IMAGE_URL = (
-    "https://images.example.com/rechargeable-electric-spin-scrubber-1000x1000.jpg"
+    "https://m.media-amazon.com/images/I/example-rechargeable-spin-scrubber-1000x1000.jpg"
 )
 
 
@@ -1865,4 +1867,222 @@ def test_gate_50_real_desk_lamp_scenario_picks_product_not_charged_devices():
     chosen, _ = ranked[0]
     assert chosen.startswith("https://m.media-amazon.com"), (
         f"Clean product shot must beat lifestyle 'lamp-with-phone' image; got {chosen}"
+    )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# QUERY-PRODUCT RELEVANCE + HARD IMAGE-QUALITY THRESHOLD (added 2026-09-27)
+#
+# The user's query is a HARD ELIGIBILITY CONSTRAINT, not a loose
+# inspiration signal. Trend score and image quality are ranking signals
+# among candidates that already pass relevance. A candidate whose name
+# does not match the query family must be rejected regardless of trend.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_relevance_01_kitchen_organizer_rejects_spin_scrubber():
+    """Spec test 1: query='kitchen organizer' must REJECT 'Rechargeable
+    Electric Spin Scrubber'."""
+    score, matched = pca_mod.compute_query_product_relevance(
+        "kitchen organizer",
+        "Rechargeable Electric Spin Scrubber with 6 Replaceable Heads",
+        "Cleaning",
+    )
+    assert score < pca_mod.MIN_RELEVANCE_SCORE, (
+        f"kitchen organizer must reject spin scrubber; got relevance={score}"
+    )
+
+
+def test_relevance_02_kitchen_organizer_accepts_under_sink_organizer():
+    """Spec test 2: query='kitchen organizer' must ACCEPT
+    '2-Tier Under Sink Kitchen Organizer'."""
+    score, matched = pca_mod.compute_query_product_relevance(
+        "kitchen organizer",
+        "2-Tier Under Sink Kitchen Organizer",
+        "Kitchen",
+    )
+    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
+        f"kitchen organizer must accept under-sink organizer; got relevance={score}"
+    )
+
+
+def test_relevance_03_phone_stand_accepts_magsafe_holder():
+    """Spec test 3: query='phone stand' must ACCEPT 'MagSafe Phone Holder'."""
+    score, _ = pca_mod.compute_query_product_relevance(
+        "phone stand",
+        "MagSafe Phone Holder for Desk",
+        "Tech",
+    )
+    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
+        f"phone stand must accept magsafe holder; got relevance={score}"
+    )
+
+
+def test_relevance_04_phone_stand_rejects_desk_lamp():
+    """Spec test 4: query='phone stand' must REJECT 'LED Desk Lamp'."""
+    score, _ = pca_mod.compute_query_product_relevance(
+        "phone stand",
+        "LED Desk Lamp",
+        "Decor",
+    )
+    assert score < pca_mod.MIN_RELEVANCE_SCORE, (
+        f"phone stand must reject desk lamp; got relevance={score}"
+    )
+
+
+def test_relevance_05_pet_bed_accepts_orthopedic_dog_bed():
+    """Spec test 5: query='pet bed' must ACCEPT 'Orthopedic Dog Bed'."""
+    score, _ = pca_mod.compute_query_product_relevance(
+        "pet bed",
+        "Orthopedic Dog Bed Self-Warming Plush",
+        "Pet Supplies",
+    )
+    assert score >= pca_mod.MIN_RELEVANCE_SCORE
+
+
+def test_relevance_06_desk_lamp_accepts_led_task_light():
+    """Spec test 6: query='desk lamp' must ACCEPT 'LED Task Light'."""
+    score, _ = pca_mod.compute_query_product_relevance(
+        "desk lamp",
+        "LED Task Light Dimmable",
+        "Tech",
+    )
+    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
+        f"desk lamp must accept LED task light; got relevance={score}"
+    )
+
+
+def test_relevance_07_cleaning_brush_accepts_spin_scrubber():
+    """Spec test 7: query='cleaning brush' must ACCEPT 'Electric Spin Scrubber'."""
+    score, _ = pca_mod.compute_query_product_relevance(
+        "cleaning brush",
+        "Electric Spin Scrubber",
+        "Cleaning",
+    )
+    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
+        f"cleaning brush must accept spin scrubber; got relevance={score}"
+    )
+
+
+def test_image_threshold_08_rejects_when_best_image_below_min():
+    """Spec test 8: if the BEST image URL ranks below MIN_PRODUCT_IMAGE_SCORE,
+    _find_product_image must return None — the candidate is rejected
+    rather than accepting the least-bad image."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    fake_tavily = mock.Mock(status_code=200)
+    fake_tavily.json.return_value = {
+        "results": [],
+        "images": [
+            # All URLs are from unknown hosts with no path bonuses and
+            # no filename keyword matches → all score 0 or below.
+            "https://random-cdn-1.example.com/random123.jpg",
+            "https://random-cdn-2.example.org/abc456.jpg",
+            "https://another-host.test/xyz789.jpg",
+        ],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pr_mod.live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="desk lamp", category="tech", intent="desk lamp",
+        )
+    assert url is None, (
+        f"_find_product_image must return None when best score < threshold; "
+        f"got {url}"
+    )
+
+
+def test_image_threshold_09_accepts_high_quality_retailer_image():
+    """A high-quality retailer CDN image must pass the threshold."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    fake_tavily = mock.Mock(status_code=200)
+    fake_tavily.json.return_value = {
+        "results": [],
+        "images": [
+            "https://m.media-amazon.com/images/I/71DESKlampXYZ.jpg",
+        ],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pr_mod.live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="desk lamp", category="tech", intent="desk lamp",
+        )
+    assert url is not None
+    assert "m.media-amazon.com" in url
+
+
+def test_trend_score_10_does_not_override_relevance():
+    """Spec test 9: a high trend score + low relevance must be rejected.
+    Verify the relevance gate runs BEFORE the trend score is used to
+    rank candidates — i.e. relevance is a hard eligibility gate."""
+    # Two product cards. Both go through compute_query_product_relevance.
+    # The one with high trend but irrelevant MUST have lower relevance
+    # than the relevant one.
+    irrelevant = ("Rechargeable Electric Spin Scrubber with 6 Replaceable Heads",
+                  "Cleaning")
+    relevant = ("2-Tier Under Sink Kitchen Organizer", "Kitchen")
+    rel_irrel, _ = pca_mod.compute_query_product_relevance(
+        "kitchen organizer", *irrelevant,
+    )
+    rel_rel, _ = pca_mod.compute_query_product_relevance(
+        "kitchen organizer", *relevant,
+    )
+    assert rel_irrel < pca_mod.MIN_RELEVANCE_SCORE, (
+        "irrelevant candidate must be below relevance threshold"
+    )
+    assert rel_rel >= pca_mod.MIN_RELEVANCE_SCORE, (
+        "relevant candidate must be at or above relevance threshold"
+    )
+    assert rel_rel > rel_irrel, (
+        f"relevant ({rel_rel}) must score higher than irrelevant ({rel_irrel})"
+    )
+
+
+def test_token_match_substring_does_not_falsely_activate_family():
+    """'bed' must NOT activate the 'lamp' family (bedside)."""
+    families = pca_mod._classify_query_families("bed")
+    assert "lamp" not in families, (
+        f"'bed' must not activate lamp family; got {families}"
+    )
+
+
+def test_token_match_plural_normalizes_correctly():
+    """'organizers' (plural) should match the 'organizer' family."""
+    families = pca_mod._classify_query_families("organizers")
+    assert "kitchen_org" in families
+
+
+def test_relevance_default_score_for_empty_query():
+    """An empty query returns 0.50 (neutral)."""
+    score, _ = pca_mod.compute_query_product_relevance("", "Any Product", "Any Cat")
+    assert score == 0.50
+
+
+def test_min_product_image_score_constant_is_sane():
+    """MIN_PRODUCT_IMAGE_SCORE must be a positive integer that prevents
+    the 'least bad' fallback but still allows valid retailer images."""
+    assert isinstance(pca_mod.MIN_PRODUCT_IMAGE_SCORE, int)
+    assert 10 <= pca_mod.MIN_PRODUCT_IMAGE_SCORE <= 80, (
+        f"MIN_PRODUCT_IMAGE_SCORE={pca_mod.MIN_PRODUCT_IMAGE_SCORE}; "
+        "must be in [10, 80]"
+    )
+
+
+def test_min_relevance_score_constant_is_sane():
+    """MIN_RELEVANCE_SCORE must be in (0.0, 1.0] so it's a meaningful
+    hard gate without being trivially easy or impossibly hard."""
+    assert 0.0 < pca_mod.MIN_RELEVANCE_SCORE <= 1.0
+    assert pca_mod.MIN_RELEVANCE_SCORE >= 0.30, (
+        f"MIN_RELEVANCE_SCORE={pca_mod.MIN_RELEVANCE_SCORE}; must be ≥ 0.30"
     )

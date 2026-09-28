@@ -1570,6 +1570,36 @@ class ProductResearcher:
                 attempts, self.MAX_CANDIDATE_ATTEMPTS, card.name, elapsed,
             )
             winner = self._materialize(card, _card_category(card))
+            # ── RELEVANCE GATE (added 2026-09-27) ──────────────────────
+            from backend.product_control_agent import (
+                compute_query_product_relevance,
+                MIN_RELEVANCE_SCORE,
+            )
+            rel_score, rel_matched = compute_query_product_relevance(
+                intent_clean,
+                winner.get("name") or "",
+                winner.get("category") or "",
+            )
+            winner["query_relevance_score"] = rel_score
+            winner["query_relevance_matched"] = rel_matched
+            if rel_score < MIN_RELEVANCE_SCORE:
+                reason = (
+                    f"semantic_mismatch: relevance={rel_score:.2f} < {MIN_RELEVANCE_SCORE} "
+                    f"for query={intent_clean!r}"
+                )
+                logger.info(
+                    "[find-winner] pool RELEVANCE-REJECT id=%s reason=%s",
+                    card.id, reason,
+                )
+                rejection_log.append({
+                    "id": card.id,
+                    "name": card.name,
+                    "category": card.category,
+                    "score": 0,
+                    "reason": reason,
+                    "rejected_at": datetime.now(timezone.utc).isoformat(),
+                })
+                continue
             # Pool fallback cards carry data: URI placeholders. Try to
             # enrich with image-focused research before the audit gate.
             if (winner.get("image_url") or "").startswith("data:"):
@@ -1720,6 +1750,43 @@ class ProductResearcher:
             )
             winner = self._materialize(card, _card_category(card))
 
+            # ── RELEVANCE GATE (added 2026-09-27) ──────────────────────
+            # The user's query is a hard constraint, NOT a loose inspiration
+            # signal. A product that does not match the query intent must
+            # be rejected BEFORE trend score or image quality can promote
+            # it. Example: query="kitchen organizer" must NOT accept a
+            # candidate whose name is "Spin Scrubber" even if its trend
+            # score is high.
+            from backend.product_control_agent import (
+                compute_query_product_relevance,
+                MIN_RELEVANCE_SCORE,
+            )
+            rel_score, rel_matched = compute_query_product_relevance(
+                intent,
+                winner.get("name") or "",
+                winner.get("category") or "",
+            )
+            winner["query_relevance_score"] = rel_score
+            winner["query_relevance_matched"] = rel_matched
+            if rel_score < MIN_RELEVANCE_SCORE:
+                reason = (
+                    f"semantic_mismatch: relevance={rel_score:.2f} < {MIN_RELEVANCE_SCORE} "
+                    f"for query={intent!r}"
+                )
+                logger.info(
+                    "[find-winner] RELEVANCE-REJECT id=%s reason=%s matched=%s",
+                    card.id, reason, rel_matched,
+                )
+                rejection_log.append({
+                    "id": card.id,
+                    "name": card.name,
+                    "category": card.category,
+                    "score": score,
+                    "reason": reason,
+                    "rejected_at": datetime.now(timezone.utc).isoformat(),
+                })
+                continue
+
             # If the materialized winner still has a data: URI placeholder
             # (the pool always does), try to enrich it with a real photo
             # from image-focused research. This is the "discovery pass"
@@ -1850,6 +1917,7 @@ class ProductResearcher:
             ProductControlAgent,
             _validate_image,
             rank_image_candidates,
+            MIN_PRODUCT_IMAGE_SCORE,
         )
         from backend import live_research
 
@@ -1872,7 +1940,9 @@ class ProductResearcher:
 
         # 1) Validate every URL.
         # 2) Rank the valid URLs by visual-dominance heuristic.
-        # 3) Return the highest-ranked valid URL.
+        # 3) Apply MIN_PRODUCT_IMAGE_SCORE — reject the candidate if the
+        #    BEST valid image is below the threshold (we do NOT choose the
+        #    "least bad" image just because nothing better exists).
         seen: set[str] = set()
         valid: list[tuple[str, int]] = []
         for url in urls:
@@ -1890,19 +1960,30 @@ class ProductResearcher:
                 valid.append((url, 0))  # score will be assigned in the ranker
 
         if not valid:
+            logger.info(
+                "[find-winner] image-research: no URL passed validation for %r",
+                product_name,
+            )
             return None
 
-        # Score the valid URLs using the visual-dominance ranker, then
-        # pick the highest-scoring one.
+        # Score the valid URLs using the visual-dominance ranker.
         ranked = rank_image_candidates(
             [u for u, _ in valid],
             product_name=product_name,
             category=category,
         )
-        # The ranker returns ALL input URLs (so unranked-but-valid URLs still
-        # appear with score 0). Build a map of score for logging.
-        score_map = dict(ranked)
         chosen_url, chosen_score = ranked[0]
+
+        # HARD IMAGE-QUALITY THRESHOLD — if the BEST valid image is still
+        # below the minimum quality score, reject the candidate rather
+        # than presenting a poor image as the winner.
+        if chosen_score < MIN_PRODUCT_IMAGE_SCORE:
+            logger.warning(
+                "[find-winner] image-quality REJECT: best score=%d < MIN=%d for %r — moving to next candidate",
+                chosen_score, MIN_PRODUCT_IMAGE_SCORE, product_name,
+            )
+            return None
+
         logger.info(
             "[find-winner] image-rank chosen=%s score=%d (top 3: %s)",
             chosen_url[:80], chosen_score,
