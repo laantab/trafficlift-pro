@@ -2191,3 +2191,253 @@ def test_two_axis_score_function_returns_three_tuple():
     """API contract: compute_query_product_relevance returns (cat, type, matched)."""
     out = pca_mod.compute_query_product_relevance("pet bed", "Orthopedic Dog Bed", "Pet Supplies")
     assert isinstance(out, tuple) and len(out) == 3
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# IMAGE-SEARCH QUERY CASCADE TESTS (added 2026-09-27)
+# Verify the bounded product-specific query cascade replaces the previous
+# single broad query.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_cascade_01_full_title_searched_first():
+    """The most specific query (normalized product title) must come first."""
+    cascade = pca_mod.build_image_query_cascade(
+        "Rotating Spice Rack Organizer - 16 Jars, Labels Included",
+        "Kitchen",
+        "kitchen organizer",
+    )
+    assert len(cascade) >= 1
+    assert "rotating spice rack organizer" in cascade[0].lower(), (
+        f"first query should be the normalized product title; got {cascade[0]}"
+    )
+
+
+def test_cascade_02_user_intent_used_only_as_fallback():
+    """The user intent is included only if it differs from the product
+    name and is added LAST in the cascade."""
+    cascade = pca_mod.build_image_query_cascade(
+        "Rotating Spice Rack Organizer - 16 Jars, Labels Included",
+        "Kitchen",
+        "kitchen organizer",
+    )
+    # The user intent must appear, and not be the first query.
+    assert cascade[-1] == "kitchen organizer"
+
+
+def test_cascade_03_marketing_punctuation_normalized_out():
+    """Em-dashes, slashes, parentheses, etc. must be stripped."""
+    norm = pca_mod._normalize_product_title(
+        "Premium Microfiber Cleaning Cloths - 12-Pack (Color Coded)"
+    )
+    for ch in ("-", "—", "/", "(", ")", ",", ".", ":"):
+        assert ch not in norm, f"normalized title still contains {ch!r}: {norm!r}"
+
+
+def test_cascade_04_marketing_words_dropped():
+    """Best, trending, viral, premium etc. must be dropped."""
+    norm = pca_mod._normalize_product_title(
+        "Best Premium Trending Stainless Steel Knife Set"
+    )
+    for w in ("best", "premium", "trending"):
+        assert w not in norm.split(), f"noise word {w!r} survived: {norm!r}"
+
+
+def test_cascade_05_count_and_size_dropped_in_simplify():
+    """_simplify_for_search must drop trailing count/size tokens."""
+    simp = pca_mod._simplify_for_search("spice rack organizer 16 jars")
+    assert "16" not in simp.split(), f"simplify kept the count: {simp!r}"
+    assert "jars" not in simp.split(), f"simplify kept the unit: {simp!r}"
+    assert "spice rack organizer" in simp
+
+
+def test_cascade_06_max_queries_bounded():
+    """build_image_query_cascade must never return more than
+    MAX_IMAGE_SEARCH_QUERIES entries."""
+    cascade = pca_mod.build_image_query_cascade(
+        "Best Premium Trending Stainless Steel Knife Set with Block",
+        "Kitchen",
+        "kitchen organizer",
+        max_queries=pca_mod.MAX_IMAGE_SEARCH_QUERIES,
+    )
+    assert len(cascade) <= pca_mod.MAX_IMAGE_SEARCH_QUERIES
+
+
+def test_cascade_07_dedup_within_cascade():
+    """If the user intent is identical to the product name, it must not
+    appear twice in the cascade."""
+    cascade = pca_mod.build_image_query_cascade(
+        "spice rack organizer",
+        "Kitchen",
+        "spice rack organizer",
+    )
+    assert len(cascade) == 1, f"cascade should be deduped: {cascade}"
+
+
+def test_cascade_08_short_title_uses_user_intent():
+    """When the product name is too short to extract useful terms, the
+    user intent is used as the query."""
+    cascade = pca_mod.build_image_query_cascade(
+        "Mug",
+        "Kitchen",
+        "coffee mug warmer",
+    )
+    # Either "mug" or "coffee mug warmer" must appear, but the cascade
+    # is bounded.
+    assert len(cascade) <= pca_mod.MAX_IMAGE_SEARCH_QUERIES
+    assert any("mug" in q.lower() for q in cascade), (
+        f"cascade should include a mug-related query: {cascade}"
+    )
+
+
+def test_cascade_09_early_stop_with_strong_image():
+    """If a query surfaces an image with score >= STRONG_IMAGE_SCORE,
+    the cascade stops asking Tavily for more queries."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    # First call returns a high-score URL; second call would also
+    # return URLs but should never be reached.
+    fake_resp = mock.Mock(status_code=200)
+    fake_resp.json.return_value = {
+        "results": [],
+        "images": [
+            "https://m.media-amazon.com/images/I/71spicerackXYZ.jpg",
+        ],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    call_count = {"n": 0}
+
+    def counting_post(*args, **kwargs):
+        call_count["n"] += 1
+        return fake_resp
+
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", side_effect=counting_post), \
+         mock.patch.object(pr_mod.live_research.requests, "post", side_effect=counting_post), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="Rotating Spice Rack Organizer - 16 Jars, Labels Included",
+            category="Kitchen",
+            intent="kitchen organizer",
+        )
+    assert url is not None
+    assert "m.media-amazon.com" in url
+    # Exactly ONE cascade iteration: the first query found a strong
+    # retailer image, so the cascade should NOT make a second or third
+    # call. Each cascade iteration may include a Tavily + DDG post, so
+    # we just assert the cascade does not exceed 2 calls.
+    assert call_count["n"] <= 2, (
+        f"expected <= 2 Tavily/DDG calls (early-stop after q1); got {call_count['n']}"
+    )
+
+
+def test_cascade_10_min_product_image_score_still_enforced():
+    """If even the best image across all queries scores below
+    MIN_PRODUCT_IMAGE_SCORE, the candidate is rejected."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    fake_resp = mock.Mock(status_code=200)
+    fake_resp.json.return_value = {
+        "results": [],
+        "images": [
+            "https://random-cdn-1.example.com/a.jpg",
+            "https://random-cdn-2.example.org/b.jpg",
+        ],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_resp), \
+         mock.patch.object(pr_mod.live_research.requests, "post", return_value=fake_resp), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="Spice Rack Organizer",
+            category="Kitchen",
+            intent="kitchen organizer",
+        )
+    assert url is None, "URLs from unknown hosts must not pass MIN_PRODUCT_IMAGE_SCORE"
+
+
+def test_cascade_11_image_search_runs_for_all_queries_when_needed():
+    """If query 1 returns no useful URL, query 2 and query 3 must run."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    # Query 1 returns junk; query 2 returns the winner.
+    resp_q1 = mock.Mock(status_code=200)
+    resp_q1.json.return_value = {
+        "results": [],
+        "images": ["https://random-cdn.example.com/junk.jpg"],
+    }
+    resp_q2 = mock.Mock(status_code=200)
+    resp_q2.json.return_value = {
+        "results": [],
+        "images": ["https://m.media-amazon.com/images/I/71winnerXYZ.jpg"],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    posts = [resp_q1, resp_q2, resp_q2]
+    posts_iter = iter(posts)
+
+    def selective_post(*args, **kwargs):
+        return next(posts_iter)
+
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", side_effect=selective_post), \
+         mock.patch.object(pr_mod.live_research.requests, "post", side_effect=selective_post), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="Rotating Spice Rack Organizer",
+            category="Kitchen",
+            intent="kitchen organizer",
+        )
+    assert url is not None
+    assert "m.media-amazon.com" in url
+
+
+def test_cascade_12_request_budget_still_respected():
+    """The cascade does not loop forever; MAX_IMAGE_SEARCH_QUERIES caps
+    the Tavily+DDG calls per candidate (each cascade iteration may
+    use one Tavily POST and one DDG POST, so the bound is in practice
+    2 * MAX_IMAGE_SEARCH_QUERIES)."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    fake_resp = mock.Mock(status_code=200)
+    fake_resp.json.return_value = {
+        "results": [],
+        "images": ["https://random-cdn.example.com/x.jpg"],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    call_count = {"n": 0}
+
+    def counting_post(*args, **kwargs):
+        call_count["n"] += 1
+        return fake_resp
+
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", side_effect=counting_post), \
+         mock.patch.object(pr_mod.live_research.requests, "post", side_effect=counting_post), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="Spice Rack Organizer",
+            category="Kitchen",
+            intent="kitchen organizer",
+        )
+    assert url is None
+    # Each cascade iteration may do Tavily POST + optional DDG POST, so
+    # the absolute upper bound is 2 * MAX_IMAGE_SEARCH_QUERIES.
+    assert call_count["n"] <= pca_mod.MAX_IMAGE_SEARCH_QUERIES * 2, (
+        f"expected <= {pca_mod.MAX_IMAGE_SEARCH_QUERIES * 2} HTTP calls; got {call_count['n']}"
+    )
+
+
+def test_cascade_constants_are_sane():
+    """STRONG_IMAGE_SCORE must be >= MIN_PRODUCT_IMAGE_SCORE."""
+    assert pca_mod.STRONG_IMAGE_SCORE >= pca_mod.MIN_PRODUCT_IMAGE_SCORE
+    assert pca_mod.MAX_IMAGE_SEARCH_QUERIES >= 1
+    assert pca_mod.MAX_IMAGE_SEARCH_QUERIES <= 5

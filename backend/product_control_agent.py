@@ -619,6 +619,15 @@ def compute_query_product_relevance(
 # accepting a poor image just because no better candidate exists.
 MIN_PRODUCT_IMAGE_SCORE = 25
 
+# Early-stop threshold: when the best image found so far scores this
+# high, the cascade stops asking Tavily for more queries (it almost
+# certainly came from a retailer CDN).
+STRONG_IMAGE_SCORE = 50
+
+# Maximum image-search queries tried per candidate. Bounded so a slow
+# provider cannot blow the request budget.
+MAX_IMAGE_SEARCH_QUERIES = 3
+
 # Hard thresholds for the two-axis relevance gate. A candidate must
 # pass BOTH axes independently; broad category match alone is not
 # sufficient (a pet feeder cannot win a pet-bed query).
@@ -627,6 +636,125 @@ PRODUCT_TYPE_THRESHOLD = 0.50   # specific product-type match
 
 # Backwards-compat alias used by older tests.
 MIN_RELEVANCE_SCORE = CATEGORY_THRESHOLD
+
+
+# ── Product-title normalization for image search ───────────────────────────
+#
+# Marketing-heavy product titles like
+#   "Rotating Spice Rack Organizer — 16 Jars, Labels Included"
+# confuse image search because:
+#   * em-dashes split the title in Tavily's parser,
+#   * count/size suffixes ("16 Jars") make queries too specific,
+#   * marketing adjectives ("Best", "Trending", "Premium") add noise.
+#
+# _normalize_product_title() produces a cleaner phrase for the search
+# query while preserving the product-defining terms.
+
+_TITLE_NOISE_WORDS = frozenset({
+    "best", "top", "trending", "viral", "popular", "hot",
+    "limited", "limited-edition", "new", "improved", "premium",
+    "professional", "ultimate", "essential", "must-have",
+    "high-quality", "highquality", "top-rated", "amazing",
+    "incredible", "perfect", "great", "awesome",
+    # Common product-title filler
+    "labels", "included", "bonus", "free", "shipping",
+    "warranty", "guarantee", "official", "authentic", "genuine",
+    "brand", "branded",
+})
+
+
+def _normalize_product_title(title: str) -> str:
+    """Reduce a marketing-heavy product title to clean image-search terms.
+
+    Returns a normalized phrase (≤ 8 tokens) that preserves the
+    product-defining attributes and drops count/size/marketing noise.
+
+    Example:
+        "Rotating Spice Rack Organizer — 16 Jars, Labels Included"
+            → "rotating spice rack organizer 16 jars"
+    """
+    if not title:
+        return ""
+    import re as _re
+    # Normalize unicode dashes/punctuation to spaces.
+    s = title.lower()
+    s = _re.sub(r"[—–\-_/]+", " ", s)
+    s = _re.sub(r"[,:;.()\[\]{}!?\"']", " ", s)
+    s = _re.sub(r"\s+", " ", s).strip()
+    # Drop noise tokens.
+    parts = [w for w in s.split(" ") if w and w not in _TITLE_NOISE_WORDS]
+    # Cap at 8 tokens — Tavily's image search performs better with
+    # shorter, focused queries.
+    if len(parts) > 8:
+        parts = parts[:8]
+    return " ".join(parts)
+
+
+def _simplify_for_search(title: str) -> str:
+    """Drop trailing count/size/capacity tokens to broaden the search.
+
+    Example:
+        "rotating spice rack organizer 16 jars" → "spice rack organizer"
+    """
+    if not title:
+        return ""
+    import re as _re
+    # Strip tokens that look like "16", "16oz", "12-pack", "3-compartment".
+    cleaned = _re.sub(
+        r"\b\d+(?:\.\d+)?\s*(?:oz|lb|kg|ml|l|pack|piece|pieces|count|"
+        r"compartment|compartments|jar|jars|bottle|bottles|ct|"
+        r"inch|in|cm|mm|ft|sq\.?\s?ft|set|sets|piece|day|days|"
+        r"hour|hours|min|mins|sec|secs|pcs)\b",
+        "", title,
+    )
+    cleaned = _re.sub(r"\b\d+(?:\.\d+)?\b", "", cleaned)  # bare numbers
+    cleaned = _re.sub(r"\s+", " ", cleaned).strip()
+    # Avoid an empty result if everything was a number.
+    return cleaned or title
+
+
+def build_image_query_cascade(
+    product_name: str,
+    category: str,
+    intent: str,
+    max_queries: int = MAX_IMAGE_SEARCH_QUERIES,
+) -> list[str]:
+    """Build a bounded ordered list of image-search queries for a candidate.
+
+    Order is MOST SPECIFIC → MOST GENERAL:
+      1. Normalized full product title (e.g. "rotating spice rack organizer 16 jars")
+      2. Simplified title without count/size (e.g. "spice rack organizer")
+      3. User intent (e.g. "kitchen organizer") as last-resort fallback
+
+    Queries are deduplicated and capped at max_queries.
+    """
+    cascade: list[str] = []
+    seen: set[str] = set()
+
+    def _add(q: str) -> None:
+        q = (q or "").strip()
+        if not q:
+            return
+        low = q.lower()
+        if low in seen:
+            return
+        seen.add(low)
+        cascade.append(q)
+
+    name = (product_name or "").strip()
+    if name:
+        normalized = _normalize_product_title(name)
+        if normalized:
+            _add(normalized)
+            simpler = _simplify_for_search(normalized)
+            if simpler and simpler.lower() != normalized.lower():
+                _add(simpler)
+
+    intent_clean = (intent or "").strip()
+    if intent_clean and intent_clean.lower() != (name or "").lower():
+        _add(intent_clean)
+
+    return cascade[:max_queries]
 
 
 def rank_image_candidates(

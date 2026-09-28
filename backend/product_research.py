@@ -1938,102 +1938,126 @@ class ProductResearcher:
         category: str,
         intent: str,
     ) -> Optional[str]:
-        """Image-focused discovery. Returns the URL whose technical
-        validation passes AND whose visual-dominance heuristic ranks
-        highest, so the chosen photo puts the product front-and-center
-        rather than buried in a magazine lifestyle scene.
+        """Image-focused discovery with a bounded product-specific query
+        cascade. Returns the URL whose technical validation passes AND
+        whose visual-dominance heuristic ranks highest.
 
         Pipeline:
-            1. Tavily image search (up to 3 URLs).
-            2. Validate every URL via _validate_image (HEAD + Content-Type +
+            1. Build an ordered cascade of 1-3 product-specific image-search
+               queries (most specific first → user intent last).
+            2. For each query, hit Tavily image search and merge any new URLs
+               into the candidate set (URLs are deduplicated across queries).
+            3. Validate every URL via _validate_image (HEAD + Content-Type +
                size + redirects).
-            3. Rank the valid URLs with rank_image_candidates() (host class,
+            4. Score the valid URLs with rank_image_candidates() (host class,
                path tokens, filename keywords).
-            4. Return the highest-ranked valid URL. If none pass, return None
-               and the researcher moves to the next product candidate.
+            5. Track the BEST URL so far. Stop early when its score reaches
+               STRONG_IMAGE_SCORE — a retailer CDN image is almost
+               certainly a winner.
+            6. Apply MIN_PRODUCT_IMAGE_SCORE — reject the candidate if the
+               BEST valid image across ALL queries is still below the
+               threshold. We do NOT choose the "least bad" image just
+               because nothing better exists.
 
-        Bounded to ONE query (the most specific product name) and THREE
-        candidate URLs so a slow external provider cannot blow the
-        /find-winner request budget. The pool fallback path keeps the
-        page responsive even when no real image is discoverable.
+        Bounded by MAX_IMAGE_SEARCH_QUERIES so a slow provider cannot blow
+        the /find-winner request budget.
         """
         from backend.product_control_agent import (
             ProductControlAgent,
             _validate_image,
             rank_image_candidates,
+            build_image_query_cascade,
             MIN_PRODUCT_IMAGE_SCORE,
+            STRONG_IMAGE_SCORE,
         )
         from backend import live_research
 
-        # Pick the single most-specific query to keep latency tight.
-        q = (product_name or category or intent or "").strip()
-        if not q:
-            return None
-        query = f"{q} product photo"
-
-        try:
-            t0 = time.monotonic()
-            urls = live_research.research_images(query, max_results=3)
+        cascade = build_image_query_cascade(
+            product_name=product_name,
+            category=category,
+            intent=intent,
+        )
+        if not cascade:
             logger.info(
-                "[find-winner] image-research query=%r returned %d url(s) in %.2fs",
-                query[:60], len(urls), time.monotonic() - t0,
-            )
-        except Exception as exc:
-            logger.warning("[find-winner] image research failed: %s", exc)
-            return None
-
-        # 1) Validate every URL.
-        # 2) Rank the valid URLs by visual-dominance heuristic.
-        # 3) Apply MIN_PRODUCT_IMAGE_SCORE — reject the candidate if the
-        #    BEST valid image is below the threshold (we do NOT choose the
-        #    "least bad" image just because nothing better exists).
-        seen: set[str] = set()
-        valid: list[tuple[str, int]] = []
-        for url in urls:
-            if url in seen:
-                continue
-            seen.add(url)
-            t1 = time.monotonic()
-            chk = _validate_image(url)
-            logger.info(
-                "[find-winner] image-check url=%s ok=%s reason=%s in %.2fs",
-                (url[:80] + ("…" if len(url) > 80 else "")),
-                chk.ok, chk.reason, time.monotonic() - t1,
-            )
-            if chk.ok:
-                valid.append((url, 0))  # score will be assigned in the ranker
-
-        if not valid:
-            logger.info(
-                "[find-winner] image-research: no URL passed validation for %r",
+                "[image-search] candidate=%r has no queries to try",
                 product_name,
             )
             return None
 
-        # Score the valid URLs using the visual-dominance ranker.
-        ranked = rank_image_candidates(
-            [u for u, _ in valid],
-            product_name=product_name,
-            category=category,
+        logger.info(
+            "[image-search] candidate=%r starting cascade (%d queries)",
+            (product_name or "")[:80], len(cascade),
         )
-        chosen_url, chosen_score = ranked[0]
 
-        # HARD IMAGE-QUALITY THRESHOLD — if the BEST valid image is still
-        # below the minimum quality score, reject the candidate rather
-        # than presenting a poor image as the winner.
-        if chosen_score < MIN_PRODUCT_IMAGE_SCORE:
+        seen_urls: set[str] = set()
+        best_url: Optional[str] = None
+        best_score: int = -10**9
+
+        for q_idx, query in enumerate(cascade, start=1):
+            try:
+                t0 = time.monotonic()
+                urls = live_research.research_images(query, max_results=3)
+                logger.info(
+                    "[image-search]   q%d=%r → %d url(s) in %.2fs",
+                    q_idx, query[:60], len(urls), time.monotonic() - t0,
+                )
+            except Exception as exc:
+                logger.warning("[image-search]   q%d failed: %s", q_idx, exc)
+                continue
+
+            new_urls = [u for u in urls if u not in seen_urls]
+            for url in new_urls:
+                seen_urls.add(url)
+                t1 = time.monotonic()
+                chk = _validate_image(url)
+                logger.info(
+                    "[image-search]     check url=%s ok=%s reason=%s in %.2fs",
+                    (url[:80] + ("…" if len(url) > 80 else "")),
+                    chk.ok, chk.reason, time.monotonic() - t1,
+                )
+                if not chk.ok:
+                    continue
+                # Score this single URL via the ranker.
+                ranked = rank_image_candidates(
+                    [url], product_name=product_name, category=category,
+                )
+                if not ranked:
+                    continue
+                score = ranked[0][1]
+                if score > best_score:
+                    best_score = score
+                    best_url = url
+                    logger.info(
+                        "[image-search]     new best: score=%d host=%s url=%s",
+                        score,
+                        (url.split("//", 1)[-1].split("/", 1)[0]) if "//" in url else "?",
+                        url[:80],
+                    )
+                # Early-stop when the image is clearly strong.
+                if best_score >= STRONG_IMAGE_SCORE:
+                    logger.info(
+                        "[image-search]   EARLY-STOP at q%d: best_score=%d >= STRONG=%d",
+                        q_idx, best_score, STRONG_IMAGE_SCORE,
+                    )
+                    break
+
+            # Cascade-level early stop (also after inner break).
+            if best_score >= STRONG_IMAGE_SCORE:
+                break
+
+        if best_url is None or best_score < MIN_PRODUCT_IMAGE_SCORE:
             logger.warning(
-                "[find-winner] image-quality REJECT: best score=%d < MIN=%d for %r — moving to next candidate",
-                chosen_score, MIN_PRODUCT_IMAGE_SCORE, product_name,
+                "[image-search] candidate=%r — no image above MIN=%d after %d queries (best=%d)",
+                (product_name or "")[:60],
+                MIN_PRODUCT_IMAGE_SCORE, len(cascade), best_score,
             )
             return None
 
         logger.info(
-            "[find-winner] image-rank chosen=%s score=%d (top 3: %s)",
-            chosen_url[:80], chosen_score,
-            ", ".join(f"{u[:40]}={s}" for u, s in ranked[:3]),
+            "[image-search] SELECTED url=%s score=%d after %d query variant(s)",
+            best_url[:80], best_score, q_idx,
         )
-        return chosen_url
+        return best_url
 
     def _gather_candidates(
         self,
