@@ -1827,20 +1827,30 @@ class ProductResearcher:
         category: str,
         intent: str,
     ) -> Optional[str]:
-        """Image-focused discovery: returns the first URL whose HEAD returns
-        a usable image content type. Used to enrich a pool candidate whose
-        only image is a data: URI placeholder.
+        """Image-focused discovery. Returns the URL whose technical
+        validation passes AND whose visual-dominance heuristic ranks
+        highest, so the chosen photo puts the product front-and-center
+        rather than buried in a magazine lifestyle scene.
 
-        Uses the app's approved research paths (Tavily image search →
-        DuckDuckGo image search) and the ProductControlAgent image gate
-        (http(s) only, image/* content type, ≥ 5 KB, not a logo/placeholder).
+        Pipeline:
+            1. Tavily image search (up to 3 URLs).
+            2. Validate every URL via _validate_image (HEAD + Content-Type +
+               size + redirects).
+            3. Rank the valid URLs with rank_image_candidates() (host class,
+               path tokens, filename keywords).
+            4. Return the highest-ranked valid URL. If none pass, return None
+               and the researcher moves to the next product candidate.
 
         Bounded to ONE query (the most specific product name) and THREE
         candidate URLs so a slow external provider cannot blow the
         /find-winner request budget. The pool fallback path keeps the
         page responsive even when no real image is discoverable.
         """
-        from backend.product_control_agent import ProductControlAgent, _validate_image
+        from backend.product_control_agent import (
+            ProductControlAgent,
+            _validate_image,
+            rank_image_candidates,
+        )
         from backend import live_research
 
         # Pick the single most-specific query to keep latency tight.
@@ -1849,7 +1859,6 @@ class ProductResearcher:
             return None
         query = f"{q} product photo"
 
-        seen: set[str] = set()
         try:
             t0 = time.monotonic()
             urls = live_research.research_images(query, max_results=3)
@@ -1861,6 +1870,11 @@ class ProductResearcher:
             logger.warning("[find-winner] image research failed: %s", exc)
             return None
 
+        # 1) Validate every URL.
+        # 2) Rank the valid URLs by visual-dominance heuristic.
+        # 3) Return the highest-ranked valid URL.
+        seen: set[str] = set()
+        valid: list[tuple[str, int]] = []
         for url in urls:
             if url in seen:
                 continue
@@ -1873,8 +1887,28 @@ class ProductResearcher:
                 chk.ok, chk.reason, time.monotonic() - t1,
             )
             if chk.ok:
-                return url
-        return None
+                valid.append((url, 0))  # score will be assigned in the ranker
+
+        if not valid:
+            return None
+
+        # Score the valid URLs using the visual-dominance ranker, then
+        # pick the highest-scoring one.
+        ranked = rank_image_candidates(
+            [u for u, _ in valid],
+            product_name=product_name,
+            category=category,
+        )
+        # The ranker returns ALL input URLs (so unranked-but-valid URLs still
+        # appear with score 0). Build a map of score for logging.
+        score_map = dict(ranked)
+        chosen_url, chosen_score = ranked[0]
+        logger.info(
+            "[find-winner] image-rank chosen=%s score=%d (top 3: %s)",
+            chosen_url[:80], chosen_score,
+            ", ".join(f"{u[:40]}={s}" for u, s in ranked[:3]),
+        )
+        return chosen_url
 
     def _gather_candidates(
         self,

@@ -104,6 +104,171 @@ def _looks_like_placeholder_url(url: str) -> bool:
     return False
 
 
+# ── Visual-dominance ranking ─────────────────────────────────────────────────
+#
+# Many image-search URLs returned by Tavily are TECHNICALLY valid (correct
+# content-type, large enough, http) but visually POOR:
+#   * magazine editorial photos where the product is a small part of a
+#     lifestyle scene
+#   * Amazon "lifestyle gallery" photos that include other items (e.g. the
+#     devices being charged by a lamp, when the lamp is the actual winner)
+#   * wordpress / blog CDN assets used for marketing articles
+# Without a heuristic ranking layer, the pipeline picks the first URL that
+# passes validation, which is often the wrong one for a Pinterest pin.
+#
+# The ranker below is a deterministic, no-network heuristic that scores each
+# URL on three signals:
+#   1. HOST CLASS      — known retailer/manufacturer CDNs get a big bonus;
+#                         known magazine/blog editorial hosts get a penalty.
+#   2. PATH TOKENS     — /products/, /cdn/shop/, /images/I/...  → bonus;
+#                         /editorial/, /article/, /wp-content/  → penalty.
+#   3. FILENAME KEYWORDS — does the URL contain words from the product name?
+#
+# The result is a list of (url, score) sorted by score descending. Callers
+# iterate the list and pick the first URL that also passes _validate_image.
+# This guarantees that when MULTIPLE images for the same product are
+# available, we choose the most product-forward one.
+
+# Host → bonus / penalty. Tuned from real Tavily results observed on Render.
+PRODUCT_HOST_SCORES: dict[str, int] = {
+    # Major retailer product-image CDNs (typically 1-2 large JPGs, no scenery).
+    "m.media-amazon.com": 60,
+    "images-na.ssl-images-amazon.com": 60,
+    "images.amazon.com": 55,
+    "i.etsystatic.com": 55,
+    "i5.walmartimages.com": 55,
+    "mobileimages.lowes.com": 50,
+    "target.scene7.com": 50,
+    "ak1.ostkcdn.com": 50,
+    "media.startech.com": 50,
+    "gdx-assets.costco.com": 55,
+    "img.kentfaith.com": 35,
+    "www.4allpromos.com": 30,
+    # Shopify-hosted product images (most retailers render a single product
+    # shot for these).
+    "cdn.shopify.com": 35,
+    "www.progressivedesk.com": 25,
+    "carlsonpetproducts.com": 25,
+    "www.letifly.com": 25,
+    "www.pamperedchef.com": 25,
+    "jasonmarkk.com": 25,
+    "speedcleaning.com": 25,
+    "slickproductsusa.com": 25,
+    # Generic / unknown hosts — neutral.
+}
+LIFESTYLE_HOST_SCORES: dict[str, int] = {
+    "hips.hearstapps.com": -45,            # Hearst magazine editorial
+    "vader-prod.s3.amazonaws.com": -45,    # Hearst magazine editorial
+    "pyxis.nymag.com": -45,                # New York Magazine
+    "food.fnr.sndimg.com": -45,            # Food Network editorial
+    "www.familyhandyman.com": -30,         # DIY blog
+    "www.nationsphotolab.com": -25,        # Photo service (not product)
+    "images.ctfassets.net": -10,           # Generic CMS — ambiguous
+}
+# Path tokens that strongly suggest a single-product hero shot.
+PRODUCT_PATH_TOKENS = (
+    "/products/", "/product/", "/img/", "/photo/", "/photos/",
+    "/cdn/shop/", "/cdn/shop/files/", "/cdn/shop/products/",
+    "/images/i/", "/images/I/", "/productimages/",
+    "/iceberg/com/product/", "/shop/files/",
+)
+# Path tokens that strongly suggest editorial / lifestyle / scene.
+LIFESTYLE_PATH_TOKENS = (
+    "/editorial/", "/article/", "/blog/", "/lifestyle/",
+    "/wp-content/uploads/", "/wp-json/",
+    "/stories/", "/guide/", "/how-to/",
+)
+# Filename patterns that suggest lifestyle scenes (multiple products, props).
+LIFESTYLE_FILENAME_TOKENS = (
+    "_scene_", "_lifestyle_", "_editorial_", "_in-use_",
+    "_setup_", "_with-phone_", "_with-watch_",
+    "-with-", "-and-",
+)
+
+
+def rank_image_candidates(
+    urls: list[str],
+    *,
+    product_name: str = "",
+    category: str = "",
+) -> list[tuple[str, int]]:
+    """Score and rank image URLs by visual-dominance heuristics.
+
+    Higher score = more likely to be a clean, product-forward hero shot.
+    The result is sorted descending so callers can pick the best URL
+    that also passes _validate_image().
+
+    This is a deterministic heuristic — no network calls, no model —
+    that biases the selection toward retailer-hosted product photos and
+    away from magazine/blog lifestyle editorial images.
+    """
+    if not urls:
+        return []
+
+    name_words = [w.lower() for w in (product_name or "").split() if len(w) > 2][:6]
+    category_words = [w.lower() for w in (category or "").split() if len(w) > 2][:3]
+    name_set = set(name_words + category_words)
+
+    scored: list[tuple[str, int]] = []
+    for url in urls:
+        score = 0
+        low = url.lower()
+        # ── HOST CLASS ────────────────────────────────────────────
+        try:
+            host = low.split("//", 1)[-1].split("/", 1)[0]
+            # strip leading www.
+            host_no_www = host[4:] if host.startswith("www.") else host
+        except Exception:
+            host = ""
+            host_no_www = ""
+        matched = False
+        for h, bonus in PRODUCT_HOST_SCORES.items():
+            if host == h or host_no_www == h or host.endswith("." + h):
+                score += bonus
+                matched = True
+                break
+        if not matched:
+            for h, penalty in LIFESTYLE_HOST_SCORES.items():
+                if host == h or host_no_www == h or host.endswith("." + h):
+                    score += penalty
+                    matched = True
+                    break
+
+        # ── PATH TOKENS ────────────────────────────────────────────
+        for tok in PRODUCT_PATH_TOKENS:
+            if tok in low:
+                score += 25
+                break
+        for tok in LIFESTYLE_PATH_TOKENS:
+            if tok in low:
+                score -= 30
+                break
+
+        # ── FILENAME KEYWORDS ──────────────────────────────────────
+        if name_set:
+            hits = sum(1 for w in name_set if w in low)
+            if hits:
+                score += min(hits, 3) * 12
+        for tok in LIFESTYLE_FILENAME_TOKENS:
+            if tok in low:
+                score -= 25
+                break
+
+        # ── MIME HINTS from URL ────────────────────────────────────
+        if any(low.endswith(ext) for ext in (".jpg", ".jpeg", ".webp", ".png")):
+            score += 5  # explicit image format is a positive signal
+
+        # ── QUERY STRINGS that hint at thumbnails ─────────────────
+        if any(seg in low for seg in ("_thumb", "/thumb/", "?thumb", "size=thumb")):
+            score -= 15
+
+        scored.append((url, score))
+
+    # Stable order: highest score first, ties broken by original order.
+    scored.sort(key=lambda t: -t[1])
+    return scored
+
+
 def _validate_image(url: Optional[str], *, head_timeout: float = 3.0) -> ImageCheckResult:
     """Strictly validate a candidate image URL.
 

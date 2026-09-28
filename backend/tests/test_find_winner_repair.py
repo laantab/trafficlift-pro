@@ -166,7 +166,6 @@ def _patch_image_search(url: str = _TEST_IMAGE_URL):
             ...
     """
     from backend import product_research as pr_mod
-    import backend.product_control_agent as pca_mod
 
     def _fake_find_image(self, *, product_name="", category="", intent=""):
         return url
@@ -945,7 +944,6 @@ def mock_image_head():
     response is 200 / image/jpeg / 24 KB. Override per-test by patching
     ``mock_image_head.return_value = ...``.
     """
-    import backend.product_control_agent as pca_mod
     with mock.patch.object(pca_mod.requests, "head",
                            return_value=mock.Mock(status_code=200,
                                                   headers={"Content-Type": "image/jpeg",
@@ -962,7 +960,6 @@ def mock_image_head():
 def test_gate_01_highest_ranked_no_image_is_rejected_second_wins(mock_image_head):
     """Highest-ranked candidate WITHOUT a usable image must be rejected.
     The next-ranked candidate WITH a usable image must be selected."""
-    import backend.product_control_agent as pca_mod
 
     a = dict(_good_product_dict())
     a["image_url"] = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
@@ -981,7 +978,6 @@ def test_gate_01_highest_ranked_no_image_is_rejected_second_wins(mock_image_head
 
 def test_gate_02_missing_image_url_is_rejected(mock_image_head):
     """A product whose image_url is None or empty must be rejected."""
-    import backend.product_control_agent as pca_mod
     p = _good_product_dict()
     p["image_url"] = None
     report = pca_mod.ProductControlAgent.evaluate(p)
@@ -991,7 +987,6 @@ def test_gate_02_missing_image_url_is_rejected(mock_image_head):
 
 def test_gate_03_broken_image_url_is_rejected():
     """A product whose image URL returns HTTP 404 must be rejected."""
-    import backend.product_control_agent as pca_mod
     with mock.patch.object(pca_mod.requests, "head",
                            return_value=mock.Mock(status_code=404,
                                                   headers={"Content-Type": "image/jpeg"})):
@@ -1001,7 +996,6 @@ def test_gate_03_broken_image_url_is_rejected():
 
 def test_gate_04_placeholder_image_is_rejected(mock_image_head):
     """URLs with /placeholder. or /1x1. in the path must be rejected."""
-    import backend.product_control_agent as pca_mod
     p = _good_product_dict()
     p["image_url"] = "https://cdn.example.com/static/placeholder.product.png"
     report = pca_mod.ProductControlAgent.evaluate(p)
@@ -1011,7 +1005,6 @@ def test_gate_04_placeholder_image_is_rejected(mock_image_head):
 
 def test_gate_05_logo_image_is_rejected(mock_image_head):
     """Generic site logo URLs must be rejected as a winner image."""
-    import backend.product_control_agent as pca_mod
     p = _good_product_dict()
     p["image_url"] = "https://cdn.example.com/assets/site-logo.png"
     report = pca_mod.ProductControlAgent.evaluate(p)
@@ -1021,7 +1014,6 @@ def test_gate_05_logo_image_is_rejected(mock_image_head):
 
 def test_gate_06_data_uri_svg_is_rejected(mock_image_head):
     """data:image/svg+xml URIs are never acceptable product photos."""
-    import backend.product_control_agent as pca_mod
     p = _good_product_dict()
     p["image_url"] = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
     report = pca_mod.ProductControlAgent.evaluate(p)
@@ -1030,7 +1022,6 @@ def test_gate_06_data_uri_svg_is_rejected(mock_image_head):
 
 def test_gate_07_too_small_image_is_rejected():
     """A 200-byte JPEG must be rejected (under the 5 KB floor)."""
-    import backend.product_control_agent as pca_mod
     with mock.patch.object(pca_mod.requests, "head",
                            return_value=mock.Mock(status_code=200,
                                                   headers={"Content-Type": "image/jpeg",
@@ -1042,7 +1033,6 @@ def test_gate_07_too_small_image_is_rejected():
 
 def test_gate_08_wrong_content_type_is_rejected():
     """An image/* Content-Type is required; text/html is rejected."""
-    import backend.product_control_agent as pca_mod
     with mock.patch.object(pca_mod.requests, "head",
                            return_value=mock.Mock(status_code=200,
                                                   headers={"Content-Type": "text/html",
@@ -1054,7 +1044,6 @@ def test_gate_08_wrong_content_type_is_rejected():
 
 def test_gate_09_audit_product_backcompat_raises_value_error():
     """audit_product() must raise ValueError on reject for legacy callers."""
-    import backend.product_control_agent as pca_mod
     p = _good_product_dict()
     p["image_url"] = "data:image/svg+xml;base64,PHN2Zy8+"
     with mock.patch.object(pca_mod.requests, "head",
@@ -1066,7 +1055,6 @@ def test_gate_09_audit_product_backcompat_raises_value_error():
 
 def test_gate_10_evaluate_does_not_raise_on_reject(mock_image_head):
     """evaluate() returns a structured AuditReport, never raises."""
-    import backend.product_control_agent as pca_mod
     p = _good_product_dict()
     p["image_url"] = "data:image/svg+xml;base64,PHN2Zy8+"
     report = pca_mod.ProductControlAgent.evaluate(p)
@@ -1178,7 +1166,6 @@ def test_gate_15_rejected_candidate_log_includes_reason():
 def test_magsafe_phone_stand_no_image_is_rejected_then_next_wins(mock_image_head):
     """MagSafe Phone Stand — product otherwise qualifies, no valid image.
     REJECT this candidate, move to next winning product."""
-    import backend.product_control_agent as pca_mod
 
     # 1. The MagSafe candidate itself: every required field is present,
     #    semantics match (tech + magsafe keyword), but image_url is empty.
@@ -1241,7 +1228,6 @@ def test_magsafe_phone_stand_no_image_is_rejected_then_next_wins(mock_image_head
 def test_gate_16_validate_image_uses_short_timeout():
     """_validate_image must default to a SHORT timeout (≤ 5 s) so one
     slow image host cannot hang the entire /find-winner request."""
-    import backend.product_control_agent as pca_mod
     import inspect
     sig = inspect.signature(pca_mod._validate_image)
     default = sig.parameters["head_timeout"].default
@@ -1291,7 +1277,6 @@ def test_gate_19_request_budget_constant_exists():
 
 def _read_product_control_agent():
     """Lazy import helper for product_control_agent."""
-    import backend.product_control_agent as pca_mod
     return pca_mod
 
 
@@ -1312,7 +1297,6 @@ def test_gate_20_image_check_timeout_moves_to_next_candidate(monkeypatch):
         return _TEST_IMAGE_URL
 
     # Patch _validate_image to count timeouts and behave deterministically.
-    import backend.product_control_agent as pca_mod
     timeout_calls = {"n": 0}
 
     def head_with_eventual_timeout(url, **kw):
@@ -1378,7 +1362,6 @@ def test_gate_21_pick_terminates_within_request_budget(monkeypatch):
 def test_gate_22_validate_image_returns_image_load_failed_on_timeout():
     """_validate_image must catch requests.Timeout and return a structured
     rejection — never propagate the exception."""
-    import backend.product_control_agent as pca_mod
     import requests as r
 
     with mock.patch.object(
@@ -1632,7 +1615,6 @@ def test_gate_36_validate_image_accepts_redirect_to_image_cdn():
     must follow the redirect (one or more hops) and accept the final
     image response. Previously allow_redirects=False rejected every
     such URL."""
-    import backend.product_control_agent as pca_mod
 
     final = mock.Mock(status_code=200, headers={
         "Content-Type": "image/jpeg", "Content-Length": "24576",
@@ -1650,7 +1632,6 @@ def test_gate_36_validate_image_accepts_redirect_to_image_cdn():
 def test_gate_37_validate_image_falls_back_to_ranged_get_on_head_403():
     """A server that rejects HEAD with 403 must NOT cause the validator
     to fail. It should perform a ranged GET to verify the resource."""
-    import backend.product_control_agent as pca_mod
 
     head_resp = mock.Mock(status_code=403, headers={})
     get_resp = mock.Mock(status_code=206, headers={
@@ -1668,7 +1649,6 @@ def test_gate_37_validate_image_falls_back_to_ranged_get_on_head_403():
 
 def test_gate_38_validate_image_falls_back_on_head_405():
     """HEAD → 405 Method Not Allowed is treated like 403: try ranged GET."""
-    import backend.product_control_agent as pca_mod
     head_resp = mock.Mock(status_code=405, headers={})
     get_resp = mock.Mock(status_code=200, headers={
         "Content-Length": "24576", "Content-Type": "image/jpeg",
@@ -1681,7 +1661,6 @@ def test_gate_38_validate_image_falls_back_on_head_405():
 
 def test_gate_39_validate_image_rejects_when_get_also_fails():
     """If HEAD returns 403 AND the GET also fails, the image is rejected."""
-    import backend.product_control_agent as pca_mod
     import requests as r
     head_resp = mock.Mock(status_code=403, headers={})
     with mock.patch.object(pca_mod.requests, "head", return_value=head_resp), \
@@ -1697,7 +1676,6 @@ def test_gate_40_research_end_to_end_with_tavily_strings():
     _find_product_image flow must surface them so a candidate can be
     enriched with a real product photo."""
     import backend.product_research as pr_mod
-    import backend.product_control_agent as pca_mod
 
     fake_tavily = mock.Mock(status_code=200)
     fake_tavily.json.return_value = {
@@ -1720,3 +1698,171 @@ def test_gate_40_research_end_to_end_with_tavily_strings():
         urls = pr_mod.live_research.research_images("any product", max_results=3)
     assert len(urls) == 2
     assert urls[0] == "https://cdn.example.com/real-product-photo.jpg"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# VISUAL-DOMINANCE RANKING (added 2026-09-27)
+#
+# Verifies the heuristic that ranks Tavily's image URLs so the chosen
+# winner photo puts the actual product front-and-center, not buried in a
+# magazine lifestyle scene.
+# ═════════════════════════════════════════════════════════════════════════════
+
+import backend.product_control_agent as pca_mod  # noqa: E402
+
+
+def test_gate_41_rank_prefers_amazon_product_cdn_over_magazine_editorial():
+    """rank_image_candidates must rank m.media-amazon.com ABOVE Hearst /
+    magazine editorial hosts — the desk-lamp failure case where the
+    charger photo dominates."""
+    urls = [
+        "https://hips.hearstapps.com/vader-prod.s3.amazonaws.com/1689043497-lamp.jpg",
+        "https://m.media-amazon.com/images/I/61dlampsku.jpg",
+        "https://food.fnr.sndimg.com/content/dam/images/food/lamp.jpg",
+    ]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="LED desk lamp", category="tech",
+    )
+    chosen, _ = ranked[0]
+    assert chosen.startswith("https://m.media-amazon.com"), (
+        f"Amazon product CDN must win; got {chosen}"
+    )
+
+
+def test_gate_42_rank_prefers_shopify_product_path_over_wp_uploads():
+    """A /cdn/shop/products/ URL must outrank a wordpress /wp-content/
+    editorial photo for the same product."""
+    urls = [
+        "https://example.com/wp-content/uploads/2024/01/lamp-on-desk-scene.jpg",
+        "https://cdn.shopify.com/s/files/1/1234/5678/products/desk-lamp-main.jpg",
+    ]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="desk lamp", category="tech",
+    )
+    chosen, _ = ranked[0]
+    assert chosen.startswith("https://cdn.shopify.com"), (
+        f"Shopify product image must win; got {chosen}"
+    )
+
+
+def test_gate_43_rank_filename_keyword_match_boosts_score():
+    """A URL whose path contains the product name keyword must rank above
+    one whose path is generic, even on the same host."""
+    urls = [
+        "https://m.media-amazon.com/images/I/61randomlettersABC.jpg",
+        "https://m.media-amazon.com/images/I/71DESKlampskuXYZ.jpg",
+    ]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="desk lamp", category="tech",
+    )
+    chosen, _ = ranked[0]
+    assert "DESK" in chosen or "desk" in chosen, (
+        f"Filename keyword match must win; got {chosen}"
+    )
+
+
+def test_gate_44_rank_penalizes_lifestyle_path_tokens():
+    """/wp-content/uploads/ and /editorial/ paths must drop in rank."""
+    urls = [
+        "https://www.familyhandyman.com/wp-content/uploads/2024/11/lamp-FT.jpg",
+        "https://cdn.shopify.com/s/files/1/1234/5678/products/lamp.jpg",
+    ]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="lamp", category="tech",
+    )
+    chosen, _ = ranked[0]
+    assert chosen.startswith("https://cdn.shopify.com")
+
+
+def test_gate_45_rank_handles_unknown_host_neutrally():
+    """An unknown host that contains the product keyword in its path
+    must still beat a known lifestyle host whose path is generic."""
+    urls = [
+        "https://hips.hearstapps.com/vader-prod.s3.amazonaws.com/editorial-image.jpg",
+        "https://random-cdn.example.com/uploads/products/desk-lamp-hero.jpg",
+    ]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="desk lamp", category="tech",
+    )
+    chosen, _ = ranked[0]
+    assert chosen.startswith("https://random-cdn.example.com"), (
+        f"Keyword-rich unknown host must beat known lifestyle host; got {chosen}"
+    )
+
+
+def test_gate_46_find_product_image_picks_highest_ranked_valid_url():
+    """When Tavily returns a mix of magazine and product URLs, _find_product_image
+    must NOT just take the first one — it must pick the highest-ranked VALID one."""
+    import backend.product_research as pr_mod
+    from backend.product_research import ProductResearcher
+    fake_tavily = mock.Mock(status_code=200)
+    fake_tavily.json.return_value = {
+        "results": [],
+        "images": [
+            # Hearst editorial — looks like a lamp but is a lifestyle scene
+            "https://hips.hearstapps.com/vader-prod.s3.amazonaws.com/lamp-editorial.jpg",
+            # Amazon main product image — single product shot
+            "https://m.media-amazon.com/images/I/71DESKlampskuXYZ.jpg",
+        ],
+    }
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pr_mod.live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        url = ProductResearcher()._find_product_image(
+            product_name="desk lamp", category="tech", intent="desk lamp",
+        )
+    assert url is not None
+    assert url.startswith("https://m.media-amazon.com"), (
+        f"Amazon product image must be chosen over Hearst editorial; got {url}"
+    )
+
+
+def test_gate_47_rank_returns_empty_for_empty_input():
+    """Empty input → empty output. No crashes."""
+    assert pca_mod.rank_image_candidates([]) == []
+
+
+def test_gate_48_rank_handles_malformed_urls():
+    """A URL without a host component must not crash the ranker."""
+    urls = ["not-a-url", "https://valid.example.com/p.jpg"]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="lamp", category="tech",
+    )
+    # Both URLs come back; the valid one is preferred because it has a host.
+    chosen, _ = ranked[0]
+    assert chosen == "https://valid.example.com/p.jpg"
+
+
+def test_gate_49_rank_is_stable_across_calls():
+    """The ranker must be deterministic — same input, same output order."""
+    urls = [
+        "https://hips.hearstapps.com/vader-prod.s3.amazonaws.com/a.jpg",
+        "https://m.media-amazon.com/images/I/b.jpg",
+        "https://cdn.shopify.com/s/files/c.jpg",
+    ]
+    a = pca_mod.rank_image_candidates(urls, product_name="lamp", category="tech")
+    b = pca_mod.rank_image_candidates(urls, product_name="lamp", category="tech")
+    assert [u for u, _ in a] == [u for u, _ in b]
+
+
+def test_gate_50_real_desk_lamp_scenario_picks_product_not_charged_devices():
+    """Reproduce the failure scenario: Tavily returns one URL whose path
+    hints at 'lamp-with-phone-charger' (a charging scene) and one clean
+    product URL. The clean one must win."""
+    urls = [
+        # Lifestyle: lamp with phone charging on it
+        "https://example.com/wp-content/uploads/lamp-with-phone-charging.jpg",
+        # Clean product shot
+        "https://m.media-amazon.com/images/I/71LEDDESKlampskuXYZ.jpg",
+    ]
+    ranked = pca_mod.rank_image_candidates(
+        urls, product_name="LED desk lamp", category="tech",
+    )
+    chosen, _ = ranked[0]
+    assert chosen.startswith("https://m.media-amazon.com"), (
+        f"Clean product shot must beat lifestyle 'lamp-with-phone' image; got {chosen}"
+    )

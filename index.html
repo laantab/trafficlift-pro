@@ -1872,17 +1872,23 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
 
     function _drawHeroImage(ctx, img, w, h) {
         // object-fit: cover semantics — fill the frame, cropping if needed.
+        // We bias the vertical crop slightly toward the UPPER third when
+        // the source is taller than the target, because lifestyle product
+        // photos tend to put the product in the upper-center (with the
+        // bottom of the frame used for staging props / shadow).
         const targetRatio = w / h;
         const srcRatio = img.naturalWidth / img.naturalHeight;
         let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
         if (srcRatio > targetRatio) {
-            // source is wider — crop sides
+            // source is wider — crop sides, keep centered
             sw = img.naturalHeight * targetRatio;
             sx = (img.naturalWidth - sw) / 2;
         } else {
-            // source is taller — crop top/bottom
+            // source is taller — crop top/bottom, bias toward upper third
             sh = img.naturalWidth / targetRatio;
-            sy = (img.naturalHeight - sh) / 2;
+            // 0.40 = crop 40% from bottom, 60% from top — keeps the
+            // product (typically centered in the upper half) in frame.
+            sy = (img.naturalHeight - sh) * 0.40;
         }
         ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
 
