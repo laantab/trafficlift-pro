@@ -169,7 +169,7 @@ def _patch_image_search(url: str = _TEST_IMAGE_URL):
     """
     from backend import product_research as pr_mod
 
-    def _fake_find_image(self, *, product_name="", category="", intent=""):
+    def _fake_find_image(self, *, product_name="", category="", intent="", asin=None):
         return url
 
     return _CombinedPatch([
@@ -1300,7 +1300,7 @@ def test_gate_20_image_check_timeout_moves_to_next_candidate(monkeypatch):
     # Counter to differentiate per-call return values; first call hangs.
     call_no = {"i": 0}
 
-    def hang_or_ok(self, *, product_name="", category="", intent=""):
+    def hang_or_ok(self, *, product_name="", category="", intent="", asin=None):
         call_no["i"] += 1
         hang_calls["n"] += 1
         if call_no["i"] == 1:
@@ -1344,7 +1344,7 @@ def test_gate_21_pick_terminates_within_request_budget(monkeypatch):
     terminate within REQUEST_BUDGET_SECONDS, not run forever."""
     from backend.product_research import ProductResearcher
 
-    def always_none(self, *, product_name="", category="", intent=""):
+    def always_none(self, *, product_name="", category="", intent="", asin=None):
         return None
 
     monkeypatch.setattr(ProductResearcher, "_find_product_image", always_none)
@@ -3045,3 +3045,104 @@ def test_url_resolution_does_not_set_when_unresolved():
     # Should win a pool candidate (no URL resolution in payload).
     assert winner.get("source") in ("live_research", "partial_research")
     assert "url_resolution" not in winner
+
+
+def test_image_query_cascade_includes_asin_first():
+    """When an ASIN is supplied, build_image_query_cascade must put it
+    first so Tavily/Amazon search can anchor on the unique product id
+    instead of the (often verbose / marketing-heavy) resolved title."""
+    from backend.product_control_agent import build_image_query_cascade
+    cascade = build_image_query_cascade(
+        product_name="Amazon Devices: Amazon Devices & Accessories: "
+                     "Smart Home Security & Lighting & More",
+        category="Tech & Gadgets",
+        intent="Amazon Devices: Amazon Devices & Accessories",
+        asin="B0BN72Y2FK",
+    )
+    assert cascade[0].startswith("B0BN72Y2FK"), (
+        f"first cascade query must start with the ASIN; got {cascade[0]!r}"
+    )
+
+
+def test_image_query_cascade_without_asin_keeps_legacy_order():
+    """Pool candidates (no ASIN) keep the legacy cascade ordering:
+    normalized title → simplified title → intent."""
+    from backend.product_control_agent import build_image_query_cascade
+    cascade = build_image_query_cascade(
+        product_name="Rotating Spice Rack Organizer — 16 Jars, Labels Included",
+        category="Kitchen & Cooking",
+        intent="kitchen organizer",
+    )
+    assert "rotating spice rack organizer" in cascade[0].lower()
+    assert "kitchen organizer" in cascade[-1].lower()
+
+
+def test_url_resolution_only_on_url_card_winner():
+    """When a pool candidate wins (because the URL candidate failed
+    image search), ``source`` must remain ``live_research`` (NOT
+    ``url_resolved``) and ``url_resolution`` must NOT be attached.
+    The user's intent and Tavily results are preserved as
+    ``url_resolution_attempted`` for UI diagnostics.
+    """
+    from backend.url_resolver import ResolvedProduct
+    from backend.product_research import ProductResearcher
+    from backend import product_control_agent as pca
+    from unittest import mock
+
+    # Intent + URL resolution both describe a spice rack organizer so
+    # both the URL candidate AND pool candidate 'spice-rack-02' pass
+    # the relevance gate. We force the URL candidate to fail image
+    # search; the spice-rack-02 pool candidate then wins.
+    rp = ResolvedProduct(
+        original_url="https://link.amazon/B0SPICERACK",
+        asin="B0SPICERACK",
+        title="Rotating Spice Rack Organizer 16 Jars",
+        source="tavily",
+    )
+
+    class _Env:
+        research_status = "live"
+        research_timestamp = "2026-09-28T00:00:00Z"
+        research_provider = "tavily"
+        research_sources = []
+        research_summary = "ok"
+        research_query = "rotating spice rack organizer"
+        research_image_urls = []
+
+    fake_image = "https://m.media-amazon.com/images/I/asin.jpg"
+    fake_head = mock.Mock(
+        status_code=200,
+        headers={"Content-Type": "image/jpeg", "Content-Length": "100000"},
+    )
+
+    r = ProductResearcher()
+
+    def _fake_find(self=None, *, product_name="", category="", intent="", asin=None):
+        # URL candidate (has asin) fails image search.
+        if asin:
+            return None
+        # Pool candidates (no asin) succeed.
+        return fake_image
+
+    with mock.patch.object(ProductResearcher, "_find_product_image",
+                           side_effect=_fake_find), \
+         mock.patch.object(pca.requests, "head", return_value=fake_head), \
+         mock.patch.object(pca, "_size_via_range_get", return_value=100000):
+        winner = r._pick_research_backed(
+            intent="rotating spice rack organizer",
+            category_hint="kitchen",
+            envelope=_Env(),
+            exclude=set(),
+            seed=None,
+            use_ai=False,
+            url_resolution=rp,
+        )
+    # Pool candidate won — source must NOT be url_resolved.
+    assert winner.get("source") in ("live_research", "partial_research"), \
+        f"pool winner source must NOT be url_resolved; got {winner.get('source')!r}"
+    assert "url_resolution" not in winner, (
+        "url_resolution metadata must only be attached when the URL candidate itself wins"
+    )
+    # Diagnostic info preserved under a separate key.
+    assert winner.get("url_resolution_attempted") is not None
+    assert winner["url_resolution_attempted"]["asin"] == "B0SPICERACK"

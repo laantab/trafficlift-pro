@@ -718,13 +718,17 @@ def build_image_query_cascade(
     category: str,
     intent: str,
     max_queries: int = MAX_IMAGE_SEARCH_QUERIES,
+    *,
+    asin: str | None = None,
 ) -> list[str]:
     """Build a bounded ordered list of image-search queries for a candidate.
 
     Order is MOST SPECIFIC → MOST GENERAL:
-      1. Normalized full product title (e.g. "rotating spice rack organizer 16 jars")
-      2. Simplified title without count/size (e.g. "spice rack organizer")
-      3. User intent (e.g. "kitchen organizer") as last-resort fallback
+      1. ASIN (when supplied) — most specific, often returns the actual
+         product page on a retailer CDN.
+      2. Normalized full product title (e.g. "rotating spice rack organizer 16 jars")
+      3. Simplified title without count/size (e.g. "spice rack organizer")
+      4. User intent (e.g. "kitchen organizer") as last-resort fallback
 
     Queries are deduplicated and capped at max_queries.
     """
@@ -740,6 +744,11 @@ def build_image_query_cascade(
             return
         seen.add(low)
         cascade.append(q)
+
+    # ASIN first when supplied — gives Tavily/Amazon search a strong
+    # anchor for finding the actual product photo.
+    if asin:
+        _add(f"{asin} Amazon product photo")
 
     name = (product_name or "").strip()
     if name:

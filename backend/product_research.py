@@ -1996,12 +1996,15 @@ class ProductResearcher:
             # If the materialized winner still has a data: URI placeholder
             # (the pool always does), try to enrich it with a real photo
             # from image-focused research. This is the "discovery pass"
-            # called out in the spec.
+            # called out in the spec. When we're processing the URL
+            # candidate, pass the ASIN so the cascade uses it as the
+            # first (most-specific) query.
             if (winner.get("image_url") or "").startswith("data:"):
                 enriched_url = self._find_product_image(
                     product_name=winner.get("name") or "",
                     category=winner.get("category") or "",
                     intent=intent,
+                    asin=(url_resolution.asin if (url_resolution and card is url_card) else None),
                 )
                 if enriched_url:
                     logger.info(
@@ -2059,10 +2062,16 @@ class ProductResearcher:
                     winner["trend_signals_note"] = (
                         "Pool trend signals omitted because live evidence was sparse."
                     )
-                # URL-mode: tag the winner so the UI can show provenance.
-                if url_resolution_dict is not None:
+                # URL-mode: tag the winner ONLY when the URL candidate itself
+                # won. If a pool candidate won (because the URL candidate
+                # failed image or audit), url_resolution stays in the
+                # response so the UI can show the user what was tried, but
+                # we do NOT re-tag the source as 'url_resolved'.
+                if url_resolution_dict is not None and card is url_card:
                     winner["url_resolution"] = url_resolution_dict
                     winner["source"] = "url_resolved"
+                elif url_resolution_dict is not None:
+                    winner["url_resolution_attempted"] = url_resolution_dict
                 return winner
 
             # Audit failed — record and move on
@@ -2099,6 +2108,7 @@ class ProductResearcher:
         product_name: str,
         category: str,
         intent: str,
+        asin: Optional[str] = None,
     ) -> Optional[str]:
         """Image-focused discovery with a bounded product-specific query
         cascade. Returns the URL whose technical validation passes AND
@@ -2107,6 +2117,8 @@ class ProductResearcher:
         Pipeline:
             1. Build an ordered cascade of 1-3 product-specific image-search
                queries (most specific first → user intent last).
+               When an ASIN is supplied, it is used as the FIRST query so
+               Tavily/Amazon search can anchor on the unique product id.
             2. For each query, hit Tavily image search and merge any new URLs
                into the candidate set (URLs are deduplicated across queries).
             3. Validate every URL via _validate_image (HEAD + Content-Type +
@@ -2138,6 +2150,7 @@ class ProductResearcher:
             product_name=product_name,
             category=category,
             intent=intent,
+            asin=asin,
         )
         if not cascade:
             logger.info(
