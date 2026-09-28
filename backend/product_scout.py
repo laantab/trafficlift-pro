@@ -116,6 +116,47 @@ def _synthesize(
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 
+@router.get("/diagnostics/research")
+def diagnostics_research() -> dict:
+    """Safe runtime diagnostic — reports which research/image providers are
+    CONFIGURED on this deployment. Does NOT return any secret values.
+
+    Useful for verifying that TAVILY_API_KEY (or alternative keys) is
+    available without exposing the key itself.
+    """
+    import os
+    from backend import live_research
+
+    tavily_present = bool(os.getenv("TAVILY_API_KEY", "").strip())
+    tavily_len = len(os.getenv("TAVILY_API_KEY", "").strip())
+    openai_present = bool(os.getenv("OPENAI_API_KEY", "").strip())
+    return {
+        "providers": {
+            "tavily_configured": tavily_present,
+            "tavily_key_length_chars": tavily_len if tavily_present else 0,
+            "duckduckgo_configured": True,  # DDG HTML needs no key
+            "openai_configured": openai_present,
+        },
+        "constants": {
+            "DEFAULT_TIMEOUT_s": live_research.DEFAULT_TIMEOUT,
+            "research_images_max_results_default": 3,
+        },
+        "image_validation": {
+            "MIN_IMAGE_BYTES": 5000,
+            "HEAD_timeout_s": 3.0,
+            "redirects_allowed_on_HEAD": False,
+            "redirects_allowed_on_GET": False,
+        },
+        "note": (
+            "If tavily_configured is false, the live research/image paths "
+            "fall back to DuckDuckGo HTML — which often returns a JS shell "
+            "with no real image URLs. In that environment, real product "
+            "photos are usually impossible to discover and the pipeline "
+            "returns 404 with 'No photo-qualified winner found'."
+        ),
+    }
+
+
 @router.post("/find-winner")
 def find_winner_post(payload: ProductRequest) -> dict:
     """POST variant. JSON body with the full control surface."""
