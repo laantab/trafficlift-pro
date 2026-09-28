@@ -771,7 +771,12 @@ def test_case_32_find_winner_resets_button_to_find_another():
     """On success, findWinner must reset the button text to 'Find Another Winner'."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 12000]
+    # Read the entire findWinner function body (until the binding
+    # statement that comes immediately after it). The 30 000-char
+    # buffer is intentionally larger than the function so this test
+    # stays robust against future in-function refactors.
+    binding_idx = src.index("addEventListener('click', findWinner)")
+    body = src[fn_idx:binding_idx]
     assert "Find Another Winner" in body, \
         "findWinner must rename the button to 'Find Another Winner' on success"
     # The button must also be re-enabled
@@ -2737,4 +2742,48 @@ def test_index_html_passes_url_or_keyword_param():
     )
     assert "/api/v1/find-winner" in src, (
         "findWinner must call /api/v1/find-winner"
+    )
+
+
+def test_index_html_does_not_substitute_fallback_for_empty_input():
+    """findWinner() must NOT substitute any fallback string (e.g.
+    'trending product') when the input is empty — that hides the real
+    cause from the user. Empty input must show inline validation and
+    return early without calling the backend."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    # Locate findWinner function body.
+    fn_start = src.index("async function findWinner(")
+    fn_end = src.index("    }", fn_start + 100)
+    fn_body = src[fn_start:fn_end]
+    assert "trending product" not in fn_body, (
+        "findWinner must not substitute 'trending product' as a fallback "
+        "for empty input. Show inline validation and return early instead."
+    )
+    assert "params.set('url_or_keyword', hint || " not in fn_body, (
+        "findWinner must not OR-fallback the url_or_keyword param."
+    )
+
+
+def test_index_html_empty_input_returns_early_with_inline_validation():
+    """Empty input path must (a) set inline error text, (b) focus the
+    input, (c) hide loading state, (d) return early before any fetch."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    fn_start = src.index("async function findWinner(")
+    binding_idx = src.index("addEventListener('click', findWinner)")
+    fn_body = src[fn_start:binding_idx]
+    # Inline guidance text — may be split across line continuations.
+    assert "Please paste a product URL" in fn_body, (
+        "findWinner empty-input branch must show inline guidance"
+    )
+    assert "productUrlError" in fn_body, (
+        "findWinner must reference the inline error element"
+    )
+    assert "urlInput.focus" in fn_body, (
+        "findWinner must focus the input on empty"
+    )
+    assert "loadingEl.classList.add('hidden')" in fn_body, (
+        "findWinner must hide loading state on empty-input early return"
+    )
+    assert "btn.disabled = false" in fn_body, (
+        "findWinner must restore the button on empty-input early return"
     )

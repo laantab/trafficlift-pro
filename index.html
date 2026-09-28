@@ -2178,7 +2178,39 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 'len=', hint.length,
                 'urlInput=', !!urlInput,
                 'inputPresent=', urlInput ? urlInput.value.length : 'n/a');
-            // Clear any previous inline error.
+
+            // ── C.1 EXPLICIT empty-input handling ─────────────────────────
+            // If the input is empty, do NOT substitute "trending product"
+            // (or any other fallback) and do NOT call the backend. Show an
+            // inline validation message, focus the input, leave the button
+            // ready for retry. Sending a substitute would either silently
+            // "succeed" with a random winner or, more likely, 404 with the
+            // backend's relevance message — both hide the fact that the
+            // user simply forgot to type.
+            if (!hint) {
+                const inlineErrEl = document.getElementById('productUrlError');
+                if (inlineErrEl) {
+                    inlineErrEl.textContent =
+                        'Please paste a product URL or type a keyword '
+                        + '(e.g. "kitchen organizer", "desk lamp", "phone stand").';
+                    inlineErrEl.classList.remove('hidden');
+                }
+                if (urlInput) {
+                    urlInput.focus();
+                }
+                // Hide loading state (we never entered the network stage).
+                if (loadingEl) loadingEl.classList.add('hidden');
+                // Restore button.
+                if (btn) {
+                    btn.disabled = false;
+                    const labelEl = btn.querySelector('span:nth-of-type(2)');
+                    if (labelEl) labelEl.textContent = 'Find Winner';
+                }
+                return;
+            }
+
+            // Clear any previous inline error now that we have a real
+            // value and are about to send.
             const inlineErrEl = document.getElementById('productUrlError');
             if (inlineErrEl) {
                 inlineErrEl.textContent = '';
@@ -2186,11 +2218,10 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             }
             const prev = window.__lastWinnerId || '';
             const params = new URLSearchParams();
-            // Always pass the input value — even when empty. The backend
-            // returns a clear, actionable 404 message in every case, so a
-            // silent UI throw here is worse UX than letting the user see
-            // the backend's helpful guidance.
-            params.set('url_or_keyword', hint || 'trending product');
+            // Send EXACTLY what the user typed. Empty input is handled
+            // above (early return with inline validation) — we never reach
+            // here with an empty hint, so no fallback substitution.
+            params.set('url_or_keyword', hint);
             if (prev) params.set('exclude', prev);
             const qs = params.toString();
             const findWinnerUrl = apiUrl(`/api/v1/find-winner?${qs}`);
