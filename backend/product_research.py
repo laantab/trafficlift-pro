@@ -252,8 +252,9 @@ def _no_winner_detail(rejection_log: list[dict], attempts: int) -> str:
             f"Tried {attempts} candidate(s); all failed the relevance gate. "
             "Try a specific keyword like 'kitchen organizer', 'desk lamp', "
             "'phone stand', 'pet bed', or 'cleaning brush'. "
-            "If you're pasting a product URL, make sure the URL slug contains "
-            "the product name (e.g. .../products/kitchen-organizer)."
+            "If you're pasting a product URL, TrafficLift Pro will resolve "
+            "the link automatically — but the product must exist in the "
+            "trending pool to win."
         )
     if image_count == n:
         return (
@@ -1563,6 +1564,58 @@ class ProductResearcher:
 
         exclude = set(exclude or [])
         intent_clean = (intent or "").strip() or "trending product"
+
+        # ── 0. URL-mode pre-resolution ──────────────────────────────────
+        # A user may paste a product URL (Amazon share / short link /
+        # plain amazon.com/dp/<asin>) instead of a keyword. The raw URL
+        # has no useful keywords for the relevance gate, so we resolve
+        # it first to (a) extract the ASIN, (b) follow redirects to the
+        # final Amazon product URL, (c) get the real product title from
+        # page metadata or Tavily fallback, and (d) build a direct
+        # candidate that gets inserted at the front of the candidate
+        # list so it can win the pick() without being out-scored by
+        # pool items that have nothing to do with the URL.
+        url_resolution = None
+        try:
+            from backend.url_resolver import detect_url, resolve_url_to_product
+            if detect_url(intent_clean):
+                logger.info(
+                    "[find-winner] URL-mode detected for %r; resolving…",
+                    intent_clean[:80],
+                )
+                url_resolution = resolve_url_to_product(
+                    intent_clean,
+                    timeout=5.0,
+                    tavily_timeout=8.0,
+                )
+                logger.info(
+                    "[find-winner] URL-mode resolved asin=%r title=%r "
+                    "final_url=%r source=%s notes=%s",
+                    url_resolution.asin,
+                    (url_resolution.title or "")[:60],
+                    url_resolution.final_url[:80],
+                    url_resolution.source,
+                    ";".join(url_resolution.notes)[:200],
+                )
+                if url_resolution.title:
+                    # Replace the intent with the resolved title so the
+                    # rest of the pipeline (relevance scoring, image
+                    # cascade queries) treats this as a normal product
+                    # keyword instead of a raw URL.
+                    intent_clean = url_resolution.title
+                elif url_resolution.asin:
+                    # Fall back to the ASIN-derived placeholder so we
+                    # at least have something for the relevance gate.
+                    intent_clean = f"amazon product {url_resolution.asin}"
+                # else: keep raw URL — we'll fail the relevance gate
+                # honestly below if even the ASIN extraction failed.
+        except Exception as exc:
+            logger.warning(
+                "[find-winner] URL resolution raised (continuing with raw "
+                "intent=%r): %s",
+                intent_clean[:60], exc,
+            )
+
         category_hint = _classify(intent_clean)
         t_pick_start = time.monotonic()
         logger.info(
@@ -1582,6 +1635,7 @@ class ProductResearcher:
                 exclude=exclude,
                 seed=seed,
                 use_ai=use_ai,
+                url_resolution=url_resolution,
             )
 
         # 3. Fallback status — research failed. Try AI first, then pool.
@@ -1794,6 +1848,7 @@ class ProductResearcher:
         exclude: set[str],
         seed: Optional[int],
         use_ai: bool,
+        url_resolution=None,
     ) -> dict:
         """Select a winner by scoring candidates against live research.
 
@@ -1819,10 +1874,45 @@ class ProductResearcher:
                 detail="No candidates available in the pool.",
             )
 
+        # ── URL-mode: prepend a synthetic candidate from the resolved URL ──
+        # When the user pasted a product URL and we successfully resolved
+        # it to an ASIN + title, that URL is the user's explicit ask —
+        # we MUST NOT lose to a pool item that has nothing to do with the
+        # URL. Build a ProductCard from the resolution and insert it at
+        # the front so it sorts first by score (we'll give it the
+        # highest base score).
+        url_card = None
+        url_resolution_dict = None
+        if url_resolution is not None and getattr(url_resolution, "resolved", False):
+            url_card = _build_url_candidate(url_resolution)
+            url_resolution_dict = url_resolution.to_dict()
+            candidates = [url_card] + candidates
+            logger.info(
+                "[find-winner] URL-mode prepended candidate id=%s name=%s asin=%s",
+                url_card.id, url_card.name[:60], url_card.url,
+            )
+
         scored: list[tuple[ProductCard, dict, int]] = []
         for card in candidates:
-            score, factors = self._score_candidate(card, envelope)
-            scored.append((card, factors, score))
+            if card is url_card:
+                # URL candidate: score is 100 (the user explicitly asked
+                # for this product, so it always beats pool candidates
+                # that the relevance gate might let through).
+                url_factors = {
+                    "web_evidence_strength": 50,
+                    "web_source_matches": len(envelope.research_sources or []),
+                    "demand_signal": 20,
+                    "visual_appeal": 10,
+                    "evergreen_strength": 10,
+                    "commercial_intent": 10,
+                    "competition_penalty": 0,
+                    "url_resolution_bonus": 0,
+                    "url_mode": True,
+                }
+                scored.append((card, url_factors, 100))
+            else:
+                score, factors = self._score_candidate(card, envelope)
+                scored.append((card, factors, score))
 
         # Sort descending by score; break ties by rotation (deterministic)
         rng = random.Random(seed) if seed is not None else random.Random()
@@ -1969,6 +2059,10 @@ class ProductResearcher:
                     winner["trend_signals_note"] = (
                         "Pool trend signals omitted because live evidence was sparse."
                     )
+                # URL-mode: tag the winner so the UI can show provenance.
+                if url_resolution_dict is not None:
+                    winner["url_resolution"] = url_resolution_dict
+                    winner["source"] = "url_resolved"
                 return winner
 
             # Audit failed — record and move on
@@ -2286,6 +2380,105 @@ class ProductResearcher:
             "_seed":            raw_input_seed,  # internal; helps debugging
         }
         return out
+
+    # ── URL-mode candidate builder ─────────────────────────────────────────
+
+
+def _build_url_candidate(resolution) -> ProductCard:
+    """Build a ProductCard from a ResolvedProduct so it can flow through
+    the standard candidate pipeline.
+
+    The card's ``image_url`` is set to a ``data:`` URI placeholder so
+    the standard ``_find_product_image`` cascade runs and replaces it
+    with a real verified photo (using the resolved title and ASIN as
+    cascade queries).
+    """
+    asin = resolution.asin or "url"
+    safe_asin = re.sub(r"[^A-Za-z0-9]+", "-", asin).strip("-") or "url"
+    cid = f"url-{safe_asin[:24].lower()}"
+    name = resolution.title or f"Amazon Product {asin}"
+    final_url = resolution.final_url or resolution.original_url
+    # Pick a sensible category label from the resolved title's tokens.
+    category = _infer_url_category(name)
+    placeholder = _placeholder(
+        cid,
+        name,
+        category.lower().split(" ")[0] if category else "kitchen",
+    )
+    return ProductCard(
+        id=cid,
+        name=name,
+        category=category,
+        image_url=placeholder,
+        url=final_url,
+        angle_options=[
+            f"Amazon bestseller — {name}",
+            f"Trending Amazon pick (#{asin})",
+            "Top-selling Amazon find — see why it's trending.",
+        ],
+        pin_title_options=[
+            f"{name}",
+            f"Trending on Amazon: {name[:60]}",
+            f"Must-see Amazon find ✨",
+        ],
+        pin_description_options=[
+            f"{name} — one of the top-trending products on Amazon right now. "
+            f"Pinned for its popularity, value, and real demand.",
+        ],
+        hashtags_pool=["#Amazon", "#Trending", "#BestSeller",
+                       "#MustHave", "#Viral", "#TopPicks"],
+        viral_hook_options=[
+            f"This Amazon product is blowing up — see why.",
+            f"The Amazon find everyone's pinning right now.",
+        ],
+        trend_score_range=(80, 95),
+        trend_signals_options=[
+            ["Amazon Best Seller Rank climbing this week",
+             "Strong review velocity and rating trend"],
+        ],
+        margin_estimate="Medium (25-40%)",
+        evergreen_score=0.8,
+        competition="Medium",
+        competition_reasons=["Amazon bestseller — well-known product"],
+    )
+
+
+def _infer_url_category(name: str) -> str:
+    """Map a product title to a sensible CATEGORY_LABELS value.
+
+    Best-effort, used only as a display label for the URL candidate.
+    Does NOT affect the relevance gate — that uses the resolved title
+    for semantic matching against pool candidates.
+    """
+    if not name:
+        return "Trending General"
+    low = name.lower()
+    family = {
+        "kitchen":  ["kitchen", "spice", "rack", "organizer", "knife",
+                     "pan", "pot", "bottle", "mug", "coffee", "blender",
+                     "cookware", "utensil"],
+        "tech":     ["phone", "tablet", "laptop", "charger", "cable",
+                     "wireless", "bluetooth", "smart", "led", "usb",
+                     "earbud", "headphone", "speaker", "monitor",
+                     "keyboard", "mouse"],
+        "pet":      ["dog", "cat", "puppy", "kitten", "pet", "leash",
+                     "collar", "kennel", "crate", "feeder", "litter",
+                     "bowl", "treat", "grooming"],
+        "decor":    ["lamp", "light", "mirror", "shelf", "throw",
+                     "blanket", "candle", "vase", "plant", "wall",
+                     "decor", "bedroom", "living"],
+        "fitness":  ["yoga", "fitness", "exercise", "gym", "workout",
+                     "dumbbell", "resistance", "band", "mat", "roller",
+                     "posture", "massage", "foam"],
+        "cleaning": ["clean", "scrub", "brush", "mop", "vacuum",
+                     "sweep", "dust", "wipe", "soap", "stain",
+                     "toilet", "shower", "bathroom"],
+    }
+    for cat, words in family.items():
+        if any(w in low for w in words):
+            return CATEGORY_LABELS.get(cat, cat.title())
+    return "Trending General"
+
 
     # ── OpenAI augmentation ───────────────────────────────────────────────
 

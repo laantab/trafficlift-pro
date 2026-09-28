@@ -2787,3 +2787,261 @@ def test_index_html_empty_input_returns_early_with_inline_validation():
     assert "btn.disabled = false" in fn_body, (
         "findWinner must restore the button on empty-input early return"
     )
+
+
+# ── URL RESOLVER REGRESSION (added 2026-09-28) ─────────────────────────
+# Real users paste Amazon share / short links (link.amazon/<token>,
+# amzn.to/<token>, /dp/<asin>) that have no product name in the slug.
+# The keyword path used to fail the relevance gate on those. The new
+# url_resolver module detects URL inputs, follows redirects safely,
+# extracts ASIN, and resolves the title via page metadata + Tavily
+# fallback before the candidate pipeline runs.
+
+
+def test_url_resolver_detect_url_accepts_https():
+    from backend.url_resolver import detect_url
+    assert detect_url("https://www.amazon.com/dp/B0fIJWu2r") is True
+    assert detect_url("https://link.amazon/B0fIJWu2r") is True
+    assert detect_url("http://amzn.to/abc123") is True
+
+
+def test_url_resolver_detect_url_rejects_bare_keywords():
+    from backend.url_resolver import detect_url
+    assert detect_url("kitchen organizer") is False
+    assert detect_url("desk lamp") is False
+    assert detect_url("") is False
+    assert detect_url(None) is False  # type: ignore[arg-type]
+    assert detect_url("amazon.com/dp/B0fIJWu2r") is False  # no scheme
+
+
+def test_url_resolver_extract_asin_dp_path():
+    from backend.url_resolver import extract_asin
+    assert extract_asin("https://www.amazon.com/dp/B0fIJWu2r") == "B0FIJWU2R"
+    assert extract_asin("https://amazon.com/dp/B0ABCDEFGH/") == "B0ABCDEFGH"
+    assert extract_asin("https://www.amazon.com/Kitchen-Organizer/dp/B0XYZ12345") == "B0XYZ12345"
+
+
+def test_url_resolver_extract_asin_gp_path():
+    from backend.url_resolver import extract_asin
+    assert extract_asin("https://www.amazon.com/gp/product/B0fIJWu2r") == "B0FIJWU2R"
+    assert extract_asin("https://amazon.com/gp/product/B0ABCDEFGH/ref=foo") == "B0ABCDEFGH"
+
+
+def test_url_resolver_extract_asin_short_link():
+    from backend.url_resolver import extract_asin
+    # link.amazon short link: token IS the ASIN
+    assert extract_asin("https://link.amazon/B0fIJWu2r") == "B0FIJWU2R"
+    # amzn.to with too-short token: cannot confidently call it an ASIN
+    assert extract_asin("https://amzn.to/abc123") is None
+
+
+def test_url_resolver_extract_asin_is_host_agnostic():
+    """ASIN extraction is a regex on the path — it does NOT validate
+    the host. The host validation happens later in the pipeline via
+    ``_is_amazon_target``. We document this behavior so the test
+    catches regressions if someone tightens the regex unexpectedly.
+    """
+    from backend.url_resolver import extract_asin
+    # Empty / non-URL inputs return None
+    assert extract_asin("") is None
+    assert extract_asin("not a url") is None
+    # Any /dp/<token> path matches, regardless of host
+    assert extract_asin("https://example.com/dp/B0fIJWu2r") == "B0FIJWU2R"
+
+
+def test_url_resolver_flags_non_amazon_target():
+    """When the resolved final URL is not on an Amazon host, the
+    ResolvedProduct must record this in ``notes`` so the rest of
+    the pipeline can react appropriately."""
+    from backend.url_resolver import resolve_url_to_product
+    rp = resolve_url_to_product(
+        "https://example.com/dp/B0fIJWu2r",
+        timeout=2.0,
+        tavily_timeout=0,
+    )
+    assert any("non_amazon_target" in n for n in rp.notes)
+
+
+def test_url_resolver_extract_title_from_html_jsonld():
+    from backend.url_resolver import extract_product_title_from_html
+    html = '''<html><head>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "Product",
+ "name": "Rotating Spice Rack Organizer 16 Jars"}
+</script>
+</head></html>'''
+    assert extract_product_title_from_html(html) == "Rotating Spice Rack Organizer 16 Jars"
+
+
+def test_url_resolver_extract_title_from_html_og_title():
+    from backend.url_resolver import extract_product_title_from_html
+    html = '''<html><head><meta property="og:title" content="My Phone Stand" /></head></html>'''
+    assert extract_product_title_from_html(html) == "My Phone Stand"
+
+
+def test_url_resolver_extract_title_strips_amazon_prefix():
+    from backend.url_resolver import extract_product_title_from_html
+    html = '''<html><head><title>Amazon.com: Pet Dog Bed Orthopedic : Amazon.com</title></head></html>'''
+    assert extract_product_title_from_html(html) == "Pet Dog Bed Orthopedic"
+
+
+def test_url_resolver_unsafe_scheme_rejected():
+    from backend.url_resolver import resolve_url_to_product
+    rp = resolve_url_to_product("ftp://example.com/file")
+    assert rp.error is not None
+    assert rp.resolved is False
+
+
+def test_url_resolver_returns_resolved_product_for_short_link():
+    """Short link with no real network access: ASIN extraction succeeds
+    and we get a usable record that the pipeline can score.
+
+    If the redirect target returns a 404 page (common for link.amazon
+    tracking redirects), the title comes from either Tavily research
+    or the ASIN-only placeholder — never the 404 page's <title>.
+    """
+    from backend.url_resolver import resolve_url_to_product
+    rp = resolve_url_to_product(
+        "https://link.amazon/B0fIJWu2r",
+        timeout=2.0,
+        tavily_timeout=0,  # skip Tavily in unit tests
+    )
+    assert rp.asin == "B0FIJWU2R"
+    assert rp.original_url == "https://link.amazon/B0fIJWu2r"
+    # Resolved product must always have a usable title.
+    assert rp.title is not None
+    assert rp.title.strip() != ""
+    # Generic 404 titles must never leak into rp.title.
+    assert "404" not in rp.title.lower()
+    assert "not found" not in rp.title.lower()
+    assert rp.resolved is True
+
+
+def test_url_resolver_returns_unresolved_for_non_url_input():
+    from backend.url_resolver import resolve_url_to_product
+    rp = resolve_url_to_product("kitchen organizer")
+    assert rp.error == "not_a_url"
+    assert rp.resolved is False
+
+
+def test_build_url_candidate_has_required_fields():
+    from backend.url_resolver import ResolvedProduct
+    from backend.product_research import _build_url_candidate
+    rp = ResolvedProduct(
+        original_url="https://link.amazon/B0fIJWu2r",
+        final_url="https://www.amazon.com/dp/B0FIJWU2R",
+        asin="B0FIJWU2R",
+        title="Rotating Spice Rack Organizer",
+        source="tavily",
+    )
+    card = _build_url_candidate(rp)
+    assert card.id.startswith("url-")
+    assert "Rotating Spice Rack Organizer" in card.name
+    assert "amazon" in card.url.lower()
+    assert card.image_url.startswith("data:")
+
+
+def test_build_url_candidate_handles_asin_only():
+    from backend.url_resolver import ResolvedProduct
+    from backend.product_research import _build_url_candidate
+    rp = ResolvedProduct(
+        original_url="https://link.amazon/B0XYZ12345",
+        asin="B0XYZ12345",
+        title="Amazon Product B0XYZ12345",
+        source="asin_only",
+    )
+    card = _build_url_candidate(rp)
+    assert card.id == "url-b0xyz12345"
+    assert card.name == "Amazon Product B0XYZ12345"
+
+
+def test_url_resolution_attaches_to_winner_when_url_card_wins():
+    """When the URL candidate wins, the winner payload must include
+    url_resolution diagnostics and source='url_resolved'."""
+    from backend.url_resolver import ResolvedProduct
+    from backend.product_research import ProductResearcher
+    from backend import product_control_agent as pca
+    from unittest import mock
+
+    rp = ResolvedProduct(
+        original_url="https://link.amazon/B0fIJWu2r",
+        final_url="https://www.amazon.com/dp/B0FIJWU2R",
+        asin="B0FIJWU2R",
+        title="Rotating Spice Rack Organizer",
+        source="tavily",
+    )
+    fake_image = "https://m.media-amazon.com/images/I/asin.jpg"
+    fake_head = mock.Mock(
+        status_code=200,
+        headers={"Content-Type": "image/jpeg", "Content-Length": "100000"},
+    )
+
+    class _Env:
+        research_status = "live"
+        research_timestamp = "2026-09-28T00:00:00Z"
+        research_provider = "tavily"
+        research_sources = []
+        research_summary = "ok"
+        research_query = "Rotating Spice Rack Organizer"
+        research_image_urls = []
+
+    r = ProductResearcher()
+    with mock.patch.object(ProductResearcher, "_find_product_image",
+                           return_value=fake_image), \
+         mock.patch.object(pca.requests, "head", return_value=fake_head), \
+         mock.patch.object(pca, "_size_via_range_get", return_value=100000):
+        winner = r._pick_research_backed(
+            intent="Rotating Spice Rack Organizer",
+            category_hint="kitchen",
+            envelope=_Env(),
+            exclude=set(),
+            seed=None,
+            use_ai=False,
+            url_resolution=rp,
+        )
+    assert winner.get("url_resolution") is not None
+    assert winner["url_resolution"]["asin"] == "B0FIJWU2R"
+    assert winner.get("source") == "url_resolved"
+
+
+def test_url_resolution_does_not_set_when_unresolved():
+    """If the URL did not resolve (no ASIN, no title), url_resolution
+    must not be added to the winner payload."""
+    from backend.url_resolver import ResolvedProduct
+    from backend.product_research import ProductResearcher
+    from backend import product_control_agent as pca
+    from unittest import mock
+
+    rp = ResolvedProduct(error="not_a_url")  # not resolved
+
+    class _Env:
+        research_status = "live"
+        research_timestamp = "2026-09-28T00:00:00Z"
+        research_provider = "tavily"
+        research_sources = []
+        research_summary = "ok"
+        research_query = "kitchen organizer"
+        research_image_urls = []
+
+    fake_image = "https://m.media-amazon.com/images/I/asin.jpg"
+    fake_head = mock.Mock(
+        status_code=200,
+        headers={"Content-Type": "image/jpeg", "Content-Length": "100000"},
+    )
+    r = ProductResearcher()
+    with mock.patch.object(ProductResearcher, "_find_product_image",
+                           return_value=fake_image), \
+         mock.patch.object(pca.requests, "head", return_value=fake_head), \
+         mock.patch.object(pca, "_size_via_range_get", return_value=100000):
+        winner = r._pick_research_backed(
+            intent="kitchen organizer",
+            category_hint="kitchen",
+            envelope=_Env(),
+            exclude=set(),
+            seed=None,
+            use_ai=False,
+            url_resolution=rp,
+        )
+    # Should win a pool candidate (no URL resolution in payload).
+    assert winner.get("source") in ("live_research", "partial_research")
+    assert "url_resolution" not in winner
