@@ -2140,7 +2140,17 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         ];
         let stageIdx = 0;
         if (loadingH)   loadingH.textContent = stages[0];
-        if (loadingSub) loadingSub.textContent = 'First request after idle may take ~60 s while the server warms up.';
+        // Smarter subtext: only show the "warm-up" message on the very
+        // first request of the session. Subsequent clicks are typically
+        // 2-5 s — the warning just confuses users into thinking the
+        // request is slow.
+        const isFirstRun = !window.__findWinnerRanOnce;
+        window.__findWinnerRanOnce = true;
+        if (loadingSub) {
+            loadingSub.textContent = isFirstRun
+                ? 'First request after idle may take ~60 s while the server warms up.'
+                : 'Researching the product, finding a verified photo, generating your pin.';
+        }
         const stageTimer = setInterval(() => {
             stageIdx = (stageIdx + 1) % stages.length;
             if (loadingH) loadingH.textContent = stages[stageIdx];
@@ -2151,6 +2161,9 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             executionEl.innerHTML = '';
         }
 
+        // Track whether the request actually succeeded so the finally
+        // block can choose the right button label.
+        let success = false;
         try {
             // ── C. GET /api/v1/find-winner ────────────────────────────────
             // Read the input value at the LATEST possible moment — directly
@@ -2227,15 +2240,15 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             const findWinnerUrl = apiUrl(`/api/v1/find-winner?${qs}`);
             console.log('[find-winner] → GET', findWinnerUrl);
 
-            // Front-end safety timeout. We pick 75 s because:
-            //   * Render free-tier cold start can be 30–60 s.
-            //   * Backend REQUEST_BUDGET_SECONDS = 20 s.
-            //   * Buffer for slow network on the client side.
-            // The backend budget itself is what guarantees the request
-            // cannot hang in the Python code; this timer is just a safety
-            // net for cases where the request never even reaches the
-            // backend (DNS, Render sleeping, network partition).
-            const FIND_WINNER_TIMEOUT_MS = 75000;
+            // Front-end safety timeout. Tuned to 30 s because:
+            //   * Render free-tier cold start can be 30-60 s but the
+            //     warm-up ping (immediate + 30 s after DOMContentLoaded)
+            //     keeps the server awake for the first user click.
+            //   * Backend REQUEST_BUDGET_SECONDS = 20 s, so a healthy
+            //     server returns well under 10 s.
+            //   * A shorter timeout lets the user retry quickly instead
+            //     of staring at a spinner for 75 s.
+            const FIND_WINNER_TIMEOUT_MS = 30000;
             const findController = new AbortController();
             const findTimer = setTimeout(
                 () => findController.abort(),
@@ -2303,7 +2316,7 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             // and "Untitled Product" can never appear from this flow.
             const genUrl = apiUrl('/api/v1/traffic/generate');
             console.log('[find-winner] → POST', genUrl, { id: winner.id });
-            const GENERATE_TIMEOUT_MS = 75000;
+            const GENERATE_TIMEOUT_MS = 30000;
             const genController = new AbortController();
             const genTimer = setTimeout(
                 () => genController.abort(),
@@ -2345,17 +2358,12 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             // ── F. Render Pinterest result + designed pin ───────────────
             renderPinterestResult(genData, winner);
 
-            // ── G. Done — restore button to "Find Another Winner" ─────
-            if (btn) {
-                btn.disabled = false;
-                const labelEl = btn.querySelector('span:nth-of-type(2)');
-                if (labelEl) labelEl.textContent = 'Find Another Winner';
-            }
+            // ── G. Done — flag success so finally sets the right label. ─
+            success = true;
             if (typeof showToast === 'function') {
                 showToast('Pinterest Ready', winner.name, 'success');
             }
         } catch (err) {
-            clearInterval(stageTimer);
             console.error('[find-winner] failed:', err);
             // Visible error in #executionOutput — user always sees why.
             const msg = (err && err.message) || String(err);
@@ -2410,15 +2418,25 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                     </div>`;
                 try { lucide.createIcons(); } catch (_) {}
             }
+            if (typeof showToast === 'function') {
+                showToast(heading, msg, 'error');
+            }
+        } finally {
+            // ALWAYS restore the button + hide loading state, no matter
+            // what happened above (success, thrown error, or any future
+            // regression that bypasses the catch block). Without this
+            // guard a single hung promise can leave the user staring at
+            // "Finding Winner…" forever.
+            clearInterval(stageTimer);
             if (loadingEl) loadingEl.classList.add('hidden');
-            // Restore button to "Find Winner" so user can retry.
             if (btn) {
                 btn.disabled = false;
                 const labelEl = btn.querySelector('span:nth-of-type(2)');
-                if (labelEl) labelEl.textContent = 'Find Winner';
-            }
-            if (typeof showToast === 'function') {
-                showToast(heading, msg, 'error');
+                if (labelEl) {
+                    labelEl.textContent = success
+                        ? 'Find Another Winner'
+                        : 'Find Winner';
+                }
             }
         }
     }

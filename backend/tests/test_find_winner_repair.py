@@ -902,13 +902,19 @@ def test_case_36_download_uses_cached_1000_x_1500_pin():
 
 def test_case_37_error_path_visibly_informs_the_user():
     """findWinner() catch block must write a visible error into #executionOutput
-    and restore the button text to 'Find Winner'."""
+    and the finally block must restore the button."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     fn_idx = src.index("async function findWinner")
-    body = src[fn_idx:fn_idx + 14000]
+    # Read the entire findWinner function body up to the binding.
+    binding_idx = src.index("addEventListener('click', findWinner)")
+    body = src[fn_idx:binding_idx]
     # Catch block must render visible error into executionOutput
     assert "executionOutput" in body and "Find Winner failed" in body, \
         "findWinner catch must render visible 'Find Winner failed' error"
+    # Finally block must restore the button (defense-in-depth: no
+    # 'hung spinner forever' bug).
+    assert "} finally {" in body, \
+        "findWinner must have a finally block to ALWAYS restore the button"
     assert "executionOutput" in body and "Pinterest generation failed" in body, \
         "findWinner catch must render visible 'Pinterest generation failed' error"
     # Button must be restored to "Find Winner" on error
@@ -1499,19 +1505,23 @@ def test_gate_28_research_images_skips_ddg_when_tavily_already_satisfied():
     assert len(urls) == 3
 
 
-def test_gate_29_frontend_timeout_is_at_least_60_seconds():
-    """FIND_WINNER_TIMEOUT_MS must be at least 60 s so Render cold-start
-    (free tier: 30-60 s) does not abort the very first request after the
-    app has been idle. Without this, a freshly-loaded page would always
-    fail its first Find Winner click."""
+def test_gate_29_frontend_timeout_bounds_the_request():
+    """FIND_WINNER_TIMEOUT_MS must be large enough to cover a healthy
+    backend response (backend REQUEST_BUDGET_SECONDS = 20 s plus
+    network buffer) but small enough that the user can retry quickly
+    when the server is slow. Tuned to 30 s — Render cold-start is now
+    handled by the DOMContentLoaded warm-up ping, not by inflating
+    the find-winner timeout. A 75 s timeout left the user staring at
+    a spinner for too long after a failed request."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     import re
     m = re.search(r"FIND_WINNER_TIMEOUT_MS\s*=\s*(\d+)", src)
     assert m, "findWinner must declare FIND_WINNER_TIMEOUT_MS"
     val = int(m.group(1))
-    assert val >= 60_000, (
-        f"FIND_WINNER_TIMEOUT_MS = {val}; must be ≥ 60 000 (60 s) so "
-        "Render's cold start cannot abort the first request"
+    assert 20_000 <= val <= 45_000, (
+        f"FIND_WINNER_TIMEOUT_MS = {val}; must be in [20 000, 45 000] ms "
+        "so the user gets fast retry feedback (warm-up ping handles "
+        "Render cold-start instead)"
     )
 
 
