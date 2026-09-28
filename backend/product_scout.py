@@ -117,6 +117,50 @@ def _synthesize(
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 
+@router.get("/diagnostics/raw-tavily")
+def diagnostics_raw_tavily(q: str = Query("phone stand", max_length=100)) -> dict:
+    """Raw Tavily response — exposes what the real Tavily API actually
+    returns (status, results, images). Used to verify that the
+    `include_images: True` parameter is producing image URLs.
+    Does NOT return the API key.
+    """
+    import os
+    import requests
+    from backend.live_research import TAVILY_ENDPOINT, DEFAULT_USER_AGENT
+
+    api_key = os.getenv("TAVILY_API_KEY", "").strip()
+    if not api_key:
+        return {"error": "TAVILY_API_KEY not configured"}
+    try:
+        resp = requests.post(
+            TAVILY_ENDPOINT,
+            json={
+                "api_key": api_key,
+                "query": q + " product photo",
+                "max_results": 5,
+                "search_depth": "basic",
+                "include_answer": False,
+                "include_images": True,
+                "topic": "general",
+            },
+            headers={"User-Agent": DEFAULT_USER_AGENT},
+            timeout=10,
+        )
+        body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        return {
+            "query": q,
+            "http_status": resp.status_code,
+            "keys_in_response": list(body.keys()),
+            "results_count": len(body.get("results") or []),
+            "images_count": len(body.get("images") or []),
+            "answer": (body.get("answer") or "")[:200],
+            "first_image": (body.get("images") or [None])[0],
+            "first_result_url": ((body.get("results") or [{}])[0]).get("url"),
+        }
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
 @router.get("/diagnostics/research")
 def diagnostics_research() -> dict:
     """Safe runtime diagnostic — reports which research/image providers are
