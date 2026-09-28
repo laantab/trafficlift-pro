@@ -27,6 +27,7 @@ Stability guarantees
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -154,6 +155,72 @@ def diagnostics_research() -> dict:
             "photos are usually impossible to discover and the pipeline "
             "returns 404 with 'No photo-qualified winner found'."
         ),
+    }
+
+
+@router.get("/diagnostics/image-search")
+def diagnostics_image_search(q: str = Query("phone stand", max_length=100)) -> dict:
+    """Live diagnostic: exercise the real Tavily image-search path on this
+    deployment and report every URL discovered + its validation outcome.
+    Does NOT return the API key. Used to diagnose why /find-winner returns
+    404 with 'No photo-qualified winner found' on common product queries.
+    """
+    import time
+    import requests
+    from backend import live_research
+    from backend.product_control_agent import _validate_image
+
+    t0 = time.monotonic()
+    urls = live_research.research_images(f"{q} product photo", max_results=5)
+    elapsed = time.monotonic() - t0
+
+    out: list[dict] = []
+    for u in urls:
+        # Trace exactly what the validator sees — first HEAD no-redirect,
+        # then HEAD with redirects followed, so we can prove whether
+        # redirects are the cause of validation failures.
+        trace: dict = {"url": u[:120]}
+        try:
+            t = time.monotonic()
+            r = requests.head(u, timeout=3.0, allow_redirects=False)
+            trace["head_no_redirect"] = {
+                "status": r.status_code,
+                "content_type": (r.headers.get("Content-Type") or "")[:40],
+                "location": (r.headers.get("Location") or "")[:80],
+                "elapsed_s": round(time.monotonic() - t, 2),
+            }
+            if r.status_code in (301, 302, 303, 307, 308):
+                t = time.monotonic()
+                r2 = requests.head(u, timeout=3.0, allow_redirects=True)
+                trace["head_followed"] = {
+                    "status": r2.status_code,
+                    "final_url": r2.url[:120],
+                    "content_type": (r2.headers.get("Content-Type") or "")[:40],
+                    "elapsed_s": round(time.monotonic() - t, 2),
+                }
+        except Exception as exc:
+            trace["head_no_redirect"] = {"error": f"{type(exc).__name__}: {exc}"}
+        # Run the actual validator the pipeline uses.
+        try:
+            chk = _validate_image(u)
+            trace["validator"] = {
+                "ok": chk.ok,
+                "reason": chk.reason,
+                "image_status": chk.image_status,
+                "content_type": (chk.image_content_type or "")[:40],
+                "http_status": chk.http_status,
+            }
+        except Exception as exc:
+            trace["validator"] = {"error": f"{type(exc).__name__}: {exc}"}
+        out.append(trace)
+
+    return {
+        "query": q,
+        "provider_configured": bool(os.getenv("TAVILY_API_KEY", "").strip()),
+        "elapsed_s": round(elapsed, 2),
+        "urls_discovered": len(urls),
+        "urls_validated_ok": sum(1 for t in out if t.get("validator", {}).get("ok")),
+        "urls": out,
     }
 
 
