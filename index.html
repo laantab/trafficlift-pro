@@ -126,7 +126,7 @@
                     <div class="flex items-center gap-2">
                         <div class="relative flex-1">
                             <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
-                            <input type="url" id="productUrl" placeholder="https://yourstore.com/products/awesome-product"
+                            <input type="url" id="productUrl" placeholder="Paste a product URL or type a keyword, e.g. 'kitchen organizer'"
                                 class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition">
                         </div>
                         <button id="findWinnerBtn" type="button" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium px-4 py-3 rounded-xl shadow hover:opacity-90 transition whitespace-nowrap flex items-center gap-2" title="Spin a new trending winner">
@@ -2153,6 +2153,18 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         try {
             // ── C. GET /api/v1/find-winner ────────────────────────────────
             const hint = (urlInput && urlInput.value || '').trim();
+            if (!hint) {
+                // Empty input guard — common when a user clicks "Find Winner"
+                // without replacing the placeholder text. Without this guard
+                // the request would fall through to the backend default
+                // "trending product" which fails the relevance gate for every
+                // pool candidate and returns 404.
+                throw new Error(
+                    'Please paste a product URL or type a keyword like '
+                    + '"kitchen organizer", "desk lamp", or "phone stand" '
+                    + 'before clicking Find Winner.'
+                );
+            }
             const prev = window.__lastWinnerId || '';
             const params = new URLSearchParams();
             if (hint) params.set('url_or_keyword', hint);

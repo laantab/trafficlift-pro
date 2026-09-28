@@ -209,6 +209,70 @@ def _classify(text: str) -> str | None:
     return best[0] if best[1] > 0 else None
 
 
+# Reasons that indicate the two-axis RELEVANCE gate rejected a candidate.
+# When ALL rejections in a pick() cycle are relevance-based, the user
+# typed a query that no pool card matches (e.g. empty input defaulting
+# to "trending product", a URL whose slug has no category keywords, or
+# a niche phrase like "magnetic phone ring"). The error message in that
+# case should suggest a different keyword rather than the misleading
+# "no usable product image" wording.
+_RELEVANCE_REJECTION_TOKENS = ("category_mismatch", "product_type_mismatch", "score")
+
+
+def _no_winner_detail(rejection_log: list[dict], attempts: int) -> str:
+    """Build a clear, actionable 404 detail message based on WHY no
+    candidate passed the pipeline.
+
+    Two failure modes need different wording:
+      * All rejections were relevance-based — no pool card matches the
+        query at all (empty/placeholder input, generic URL slug, niche
+        niche). Tell the user to type a specific keyword.
+      * All (or mixed) rejections were image-based — relevance passed
+        for at least one candidate but every image search failed.
+        Tell them the image search exhausted and suggest a different
+        keyword or that TAVILY_API_KEY be enabled.
+    """
+    if not rejection_log:
+        return (
+            "No candidate was attempted. "
+            "Type a specific keyword like 'kitchen organizer', 'desk lamp', "
+            "or 'phone stand'."
+        )
+
+    n = len(rejection_log)
+    relevance_count = sum(
+        1 for r in rejection_log
+        if any(tok in (r.get("reason") or "").lower() for tok in _RELEVANCE_REJECTION_TOKENS)
+    )
+    image_count = n - relevance_count
+
+    if relevance_count == n:
+        return (
+            "No product candidate in our pool matched your query. "
+            f"Tried {attempts} candidate(s); all failed the relevance gate. "
+            "Try a specific keyword like 'kitchen organizer', 'desk lamp', "
+            "'phone stand', 'pet bed', or 'cleaning brush'. "
+            "If you're pasting a product URL, make sure the URL slug contains "
+            "the product name (e.g. .../products/kitchen-organizer)."
+        )
+    if image_count == n:
+        return (
+            "We found matching products but couldn't find a verified product "
+            "photo for any of them. "
+            "Try a different keyword, or enable TAVILY_API_KEY for richer "
+            "image discovery."
+        )
+    # Mixed failures — relevance passed for some, but all of those failed
+    # image search.
+    return (
+        "No photo-qualified winner found. "
+        f"Tried {attempts} candidate(s); {relevance_count} were rejected for "
+        f"relevance and {image_count} for image-quality. "
+        "Try a different keyword, or enable TAVILY_API_KEY for richer "
+        "image discovery."
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Curated product pools (30 trending products, 5 per category, all 200-verified)
 # Each product carries multiple copy variants for mix-and-match variation.
@@ -1689,18 +1753,13 @@ class ProductResearcher:
             )
 
         # All candidates rejected — no photo-qualified winner.
+        elapsed = time.monotonic() - t_loop_start
+        detail = _no_winner_detail(rejection_log, attempts)
         logger.warning(
             "[find-winner] NO pool winner after %d attempt(s) in %.2fs; returning 404",
-            attempts, time.monotonic() - t_loop_start,
+            attempts, elapsed,
         )
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "No photo-qualified winner found. "
-                f"Tried {attempts} candidate(s); none had a usable product image. "
-                "Try a different keyword, or enable TAVILY_API_KEY for richer image discovery."
-            ),
-        )
+        raise HTTPException(status_code=404, detail=detail)
 
     def get_pool_summary(self) -> dict:
         """Return lightweight pool metadata for a 'browse all' view."""
@@ -1929,11 +1988,7 @@ class ProductResearcher:
 
         # All candidates rejected — no photo-qualified winner found.
         elapsed = time.monotonic() - t_loop_start
-        detail = (
-            "No photo-qualified winner found. "
-            f"Tried {attempts} candidate(s); none had a usable product image. "
-            "Try a different keyword, or enable TAVILY_API_KEY for richer image discovery."
-        )
+        detail = _no_winner_detail(rejection_log, attempts)
         logger.warning(
             "[find-winner] NO winner after %d attempt(s) in %.2fs; returning 404",
             attempts, elapsed,

@@ -1098,7 +1098,12 @@ def test_gate_12_researcher_returns_404_when_no_photo_qualified():
         with pytest.raises(HTTPException) as exc:
             get_researcher().pick("pet products")
     assert exc.value.status_code == 404
-    assert "No photo-qualified winner" in exc.value.detail
+    # Detail message must clearly indicate the IMAGE-FAILURE cause so the
+    # user doesn't think the problem is keyword classification.
+    assert "matching products" in exc.value.detail.lower() or \
+           "photo-qualified" in exc.value.detail.lower(), (
+        f"expected image-failure detail; got {exc.value.detail!r}"
+    )
 
 
 def test_gate_13_bounded_retry_does_not_loop_forever():
@@ -1353,7 +1358,12 @@ def test_gate_21_pick_terminates_within_request_budget(monkeypatch):
             get_researcher().pick("pet")
     elapsed = _t.monotonic() - t0
     assert exc.value.status_code == 404
-    assert "No photo-qualified winner" in exc.value.detail
+    # Detail message must clearly indicate the IMAGE-FAILURE cause so the
+    # user doesn't think the problem is keyword classification.
+    assert "matching products" in exc.value.detail.lower() or \
+           "photo-qualified" in exc.value.detail.lower(), (
+        f"expected image-failure detail; got {exc.value.detail!r}"
+    )
     assert elapsed < 2.0, (
         f"pick() took {elapsed:.2f}s without a working image-research; "
         "the budget guard should terminate it within a couple of seconds "
@@ -2534,3 +2544,85 @@ def test_classify_kitchen_keywords_contain_organizer_nouns():
         assert must in kitchen_words, (
             f"kitchen keywords missing {must!r}; got {sorted(kitchen_words)}"
         )
+
+
+# ── 404 MESSAGE REGRESSION (added 2026-09-28) ────────────────────────────
+# The user's screenshot showed a misleading 404 saying 'no usable product
+# image' when in fact the empty/placeholder input never matched any pool
+# candidate. The error message must distinguish relevance failures from
+# image failures so the user can self-correct.
+
+
+def test_no_winner_detail_relevance_only_suggests_specific_keyword():
+    """When ALL rejections are relevance-based (category or product_type
+    mismatch), the 404 message must tell the user to type a specific
+    keyword — NOT the misleading 'enable TAVILY_API_KEY' wording."""
+    from backend.product_research import _no_winner_detail
+
+    rejection_log = [
+        {"id": "scrub-brush-01", "name": "Spin Scrubber",
+         "reason": "product_type_mismatch: product_type_score=0.00 < 0.5 for query='trending product'"},
+        {"id": "knife-set-01", "name": "Knife Set",
+         "reason": "category_mismatch: category_score=0.10 < 0.3 for query='trending product'"},
+    ]
+    detail = _no_winner_detail(rejection_log, attempts=2)
+    assert "matched your query" in detail.lower(), (
+        f"relevance-only detail must say query didn't match; got {detail!r}"
+    )
+    assert "kitchen organizer" in detail.lower(), (
+        f"detail should suggest a concrete example keyword; got {detail!r}"
+    )
+    # Must NOT blame Tavily/image-search when the real issue is relevance.
+    assert "TAVILY_API_KEY" not in detail, (
+        f"relevance-only detail must not blame Tavily; got {detail!r}"
+    )
+
+
+def test_no_winner_detail_image_only_blames_image_search():
+    """When ALL rejections are image-based (relevance passed for at least
+    one candidate), the 404 message must mention images / TAVILY."""
+    from backend.product_research import _no_winner_detail
+
+    rejection_log = [
+        {"id": "spice-rack-02", "name": "Rotating Spice Rack Organizer",
+         "reason": "no image above MIN=25 after 3 queries (best=-45)"},
+        {"id": "knife-set-01", "name": "Knife Set",
+         "reason": "no image above MIN=25 after 3 queries (best=-30)"},
+    ]
+    detail = _no_winner_detail(rejection_log, attempts=2)
+    assert "matching products" in detail.lower(), (
+        f"image-only detail must say products matched but images failed; got {detail!r}"
+    )
+    assert "TAVILY" in detail or "image" in detail.lower(), (
+        f"image-only detail should mention images/TAVILY; got {detail!r}"
+    )
+
+
+def test_no_winner_detail_mixed_counts_each():
+    """When some rejections are relevance and some are image, count both."""
+    from backend.product_research import _no_winner_detail
+
+    rejection_log = [
+        {"id": "x1", "name": "A",
+         "reason": "product_type_mismatch: product_type_score=0.00 < 0.5"},
+        {"id": "x2", "name": "B",
+         "reason": "no image above MIN=25 after 3 queries (best=-45)"},
+        {"id": "x3", "name": "C",
+         "reason": "no image above MIN=25 after 3 queries (best=-30)"},
+    ]
+    detail = _no_winner_detail(rejection_log, attempts=3)
+    assert "1" in detail and "2" in detail, (
+        f"mixed detail must show 1 relevance + 2 image rejection counts; got {detail!r}"
+    )
+
+
+def test_no_winner_detail_empty_rejection_log_says_try_a_keyword():
+    """When no rejection log exists (e.g. no candidates at all), tell the
+    user to type a keyword — the most common cause is empty input defaulting
+    to 'trending product'."""
+    from backend.product_research import _no_winner_detail
+
+    detail = _no_winner_detail([], attempts=0)
+    assert "keyword" in detail.lower() or "candidate" in detail.lower(), (
+        f"empty-log detail must suggest typing a keyword; got {detail!r}"
+    )
