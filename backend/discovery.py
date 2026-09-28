@@ -64,46 +64,44 @@ DISCOVERY_QUERIES = [
 # Reject candidates that look like articles, blogs, brands without
 # product, services, or generic listicles. The check looks for these
 # patterns in the title and snippet.
+#
+# IMPORTANT: Be PERMISSIVE — most live Tavily results for product-opportunity
+# queries are listicle/blog titles like "Best Kitchen Gadgets 2026".
+# Those are valid discovery sources — the snippet/content describes real
+# products. We only reject CLEAR non-product content (downloads, courses,
+# generic store pages, etc.).
 _NON_PRODUCT_TITLE_PATTERNS = (
-    r"^best\s+\d+\b",
-    r"\bbest of\b",
-    r"\btop\s+\d+\b",
-    r"\breview(s)?\b",
-    r"\bhow to\b",
-    r"\bguide\b",
-    r"\barticle\b",
-    r"\bblog\b",
-    r"\bvs\.?\b",
-    r"\bcomparison\b",
-    r"\bexplained\b",
-    r"\bbuying guide\b",
-    r"\bdeals?\b",
-    r"\bsale\b",
-    r"\bpromo\b",
-    r"\bcoupon\b",
-    r"\bnewsletter\b",
-    r"\bwhat is\b",
-    r"\bwhat are\b",
-    r"\bhistory of\b",
+    r"\bfree download\b",
+    r"\bpdf\b",
+    r"\bcourse\b",
+    r"\btutorial\b",
+    r"\bnewsletter signup\b",
+    r"\bcareers?\b",
+    r"\babout us\b",
+    r"\bcontact us?\b",
+    r"\bprivacy policy\b",
+    r"\bterms of service\b",
+    r"\bsitemap\b",
 )
 _NON_PRODUCT_TITLE_RE = re.compile(
     "|".join(_NON_PRODUCT_TITLE_PATTERNS), re.IGNORECASE
 )
 
-# Generic phrases that mean "no specific product" — reject.
+# Generic phrases that mean "no specific product" — reject only when the
+# ENTIRE title is one of these (not when they appear as a substring).
 _GENERIC_TITLE_TOKENS = {
-    "amazon", "amazon.com", "amazon best sellers", "best sellers",
-    "trending products", "popular products", "top products",
-    "consumer products", "home products", "all products",
-    "product catalog", "product list", "products", "store",
+    "amazon", "amazon.com", "store", "shop", "products",
+    "search results", "all products",
 }
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _looks_like_article(title: str, snippet: str) -> bool:
-    """True when the Tavily result is an article/blog/listicle rather
-    than a specific product."""
+    """True when the Tavily result is CLEARLY non-product (downloads,
+    courses, generic store pages). Listicles and blog posts that
+    describe products are accepted — the snippet usually names real
+    products even when the title is "Best X 2026"."""
     text = f"{title} {snippet}"
     if _NON_PRODUCT_TITLE_RE.search(text):
         return True
@@ -364,10 +362,16 @@ def _build_candidates_from_envelope(
 
 # ── Image discovery for a candidate ─────────────────────────────────────
 
-def _find_image_for_candidate(card: ProductCard, intent: str = "") -> Optional[str]:
+def _find_image_for_candidate(card: ProductCard, intent: str = "",
+                                tavily_image_urls: Optional[list[str]] = None) -> Optional[str]:
     """Run the existing image cascade for one candidate.
 
     Returns a verified URL or None. Does NOT mutate the card.
+
+    If the cascade fails to surface a high-scoring image, falls back to
+    Tavily's pre-fetched image_urls from the original research query
+    (those are typically the article hero images and may be product
+    shots).
     """
     cascade = build_image_query_cascade(
         product_name=card.name,
@@ -392,6 +396,13 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "") -> Optional[s
                 continue
             seen.add(u)
             candidate_urls.append(u)
+
+    # Fallback: also try Tavily's pre-fetched images from research.
+    if tavily_image_urls:
+        for u in tavily_image_urls:
+            if u and u not in seen:
+                seen.add(u)
+                candidate_urls.append(u)
 
     # Validate and rank.
     validated: list[tuple[str, object]] = []
@@ -440,7 +451,7 @@ def discover_winner() -> dict:
     # ── STEP 1: live research ───────────────────────────────────────────
     all_envelopes = []
     seen_titles: set[str] = set()
-    candidates: list[tuple[ProductCard, int]] = []  # (card, evidence_count)
+    candidates: list[tuple[ProductCard, int, list[str]]] = []  # (card, evidence_count, tavily_image_urls)
 
     for query in DISCOVERY_QUERIES[:MAX_DISCOVERY_RESEARCH_QUERIES]:
         if time.monotonic() - t_start > DISCOVERY_REQUEST_BUDGET_SECONDS:
@@ -452,8 +463,9 @@ def discover_winner() -> dict:
             env = live_research.research(query, max_results=5)
             all_envelopes.append(env)
             new_cards = _build_candidates_from_envelope(env, seen_titles)
+            tavily_imgs = list(env.research_image_urls or []) if hasattr(env, "research_image_urls") else []
             for c in new_cards:
-                candidates.append((c, len(env.research_sources or [])))
+                candidates.append((c, len(env.research_sources or []), tavily_imgs))
                 if len(candidates) >= MAX_DISCOVERY_CANDIDATES:
                     break
         except Exception as exc:
@@ -486,12 +498,12 @@ def discover_winner() -> dict:
         len(candidates),
     )
 
-    for idx, (card, ev_count) in enumerate(candidates):
+    for idx, (card, ev_count, tavily_imgs) in enumerate(candidates):
         if time.monotonic() - t_start > DISCOVERY_REQUEST_BUDGET_SECONDS:
             logger.info("[discover] candidate budget time-out at idx=%d", idx)
             break
-        # Image discovery.
-        image_url = _find_image_for_candidate(card)
+        # Image discovery (with Tavily pre-fetched images as fallback).
+        image_url = _find_image_for_candidate(card, tavily_image_urls=tavily_imgs)
         if not image_url:
             logger.info("[discover] skip candidate=%r (no verified image)",
                         card.name[:60])

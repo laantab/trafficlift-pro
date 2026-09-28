@@ -3447,8 +3447,10 @@ def test_backend_discovery_uses_live_research_not_fake_keyword():
 
 
 def test_backend_discovery_normalizes_and_rejects_non_product_titles():
-    """Discovery must reject article / blog / listicle titles via
-    _looks_like_article, and must require product-type noun signals."""
+    """Discovery must (a) reject CLEAR non-product titles (downloads,
+    courses, generic store pages) while accepting listicles/blogs that
+    name products, (b) require a product-type noun signal in the name,
+    and (c) normalize Amazon prefix/suffix/list markers from titles."""
     from backend.discovery import (
         _looks_like_article, _has_product_signal, _normalize_title,
         _derive_product_type, _infer_category,
@@ -3456,15 +3458,18 @@ def test_backend_discovery_normalizes_and_rejects_non_product_titles():
     # Sanity-check the helpers exist and work.
     assert _derive_product_type("LED Desk Lamp") == "lamp"
     assert _infer_category("Pet Dog Bed Orthopedic") == "Pet Supplies"
-    # Articles / blogs / listicles must be rejected.
-    assert _looks_like_article("Top 10 Best Kitchen Gadgets of 2026", "")
-    assert _looks_like_article("How to Choose the Perfect Lamp", "")
-    assert _looks_like_article("Review: Best Phone Stands", "")
-    assert _looks_like_article("Best vs Worst Kitchen Tools", "")
-    # Brand-only or generic must be rejected.
-    assert _looks_like_article("Amazon", "")
-    assert _looks_like_article("Best Sellers", "")
-    # Real product names must NOT be rejected as articles.
+    # CLEAR non-product content is rejected.
+    assert _looks_like_article("Free Download: Best Kitchen Tools", "")
+    assert _looks_like_article("Online Course for Pet Owners", "")
+    assert _looks_like_article("Subscribe to our Newsletter Signup", "")
+    assert _looks_like_article("About Us - Our Story", "")
+    # Listicles / blogs that describe products are ACCEPTED — the
+    # snippet usually names the actual product and image search
+    # finds the product photo.
+    assert not _looks_like_article("Best Kitchen Gadgets 2026", "")
+    assert not _looks_like_article("Top 10 Phone Stands", "")
+    assert not _looks_like_article("Best vs Worst Kitchen Tools", "")
+    # Real product names must NOT be rejected.
     assert not _looks_like_article(
         "Rotating Spice Rack Organizer 16 Jars", "")
     assert not _looks_like_article("LED Desk Lamp with USB Port", "")
@@ -3575,7 +3580,7 @@ def test_backend_discovery_returns_qualified_winner(monkeypatch):
     fake_image = "https://m.media-amazon.com/images/I/asin.jpg"
     monkeypatch.setattr(
         discovery_mod, "_find_image_for_candidate",
-        lambda card, intent="": fake_image,
+        lambda card, intent="", tavily_image_urls=None: fake_image,
     )
 
     # Stub the audit so the winner is accepted.
@@ -3636,7 +3641,7 @@ def test_backend_discovery_skips_candidate_without_verified_image(monkeypatch):
 
     # First call to image search returns None (no image); second returns OK.
     calls = {"n": 0}
-    def _fake_image(card, intent=""):
+    def _fake_image(card, intent="", tavily_image_urls=None):
         calls["n"] += 1
         if calls["n"] == 1:
             return None
