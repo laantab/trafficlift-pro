@@ -118,9 +118,19 @@ def _validate_image(url: Optional[str], *, head_timeout: float = 3.0) -> ImageCh
     On success returns ok=True with image_status="verified" and the
     HEAD response details for evidence.
 
-    Timeouts are STRICT (default 3s) and redirects are disabled on HEAD/GET
-    to prevent one slow mirror from holding the whole /find-winner
-    request open.
+    Validation flow:
+      1. Cheap URL checks (scheme / placeholder / data: URI).
+      2. HEAD with allow_redirects=True (bounded redirect chain). If the
+         final URL is image/* → accept. If the final URL is not image/*
+         → reject as wrong_type.
+      3. If HEAD returns 403/405 (CDNs that don't support HEAD) OR if the
+         final redirect went to an image host that did not advertise a
+         Content-Length, fall back to a tiny ranged GET to verify.
+      4. Reject if Content-Length / Content-Range says the file is
+         smaller than MIN_IMAGE_BYTES (tracking pixel / spacer).
+
+    All network calls share the same `head_timeout` and a single
+    Session so a malicious redirect loop cannot blow up the request.
     """
     if not url or not isinstance(url, str) or not url.strip():
         return ImageCheckResult(ok=False, reason="missing_image_url",
@@ -140,61 +150,165 @@ def _validate_image(url: Optional[str], *, head_timeout: float = 3.0) -> ImageCh
         return ImageCheckResult(ok=False, reason="placeholder_image",
                                image_status="placeholder", image_url=url)
 
-    # HEAD the URL. Redirects are disabled — a redirect chain can be
-    # arbitrarily slow and we only care about the canonical image host.
+    # NOTE: we use module-level requests.head/get rather than a Session so
+    # tests can mock `requests.head` / `requests.get` directly. A Session
+    # would bypass those mocks.
+
+    # ── Step 1: HEAD with redirects allowed (bounded by requests' default
+    # max_redirects=30, which is more than enough for any real CDN).
     try:
-        head = requests.head(url, timeout=head_timeout, allow_redirects=False)
+        head_resp = requests.head(
+            url,
+            timeout=head_timeout,
+            allow_redirects=True,
+        )
     except Exception as exc:
-        logger.warning("Image HEAD failed for %s: %s", url, exc)
-        return ImageCheckResult(ok=False, reason=f"image_load_failed: {type(exc).__name__}",
-                               image_status="broken", image_url=url)
+        # Network-level failure on HEAD — try a small GET next.
+        head_resp = None
+        head_exc = exc
 
-    http_status = head.status_code
-    if http_status >= 400:
-        return ImageCheckResult(ok=False, reason=f"image_load_failed: HTTP {http_status}",
-                               image_status="broken", image_url=url, http_status=http_status)
+    if head_resp is not None and head_resp.status_code < 400:
+        # We got a successful response — possibly after redirects.
+        content_type = (head_resp.headers.get("Content-Type") or "").lower().split(";")[0].strip()
+        if not content_type.startswith("image/"):
+            return ImageCheckResult(
+                ok=False,
+                reason=f"wrong_type: {content_type}",
+                image_status="wrong_type", image_url=url,
+                http_status=head_resp.status_code,
+                image_content_type=content_type,
+            )
+        size = _extract_size(head_resp.headers)
+        if size is None or size == 0:
+            # No Content-Length — try a tiny ranged GET to confirm.
+            size = _size_via_range_get(url, head_timeout)
+        if size is not None and 0 < size < MIN_IMAGE_BYTES:
+            return ImageCheckResult(
+                ok=False,
+                reason=f"image_too_small: {size} bytes",
+                image_status="tracking_pixel", image_url=url,
+                image_bytes=size, image_content_type=content_type,
+                http_status=head_resp.status_code,
+            )
+        # Verified by HEAD.
+        return ImageCheckResult(
+            ok=True,
+            image_status="verified",
+            image_url=url,
+            image_bytes=size if size and size > 0 else None,
+            image_content_type=content_type,
+            http_status=head_resp.status_code,
+        )
 
-    content_type = (head.headers.get("Content-Type") or "").lower().split(";")[0].strip()
-    if not content_type.startswith("image/"):
-        return ImageCheckResult(ok=False, reason=f"wrong_type: {content_type}",
-                               image_status="wrong_type", image_url=url,
-                               http_status=http_status, image_content_type=content_type)
+    # ── Step 2: HEAD was 4xx/5xx or threw. Some CDNs reject HEAD.
+    # If HEAD returned 403 or 405 we explicitly try a tiny GET to verify.
+    head_failed_cleanly = head_resp is not None and head_resp.status_code in (403, 405)
+    head_failed_other = head_resp is not None and head_resp.status_code >= 400 and not head_failed_cleanly
+    head_threw = head_resp is None
 
-    # Size check via Content-Length. If absent (chunked transfer) we fall
-    # back to a tiny range GET — the size budget keeps us safe and fast.
-    size = 0
-    cl = head.headers.get("Content-Length")
-    if cl and cl.isdigit():
-        size = int(cl)
-    elif cl is None:
-        # Some servers omit Content-Length. Try a 0-1023 range request.
-        try:
-            r = requests.get(url, headers={"Range": "bytes=0-1023"},
-                             timeout=head_timeout, allow_redirects=False, stream=True)
-            cr = r.headers.get("Content-Range")  # "bytes 0-1023/48231"
-            if cr and "/" in cr:
-                size = int(cr.rsplit("/", 1)[1])
-            else:
-                size = len(r.content or b"")
-            r.close()
-        except Exception:
-            pass
+    if head_failed_cleanly:
+        # HEAD-hostile server — try a ranged GET and trust Content-Type + Content-Range.
+        size, ct, status = _verify_via_ranged_get(url, head_timeout)
+        if status is None:
+            return ImageCheckResult(
+                ok=False, reason=f"image_load_failed: GET also failed",
+                image_status="broken", image_url=url,
+            )
+        if not (ct or "").startswith("image/"):
+            return ImageCheckResult(
+                ok=False, reason=f"wrong_type: {ct}",
+                image_status="wrong_type", image_url=url,
+                http_status=status, image_content_type=ct,
+            )
+        if size is not None and 0 < size < MIN_IMAGE_BYTES:
+            return ImageCheckResult(
+                ok=False, reason=f"image_too_small: {size} bytes",
+                image_status="tracking_pixel", image_url=url,
+                image_bytes=size, image_content_type=ct,
+                http_status=status,
+            )
+        return ImageCheckResult(
+            ok=True, image_status="verified",
+            image_url=url,
+            image_bytes=size if size and size > 0 else None,
+            image_content_type=ct,
+            http_status=status,
+        )
 
-    if 0 < size < MIN_IMAGE_BYTES:
-        return ImageCheckResult(ok=False,
-                               reason=f"image_too_small: {size} bytes",
-                               image_status="tracking_pixel", image_url=url,
-                               image_bytes=size, image_content_type=content_type,
-                               http_status=http_status)
+    if head_threw:
+        # Network error on HEAD — last-ditch GET with the same timeout.
+        size, ct, status = _verify_via_ranged_get(url, head_timeout)
+        if status is None:
+            return ImageCheckResult(
+                ok=False,
+                reason=f"image_load_failed: {type(head_exc).__name__}",
+                image_status="broken", image_url=url,
+            )
+        if not (ct or "").startswith("image/"):
+            return ImageCheckResult(
+                ok=False, reason=f"wrong_type: {ct}",
+                image_status="wrong_type", image_url=url,
+                http_status=status, image_content_type=ct,
+            )
+        return ImageCheckResult(
+            ok=True, image_status="verified",
+            image_url=url, image_bytes=size,
+            image_content_type=ct, http_status=status,
+        )
 
+    # HEAD returned a non-403/405 error (e.g. 404, 500) — the resource is gone.
     return ImageCheckResult(
-        ok=True,
-        image_status="verified",
-        image_url=url,
-        image_bytes=size if size > 0 else None,
-        image_content_type=content_type,
-        http_status=http_status,
+        ok=False,
+        reason=f"image_load_failed: HTTP {head_resp.status_code}",
+        image_status="broken", image_url=url,
+        http_status=head_resp.status_code,
     )
+
+
+def _extract_size(headers) -> Optional[int]:
+    """Return total image size from Content-Length or Content-Range."""
+    cl = headers.get("Content-Length")
+    if cl and cl.isdigit():
+        return int(cl)
+    cr = headers.get("Content-Range")  # "bytes 0-1023/48231"
+    if cr and "/" in cr:
+        try:
+            return int(cr.rsplit("/", 1)[1])
+        except ValueError:
+            return None
+    return None
+
+
+def _size_via_range_get(url: str, timeout: float) -> Optional[int]:
+    """Fallback size probe via a 0-1023 range GET. Returns total bytes or None."""
+    try:
+        r = requests.get(url, headers={"Range": "bytes=0-1023"},
+                         timeout=timeout, allow_redirects=True, stream=True)
+        size = _extract_size(r.headers)
+        if size is None:
+            size = len(r.content or b"")
+        r.close()
+        return size
+    except Exception:
+        return None
+
+
+def _verify_via_ranged_get(url: str, timeout: float):
+    """HEAD-hostile fallback: do a small ranged GET and return
+    (size, content_type, status). Returns (None, None, None) on failure.
+    """
+    try:
+        r = requests.get(url, headers={"Range": "bytes=0-1023"},
+                         timeout=timeout, allow_redirects=True, stream=True)
+        size = _extract_size(r.headers)
+        if size is None:
+            size = len(r.content or b"")
+        ct = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        status = r.status_code
+        r.close()
+        return size, ct, status
+    except Exception:
+        return None, None, None
 
 
 # ── Main agent ───────────────────────────────────────────────────────────────

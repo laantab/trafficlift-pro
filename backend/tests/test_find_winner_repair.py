@@ -1252,12 +1252,18 @@ def test_gate_16_validate_image_uses_short_timeout():
     )
 
 
-def test_gate_17_validate_image_disables_redirects():
-    """_validate_image must disable allow_redirects=True on HEAD/GET so a
-    redirect chain to a slow CDN cannot stretch the request."""
+def test_gate_17_validate_image_uses_safe_redirect_policy():
+    """_validate_image must ALLOW redirects on HEAD/GET so legitimate CDN-hosted
+    images (most product photos) are not rejected, while still bounding the
+    network calls. The earlier ``allow_redirects=False`` policy was the
+    primary cause of valid product photos being rejected."""
     src = inspect.getsource(_read_product_control_agent())
-    assert "allow_redirects=False" in src, (
-        "_validate_image must call requests.head with allow_redirects=False"
+    assert "allow_redirects=True" in src, (
+        "_validate_image must call requests.head with allow_redirects=True "
+        "so a single CDN redirect does not reject a real product photo"
+    )
+    assert "head_timeout" in src, (
+        "_validate_image must keep a strict per-call timeout when following redirects"
     )
 
 
@@ -1546,3 +1552,171 @@ def test_gate_32_frontend_timeout_message_mentions_warm_up():
         "findWinner catch must explain that the server may be warming up"
     assert "try again" in body.lower(), \
         "findWinner catch must tell the user to try again"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# IMAGE-DISCOVERY BUG REGRESSION SUITE (added 2026-09-27)
+#
+# Verifies the fix for the Tavily "0 URLs returned" bug:
+#   * research_images() handles Tavily's newer `images` shape (list of plain
+#     URL strings) without crashing, instead of silently swallowing an
+#     AttributeError on `img.get('url')`.
+#   * _validate_image follows bounded redirects and accepts valid product
+#     photos hosted behind one CDN hop.
+#   * HEAD-hostile servers (403/405) are validated via ranged GET instead
+#     of being rejected outright.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_gate_33_research_images_accepts_string_shaped_tavily_response():
+    """Tavily's `include_images` returns ``images`` as a list of URL
+    STRINGS (not {url, description} dicts). research_images() must accept
+    that shape without crashing — the prior bug silently returned []."""
+    import backend.product_research as pr_mod
+    fake_resp = mock.Mock(status_code=200)
+    fake_resp.json.return_value = {
+        "results": [],
+        "images": [
+            "https://example.com/a.jpg",
+            "https://example.com/b.jpg",
+            "https://example.com/c.jpg",
+        ],
+    }
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_resp):
+        urls = pr_mod.live_research.research_images("any product", max_results=3)
+    assert len(urls) == 3
+    assert "https://example.com/a.jpg" in urls
+
+
+def test_gate_34_research_images_accepts_dict_shaped_tavily_response():
+    """Older Tavily API returned images as [{url, description}, ...].
+    research_images() must still accept that shape."""
+    import backend.product_research as pr_mod
+    fake_resp = mock.Mock(status_code=200)
+    fake_resp.json.return_value = {
+        "results": [],
+        "images": [
+            {"url": "https://example.com/old-a.jpg", "description": "x"},
+            {"url": "https://example.com/old-b.jpg", "description": "y"},
+        ],
+    }
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_resp):
+        urls = pr_mod.live_research.research_images("any product", max_results=3)
+    assert len(urls) == 2
+    assert "https://example.com/old-a.jpg" in urls
+
+
+def test_gate_35_research_images_skips_non_http_urls():
+    """Any non-http(s) entry in the response must be filtered out."""
+    import backend.product_research as pr_mod
+    fake_resp = mock.Mock(status_code=200)
+    fake_resp.json.return_value = {
+        "results": [],
+        "images": [
+            "https://example.com/ok.jpg",
+            "javascript:alert(1)",
+            "data:image/png;base64,AAAA",
+            "ftp://example.com/bad.jpg",
+        ],
+    }
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_resp):
+        urls = pr_mod.live_research.research_images("any product", max_results=5)
+    assert urls == ["https://example.com/ok.jpg"]
+
+
+def test_gate_36_validate_image_accepts_redirect_to_image_cdn():
+    """A real product photo URL may return 302 to a CDN. The validator
+    must follow the redirect (one or more hops) and accept the final
+    image response. Previously allow_redirects=False rejected every
+    such URL."""
+    import backend.product_control_agent as pca_mod
+
+    final = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+    # Simulate a Session.head that follows one redirect.
+    session_mock = mock.Mock()
+    session_mock.head.return_value = final
+    with mock.patch.object(pca_mod.requests, "head", return_value=final):
+        result = pca_mod._validate_image("https://www.example.com/redirect.jpg")
+    assert result.ok, f"redirect-following image must pass; reason={result.reason}"
+    assert result.image_status == "verified"
+    assert result.http_status == 200
+
+
+def test_gate_37_validate_image_falls_back_to_ranged_get_on_head_403():
+    """A server that rejects HEAD with 403 must NOT cause the validator
+    to fail. It should perform a ranged GET to verify the resource."""
+    import backend.product_control_agent as pca_mod
+
+    head_resp = mock.Mock(status_code=403, headers={})
+    get_resp = mock.Mock(status_code=206, headers={
+        "Content-Range": "bytes 0-1023/24576",
+        "Content-Type": "image/jpeg",
+    })
+    get_resp.content = b"\xff\xd8\xff" + b"\x00" * 1021
+    with mock.patch.object(pca_mod.requests, "head", return_value=head_resp), \
+         mock.patch.object(pca_mod.requests, "get", return_value=get_resp):
+        result = pca_mod._validate_image("https://head-hostile.example.com/p.jpg")
+    assert result.ok, f"HEAD-hostile image must pass via ranged GET; reason={result.reason}"
+    assert result.image_status == "verified"
+    assert result.http_status == 206
+
+
+def test_gate_38_validate_image_falls_back_on_head_405():
+    """HEAD → 405 Method Not Allowed is treated like 403: try ranged GET."""
+    import backend.product_control_agent as pca_mod
+    head_resp = mock.Mock(status_code=405, headers={})
+    get_resp = mock.Mock(status_code=200, headers={
+        "Content-Length": "24576", "Content-Type": "image/jpeg",
+    })
+    with mock.patch.object(pca_mod.requests, "head", return_value=head_resp), \
+         mock.patch.object(pca_mod.requests, "get", return_value=get_resp):
+        result = pca_mod._validate_image("https://head-hostile.example.com/p.jpg")
+    assert result.ok
+
+
+def test_gate_39_validate_image_rejects_when_get_also_fails():
+    """If HEAD returns 403 AND the GET also fails, the image is rejected."""
+    import backend.product_control_agent as pca_mod
+    import requests as r
+    head_resp = mock.Mock(status_code=403, headers={})
+    with mock.patch.object(pca_mod.requests, "head", return_value=head_resp), \
+         mock.patch.object(pca_mod.requests, "get",
+                           side_effect=r.exceptions.ConnectionError("down")):
+        result = pca_mod._validate_image("https://down.example.com/p.jpg")
+    assert not result.ok
+    assert result.image_status == "broken"
+
+
+def test_gate_40_research_end_to_end_with_tavily_strings():
+    """Simulate the real bug: Tavily returns 5 URL strings. The full
+    _find_product_image flow must surface them so a candidate can be
+    enriched with a real product photo."""
+    import backend.product_research as pr_mod
+    import backend.product_control_agent as pca_mod
+
+    fake_tavily = mock.Mock(status_code=200)
+    fake_tavily.json.return_value = {
+        "results": [],
+        "images": [
+            "https://cdn.example.com/real-product-photo.jpg",
+            "https://cdn.example.com/second-photo.jpg",
+        ],
+    }
+
+    # Validator will see the first URL — patch HEAD to say it's a 24 KB image/jpeg.
+    head_resp = mock.Mock(status_code=200, headers={
+        "Content-Type": "image/jpeg", "Content-Length": "24576",
+    })
+
+    with mock.patch.object(live_research, "_is_tavily_configured", return_value=True), \
+         mock.patch.object(live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pr_mod.live_research.requests, "post", return_value=fake_tavily), \
+         mock.patch.object(pca_mod.requests, "head", return_value=head_resp):
+        urls = pr_mod.live_research.research_images("any product", max_results=3)
+    assert len(urls) == 2
+    assert urls[0] == "https://cdn.example.com/real-product-photo.jpg"

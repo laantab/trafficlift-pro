@@ -309,11 +309,30 @@ def research_images(
     Bounded by both per-request timeout (DEFAULT_TIMEOUT) and a maximum
     number of URLs returned, so a single call cannot hang the
     /find-winner pipeline.
+
+    NOTE on Tavily response shape: as of 2025, Tavily's ``include_images``
+    flag returns ``images`` as a list of PLAIN URL STRINGS (not
+    ``[{url, description}, ...]``). Earlier versions returned dicts.
+    We accept BOTH shapes defensively.
     """
     q = (query or "").strip()
     if not q:
         return []
     urls: list[str] = []
+
+    def _extract_url(img) -> str:
+        """Accept either a plain URL string OR a dict with a 'url' key.
+
+        Returns the empty string if no usable URL can be extracted.
+        """
+        if isinstance(img, str):
+            return img.strip()
+        if isinstance(img, dict):
+            for k in ("url", "image", "src", "image_url"):
+                v = img.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        return ""
 
     # 1. Tavily image search (only if configured — else skip to keep budget tight)
     if _is_tavily_configured():
@@ -334,9 +353,10 @@ def research_images(
             )
             if resp.status_code == 200:
                 data = resp.json()
-                # Tavily returns `images` as [{url, description}, ...]
+                # Tavily: `images` is a list of URL strings (newer API) OR
+                # `[{url, description}, ...]` (older API). Handle both.
                 for img in (data.get("images") or []):
-                    u = (img.get("url") or "").strip()
+                    u = _extract_url(img)
                     if u.startswith(("http://", "https://")) and u not in urls:
                         urls.append(u)
                         if len(urls) >= max_results:
