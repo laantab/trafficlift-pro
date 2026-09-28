@@ -1883,84 +1883,84 @@ def test_gate_50_real_desk_lamp_scenario_picks_product_not_charged_devices():
 def test_relevance_01_kitchen_organizer_rejects_spin_scrubber():
     """Spec test 1: query='kitchen organizer' must REJECT 'Rechargeable
     Electric Spin Scrubber'."""
-    score, matched = pca_mod.compute_query_product_relevance(
+    cat_score, type_score, matched = pca_mod.compute_query_product_relevance(
         "kitchen organizer",
         "Rechargeable Electric Spin Scrubber with 6 Replaceable Heads",
         "Cleaning",
     )
-    assert score < pca_mod.MIN_RELEVANCE_SCORE, (
-        f"kitchen organizer must reject spin scrubber; got relevance={score}"
+    assert type_score < pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"kitchen organizer must reject spin scrubber; got type_score={score}"
     )
 
 
 def test_relevance_02_kitchen_organizer_accepts_under_sink_organizer():
     """Spec test 2: query='kitchen organizer' must ACCEPT
     '2-Tier Under Sink Kitchen Organizer'."""
-    score, matched = pca_mod.compute_query_product_relevance(
+    cat_score, type_score, matched = pca_mod.compute_query_product_relevance(
         "kitchen organizer",
         "2-Tier Under Sink Kitchen Organizer",
         "Kitchen",
     )
-    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
-        f"kitchen organizer must accept under-sink organizer; got relevance={score}"
+    assert type_score >= pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"kitchen organizer must accept under-sink organizer; got type_score={score}"
     )
 
 
 def test_relevance_03_phone_stand_accepts_magsafe_holder():
     """Spec test 3: query='phone stand' must ACCEPT 'MagSafe Phone Holder'."""
-    score, _ = pca_mod.compute_query_product_relevance(
+    _, type_score, _ = pca_mod.compute_query_product_relevance(
         "phone stand",
         "MagSafe Phone Holder for Desk",
         "Tech",
     )
-    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
-        f"phone stand must accept magsafe holder; got relevance={score}"
+    assert type_score >= pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"phone stand must accept magsafe holder; got type_score={score}"
     )
 
 
 def test_relevance_04_phone_stand_rejects_desk_lamp():
     """Spec test 4: query='phone stand' must REJECT 'LED Desk Lamp'."""
-    score, _ = pca_mod.compute_query_product_relevance(
+    _, type_score, _ = pca_mod.compute_query_product_relevance(
         "phone stand",
         "LED Desk Lamp",
         "Decor",
     )
-    assert score < pca_mod.MIN_RELEVANCE_SCORE, (
-        f"phone stand must reject desk lamp; got relevance={score}"
+    assert type_score < pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"phone stand must reject desk lamp; got type_score={score}"
     )
 
 
 def test_relevance_05_pet_bed_accepts_orthopedic_dog_bed():
     """Spec test 5: query='pet bed' must ACCEPT 'Orthopedic Dog Bed'."""
-    score, _ = pca_mod.compute_query_product_relevance(
+    _, type_score, _ = pca_mod.compute_query_product_relevance(
         "pet bed",
         "Orthopedic Dog Bed Self-Warming Plush",
         "Pet Supplies",
     )
-    assert score >= pca_mod.MIN_RELEVANCE_SCORE
+    assert type_score >= pca_mod.PRODUCT_TYPE_THRESHOLD
 
 
 def test_relevance_06_desk_lamp_accepts_led_task_light():
     """Spec test 6: query='desk lamp' must ACCEPT 'LED Task Light'."""
-    score, _ = pca_mod.compute_query_product_relevance(
+    _, type_score, _ = pca_mod.compute_query_product_relevance(
         "desk lamp",
         "LED Task Light Dimmable",
         "Tech",
     )
-    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
-        f"desk lamp must accept LED task light; got relevance={score}"
+    assert type_score >= pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"desk lamp must accept LED task light; got type_score={score}"
     )
 
 
 def test_relevance_07_cleaning_brush_accepts_spin_scrubber():
     """Spec test 7: query='cleaning brush' must ACCEPT 'Electric Spin Scrubber'."""
-    score, _ = pca_mod.compute_query_product_relevance(
+    _, type_score, _ = pca_mod.compute_query_product_relevance(
         "cleaning brush",
         "Electric Spin Scrubber",
         "Cleaning",
     )
-    assert score >= pca_mod.MIN_RELEVANCE_SCORE, (
-        f"cleaning brush must accept spin scrubber; got relevance={score}"
+    assert type_score >= pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"cleaning brush must accept spin scrubber; got type_score={score}"
     )
 
 
@@ -2032,19 +2032,19 @@ def test_trend_score_10_does_not_override_relevance():
     irrelevant = ("Rechargeable Electric Spin Scrubber with 6 Replaceable Heads",
                   "Cleaning")
     relevant = ("2-Tier Under Sink Kitchen Organizer", "Kitchen")
-    rel_irrel, _ = pca_mod.compute_query_product_relevance(
+    cat_irrel, type_irrel, _ = pca_mod.compute_query_product_relevance(
         "kitchen organizer", *irrelevant,
     )
-    rel_rel, _ = pca_mod.compute_query_product_relevance(
+    cat_rel, type_rel, _ = pca_mod.compute_query_product_relevance(
         "kitchen organizer", *relevant,
     )
-    assert rel_irrel < pca_mod.MIN_RELEVANCE_SCORE, (
+    assert type_irrel < pca_mod.PRODUCT_TYPE_THRESHOLD, (
         "irrelevant candidate must be below relevance threshold"
     )
-    assert rel_rel >= pca_mod.MIN_RELEVANCE_SCORE, (
+    assert type_rel >= pca_mod.PRODUCT_TYPE_THRESHOLD, (
         "relevant candidate must be at or above relevance threshold"
     )
-    assert rel_rel > rel_irrel, (
+    assert cat_rel > cat_irrel and type_rel >= type_irrel, (
         f"relevant ({rel_rel}) must score higher than irrelevant ({rel_irrel})"
     )
 
@@ -2064,9 +2064,10 @@ def test_token_match_plural_normalizes_correctly():
 
 
 def test_relevance_default_score_for_empty_query():
-    """An empty query returns 0.50 (neutral)."""
-    score, _ = pca_mod.compute_query_product_relevance("", "Any Product", "Any Cat")
-    assert score == 0.50
+    """An empty query returns 0.50 (neutral) on BOTH axes."""
+    cat_score, type_score, _ = pca_mod.compute_query_product_relevance("", "Any Product", "Any Cat")
+    assert cat_score == 0.50
+    assert type_score == 0.50
 
 
 def test_min_product_image_score_constant_is_sane():
@@ -2086,3 +2087,107 @@ def test_min_relevance_score_constant_is_sane():
     assert pca_mod.MIN_RELEVANCE_SCORE >= 0.30, (
         f"MIN_RELEVANCE_SCORE={pca_mod.MIN_RELEVANCE_SCORE}; must be ≥ 0.30"
     )
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TWO-AXIS PRODUCT-TYPE SPEC TESTS (added 2026-09-27)
+# 12 exact examples from the spec brief.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def _pass(query, name, category):
+    cat, tp, _ = pca_mod.compute_query_product_relevance(query, name, category)
+    assert cat >= pca_mod.CATEGORY_THRESHOLD, (
+        f"query={query!r} candidate={name!r}: category_score={cat} below threshold"
+    )
+    assert tp >= pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"query={query!r} candidate={name!r}: product_type_score={tp} below threshold"
+    )
+
+
+def _reject(query, name, category):
+    cat, tp, _ = pca_mod.compute_query_product_relevance(query, name, category)
+    passes = cat >= pca_mod.CATEGORY_THRESHOLD and tp >= pca_mod.PRODUCT_TYPE_THRESHOLD
+    assert not passes, (
+        f"query={query!r} candidate={name!r}: should be REJECTED but cat={cat} type={tp}"
+    )
+
+
+def test_two_axis_01_pet_bed_rejects_pet_feeder():
+    _reject("pet bed", "Automatic Pet Feeder - WiFi, Portion Control", "Pet Supplies")
+
+
+def test_two_axis_02_pet_bed_accepts_orthopedic_dog_bed():
+    _pass("pet bed", "Orthopedic Dog Bed Self-Warming Plush", "Pet Supplies")
+
+
+def test_two_axis_03_phone_stand_rejects_wireless_charger():
+    _reject("phone stand", "Wireless Phone Charger Pad", "Tech")
+
+
+def test_two_axis_04_phone_stand_accepts_magsafe_holder():
+    _pass("phone stand", "MagSafe Phone Holder for Desk", "Tech")
+
+
+def test_two_axis_05_kitchen_organizer_rejects_spin_scrubber():
+    _reject("kitchen organizer", "Rechargeable Spin Scrubber", "Cleaning")
+
+
+def test_two_axis_06_kitchen_organizer_accepts_under_sink_organizer():
+    _pass("kitchen organizer", "2-Tier Under Sink Organizer", "Kitchen")
+
+
+def test_two_axis_07_kitchen_organizer_accepts_spice_rack_organizer():
+    _pass("kitchen organizer", "Spice Rack Organizer 16 Jars", "Kitchen")
+
+
+def test_two_axis_08_kitchen_organizer_accepts_pantry_storage_rack():
+    _pass("kitchen organizer", "Pantry Storage Rack", "Kitchen")
+
+
+def test_two_axis_09_desk_lamp_rejects_ceiling_light():
+    _reject("desk lamp", "LED Ceiling Light Fixture", "Decor")
+
+
+def test_two_axis_10_desk_lamp_accepts_led_task_lamp():
+    _pass("desk lamp", "LED Task Lamp Dimmable", "Tech")
+
+
+def test_two_axis_11_cleaning_brush_rejects_vacuum():
+    _reject("cleaning brush", "Vacuum Cleaner", "Cleaning")
+
+
+def test_two_axis_12_cleaning_brush_accepts_spin_scrubber():
+    _pass("cleaning brush", "Electric Spin Scrubber", "Cleaning")
+
+
+def test_two_axis_threshold_constants_are_sane():
+    """CATEGORY_THRESHOLD must be <= PRODUCT_TYPE_THRESHOLD because type
+    matching is the stricter of the two."""
+    assert 0.0 < pca_mod.CATEGORY_THRESHOLD < 1.0
+    assert 0.0 < pca_mod.PRODUCT_TYPE_THRESHOLD < 1.0
+    assert pca_mod.CATEGORY_THRESHOLD <= pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"CATEGORY_THRESHOLD={pca_mod.CATEGORY_THRESHOLD} should be <= "
+        f"PRODUCT_TYPE_THRESHOLD={pca_mod.PRODUCT_TYPE_THRESHOLD}"
+    )
+
+
+def test_two_axis_broad_category_pass_but_type_fail_is_rejected():
+    """Demonstrate the core spec requirement: a candidate in the right
+    broad family but wrong product type MUST be rejected."""
+    cat, tp, _ = pca_mod.compute_query_product_relevance(
+        "pet bed", "Automatic Pet Feeder - WiFi, Portion Control", "Pet Supplies",
+    )
+    # Pet feeder IS in the pet category (high category_score)
+    assert cat >= pca_mod.CATEGORY_THRESHOLD, (
+        f"pet feeder should pass category; got cat={cat}"
+    )
+    # But it is NOT a pet bed (low product_type_score)
+    assert tp < pca_mod.PRODUCT_TYPE_THRESHOLD, (
+        f"pet feeder must FAIL product_type; got tp={tp}"
+    )
+
+
+def test_two_axis_score_function_returns_three_tuple():
+    """API contract: compute_query_product_relevance returns (cat, type, matched)."""
+    out = pca_mod.compute_query_product_relevance("pet bed", "Orthopedic Dog Bed", "Pet Supplies")
+    assert isinstance(out, tuple) and len(out) == 3

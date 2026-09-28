@@ -309,6 +309,128 @@ QUERY_NEGATIVES: dict[str, list[str]] = {
 }
 
 
+# ── Product-type intent ─────────────────────────────────────────────────────
+#
+# A "product type" is the specific noun the user wants — bed, organizer,
+# stand, lamp, brush, … — independent of the broad category. A pet feeder
+# is a pet product but it is NOT a pet bed. A general kitchen item is in
+# the kitchen category but it is NOT a kitchen organizer.
+#
+# PRODUCT_TYPE_SYNONYMS lists the acceptable product nouns for each type.
+# PRODUCT_TYPE_NEGATIVES lists tokens in the candidate that disqualify it
+# (e.g. "vacuum" disqualifies a candidate from being a "brush" winner).
+
+PRODUCT_TYPE_SYNONYMS: dict[str, list[str]] = {
+    "organizer": [
+        "organizer", "organize", "storage", "rack", "shelf", "shelves",
+        "holder", "bin", "baskets", "basket", "drawer", "pantry",
+        "cabinet", "countertop", "utensil", "spice", "drying",
+        "dish", "tray", "container", "caddy",
+    ],
+    "bed": [
+        "bed", "cuddler", "sleeping", "mattress", "orthopedic",
+        "self-warming", "plush", "calming", "pillow", "cushion",
+    ],
+    "stand": [
+        "stand", "holder", "mount", "dock", "cradle", "support",
+        "tripod", "pedestal",
+    ],
+    "lamp": [
+        "lamp", "task", "study", "desk light", "desk lamp",
+        "reading light", "nightlight", "table lamp", "task light",
+    ],
+    "brush": [
+        "brush", "scrubber", "scrub", "scrubbing", "broom",
+        "sponge", "sweeper",
+    ],
+    "feeder": ["feeder", "food dispenser", "water dispenser"],
+    "leash": ["leash", "lead", "harness", "collar"],
+    "toy": ["toy"],
+    "tree": ["tree", "tower", "perch"],
+    "knife": ["knife", "knives", "sharpener", "cutting"],
+    "mug": ["mug", "tumbler", "cup", "warmer"],
+    "lunch": ["lunch", "bento"],
+    "pan": ["pan", "skillet", "wok", "pot"],
+    "yoga": ["yoga", "mat", "meditation"],
+    "massage": ["massage", "gun"],
+    "bottle": ["bottle", "flask", "tumbler"],
+    "dumbbell": ["dumbbell", "weight"],
+    "foam": ["foam", "roller"],
+    "plant": ["plant", "pot"],
+    "shelf_decor": ["shelf", "shelves"],
+    "clock": ["clock"],
+    "blanket": ["blanket", "throw"],
+    "led_strip": ["led strip", "strip light"],
+    "sunset": ["sunset", "projection", "ambient"],
+}
+
+PRODUCT_TYPE_NEGATIVES: dict[str, list[str]] = {
+    "organizer": [
+        "brush", "scrubber", "lamp", "phone", "bed", "leash",
+        "feeder", "toy", "tree", "knife", "mug", "pan",
+        "yoga", "mat", "massage", "bottle", "dumbbell",
+    ],
+    "bed": [
+        "feeder", "leash", "tree", "toy", "scratcher",
+        "brush", "scrubber", "lamp", "phone", "organizer",
+        "knife", "mug", "pan", "yoga", "massage", "bottle",
+        "dumbbell", "clock", "blanket",
+    ],
+    "stand": [
+        "lamp", "bed", "brush", "scrubber", "feeder", "leash",
+        "toy", "tree", "knife", "mug", "pan", "yoga",
+        "massage", "bottle", "dumbbell", "clock", "blanket",
+        "charger",
+    ],
+    "lamp": [
+        "bed", "organizer", "brush", "scrubber", "feeder",
+        "leash", "toy", "tree", "knife", "mug", "pan",
+        "yoga", "massage", "bottle", "dumbbell", "clock",
+        "blanket",
+        # ceiling/wall/sconce fixtures are NOT desk/task lamps
+        "ceiling", "wall", "sconce", "pendant", "flush",
+        "outdoor", "string light", "fairy light",
+    ],
+    "brush": [
+        "lamp", "phone", "bed", "organizer", "feeder",
+        "leash", "toy", "tree", "knife", "mug", "pan",
+        "yoga", "massage", "bottle", "dumbbell", "clock",
+        "blanket", "vacuum",
+    ],
+}
+
+
+def _extract_product_type_intent(query: str) -> tuple[str | None, list[str]]:
+    """Identify the primary product-type noun in the query.
+
+    Returns (product_type, matched_synonyms). product_type is None when
+    no recognizable product noun is present (e.g. "kitchen stuff").
+    """
+    q_tokens = _tokenize(query)
+    if not q_tokens:
+        return None, []
+
+    # Prefer the longest synonym match so "cleaning brush" picks "brush"
+    # rather than just "cleaning".
+    best: tuple[str, list[str], int] | None = None
+    for product_type, synonyms in PRODUCT_TYPE_SYNONYMS.items():
+        hits: list[str] = []
+        for syn in synonyms:
+            for qt in q_tokens:
+                if _tokens_match(qt, syn) or (len(qt) >= 4 and (qt in syn or syn in qt)):
+                    if qt not in hits:
+                        hits.append(qt)
+                    break
+        if hits:
+            score = len(hits) * 10 + max(len(h) for h in hits)
+            if best is None or score > best[2]:
+                best = (product_type, hits, score)
+
+    if best is None:
+        return None, []
+    return best[0], best[1]
+
+
 def _tokenize(s: str) -> set[str]:
     """Lowercase tokenization that keeps compound tokens (kitchen-organizer
     → {kitchen, organizer, kitchen-organizer})."""
@@ -373,32 +495,40 @@ def compute_query_product_relevance(
     query: str,
     product_name: str,
     product_category: str = "",
-) -> tuple[float, list[str]]:
-    """Deterministic relevance score in [0.0, 1.0].
+) -> tuple[float, float, list[str]]:
+    """Deterministic two-axis relevance score.
 
-    Logic:
-      * +0.45 if any query token appears directly in the product name/category.
-      * +0.55 if the query maps to a category family whose tokens appear in
-              the product name/category.
-      * -0.30 per query-family negative token present in the product
-              (capped at -0.70).
-      * Floor at 0.0.
-      * Default 0.50 when the query is empty (no constraint to apply).
+    Returns (category_score, product_type_score, matched_tokens).
+    Both axes are scored independently on [0.0, 1.0]. A candidate is
+    only acceptable when BOTH meet their thresholds (CATEGORY_THRESHOLD
+    and PRODUCT_TYPE_THRESHOLD).
 
-    A score of >= 0.50 is the default acceptance threshold; the researcher
-    can configure MIN_RELEVANCE_SCORE up or down.
+    category_score    — does the candidate belong to the broad category
+                        implied by the query? (kitchen, pet, tech, etc.)
+                        Driven by CATEGORY_FAMILIES + QUERY_NEGATIVES.
+
+    product_type_score — does the candidate match the SPECIFIC PRODUCT
+                        TYPE the user asked for? (organizer, bed, stand,
+                        lamp, brush, …) Driven by PRODUCT_TYPE_SYNONYMS
+                        + PRODUCT_TYPE_NEGATIVES.
+
+    A pet feeder must NOT win a "pet bed" query even though both are pet
+    products. A Spin Scrubber must NOT win a "kitchen organizer" query
+    even though both are in the cleaning-adjacent space. Each axis
+    must independently pass.
     """
     if not query or not query.strip():
-        return 0.50, []
+        # No constraint — neutral relevance on both axes.
+        return 0.50, 0.50, []
 
     q_tokens = _tokenize(query)
     product_text = f"{product_name or ''} {product_category or ''}".strip()
     p_tokens = _tokenize(product_text)
 
     if not q_tokens:
-        return 0.50, []
+        return 0.50, 0.50, []
 
-    # ── 1. Direct token overlap ─────────────────────────────────────
+    # ── 1. Category score ───────────────────────────────────────────
     matched: list[str] = []
     direct_hits = 0
     for qt in q_tokens:
@@ -407,10 +537,8 @@ def compute_query_product_relevance(
                 direct_hits += 1
                 matched.append(qt)
                 break
-
     direct_score = min(direct_hits / max(len(q_tokens), 1), 1.0)
 
-    # ── 2. Category-family overlap ──────────────────────────────────
     families = _classify_query_families(query)
     family_score = 0.0
     if families:
@@ -426,7 +554,6 @@ def compute_query_product_relevance(
                     break
         family_score = min(len(matched_families) / max(len(families), 1), 1.0)
 
-    # ── 3. Negative guard ────────────────────────────────────────────
     negative_penalty = 0.0
     for fam in families:
         for neg_tok in QUERY_NEGATIVES.get(fam, []):
@@ -434,13 +561,57 @@ def compute_query_product_relevance(
                 if _tokens_match(neg_tok, pt) or (len(neg_tok) >= 4 and (neg_tok in pt)):
                     negative_penalty += 0.30
                     break
-
     negative_penalty = min(negative_penalty, 0.70)
 
-    # ── Combine ─────────────────────────────────────────────────────
-    raw = (direct_score * 0.45) + (family_score * 0.55)
-    final = max(0.0, min(1.0, raw - negative_penalty))
-    return round(final, 3), matched
+    category_raw = (direct_score * 0.45) + (family_score * 0.55)
+    category_score = max(0.0, min(1.0, category_raw - negative_penalty))
+
+    # ── 2. Product-type score ───────────────────────────────────────
+    product_type, product_type_matched = _extract_product_type_intent(query)
+    if product_type is None:
+        # Query has no recognizable product-type noun. We do NOT
+        # constrain on product type — treat as neutral (1.0) so a
+        # category-only query does not over-reject.
+        product_type_score = 1.0
+    else:
+        synonyms = PRODUCT_TYPE_SYNONYMS.get(product_type, [])
+        negatives = PRODUCT_TYPE_NEGATIVES.get(product_type, [])
+
+        # Count how many type synonyms the product text contains.
+        syn_hits = 0
+        for syn in synonyms:
+            for pt in p_tokens:
+                if _tokens_match(syn, pt) or (len(syn) >= 4 and (syn in pt or pt in syn)):
+                    syn_hits += 1
+                    break
+        # Synonym match: at least one synonym is good enough for 0.8,
+        # two or more is 1.0. None is 0.0.
+        if syn_hits >= 2:
+            type_raw = 1.0
+        elif syn_hits == 1:
+            type_raw = 0.8
+        else:
+            type_raw = 0.0
+
+        # Negative tokens for this product type drop the score to 0.
+        neg_hit = False
+        for neg_tok in negatives:
+            for pt in p_tokens:
+                if _tokens_match(neg_tok, pt) or (len(neg_tok) >= 4 and (neg_tok in pt)):
+                    neg_hit = True
+                    break
+            if neg_hit:
+                break
+        if neg_hit:
+            type_raw = 0.0
+
+        product_type_score = round(type_raw, 3)
+
+    return (
+        round(category_score, 3),
+        round(product_type_score, 3),
+        matched + (["type:" + product_type] if product_type else []),
+    )
 
 
 # Hard threshold: an image URL whose ranker score is below this is
@@ -448,9 +619,14 @@ def compute_query_product_relevance(
 # accepting a poor image just because no better candidate exists.
 MIN_PRODUCT_IMAGE_SCORE = 25
 
-# Hard threshold: a candidate whose query-product relevance is below
-# this is REJECTED before trend score or any other factor can promote it.
-MIN_RELEVANCE_SCORE = 0.50
+# Hard thresholds for the two-axis relevance gate. A candidate must
+# pass BOTH axes independently; broad category match alone is not
+# sufficient (a pet feeder cannot win a pet-bed query).
+CATEGORY_THRESHOLD = 0.30       # broad family match
+PRODUCT_TYPE_THRESHOLD = 0.50   # specific product-type match
+
+# Backwards-compat alias used by older tests.
+MIN_RELEVANCE_SCORE = CATEGORY_THRESHOLD
 
 
 def rank_image_candidates(

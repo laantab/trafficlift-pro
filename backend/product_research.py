@@ -1570,25 +1570,31 @@ class ProductResearcher:
                 attempts, self.MAX_CANDIDATE_ATTEMPTS, card.name, elapsed,
             )
             winner = self._materialize(card, _card_category(card))
-            # ── RELEVANCE GATE (added 2026-09-27) ──────────────────────
+            # ── RELEVANCE GATE (added 2026-09-27, two-axis 2026-09-27) ─
+            # A candidate must pass BOTH a category match AND a specific
+            # product-type match. Broad family alone is not enough —
+            # a pet feeder must not win a "pet bed" query even though
+            # both are pet products.
             from backend.product_control_agent import (
                 compute_query_product_relevance,
-                MIN_RELEVANCE_SCORE,
+                CATEGORY_THRESHOLD,
+                PRODUCT_TYPE_THRESHOLD,
             )
-            rel_score, rel_matched = compute_query_product_relevance(
+            cat_score, type_score, rel_matched = compute_query_product_relevance(
                 intent_clean,
                 winner.get("name") or "",
                 winner.get("category") or "",
             )
-            winner["query_relevance_score"] = rel_score
+            winner["query_relevance_score"] = cat_score
+            winner["query_product_type_score"] = type_score
             winner["query_relevance_matched"] = rel_matched
-            if rel_score < MIN_RELEVANCE_SCORE:
+            if cat_score < CATEGORY_THRESHOLD:
                 reason = (
-                    f"semantic_mismatch: relevance={rel_score:.2f} < {MIN_RELEVANCE_SCORE} "
-                    f"for query={intent_clean!r}"
+                    f"category_mismatch: category_score={cat_score:.2f} < "
+                    f"{CATEGORY_THRESHOLD} for query={intent_clean!r}"
                 )
                 logger.info(
-                    "[find-winner] pool RELEVANCE-REJECT id=%s reason=%s",
+                    "[find-winner] pool CATEGORY-REJECT id=%s reason=%s",
                     card.id, reason,
                 )
                 rejection_log.append({
@@ -1600,6 +1606,25 @@ class ProductResearcher:
                     "rejected_at": datetime.now(timezone.utc).isoformat(),
                 })
                 continue
+            if type_score < PRODUCT_TYPE_THRESHOLD:
+                reason = (
+                    f"product_type_mismatch: product_type_score={type_score:.2f} < "
+                    f"{PRODUCT_TYPE_THRESHOLD} for query={intent_clean!r}"
+                )
+                logger.info(
+                    "[find-winner] pool PRODUCT-TYPE-REJECT id=%s reason=%s",
+                    card.id, reason,
+                )
+                rejection_log.append({
+                    "id": card.id,
+                    "name": card.name,
+                    "category": card.category,
+                    "score": 0,
+                    "reason": reason,
+                    "rejected_at": datetime.now(timezone.utc).isoformat(),
+                })
+                continue
+            winner["query_relevance_score"] = cat_score  # back-compat
             # Pool fallback cards carry data: URI placeholders. Try to
             # enrich with image-focused research before the audit gate.
             if (winner.get("image_url") or "").startswith("data:"):
@@ -1750,32 +1775,32 @@ class ProductResearcher:
             )
             winner = self._materialize(card, _card_category(card))
 
-            # ── RELEVANCE GATE (added 2026-09-27) ──────────────────────
-            # The user's query is a hard constraint, NOT a loose inspiration
-            # signal. A product that does not match the query intent must
-            # be rejected BEFORE trend score or image quality can promote
-            # it. Example: query="kitchen organizer" must NOT accept a
-            # candidate whose name is "Spin Scrubber" even if its trend
-            # score is high.
+            # ── RELEVANCE GATE (two-axis: category + product type) ─────
+            # A candidate must pass BOTH a category match AND a specific
+            # product-type match. Broad family alone is not enough —
+            # a pet feeder must not win a "pet bed" query even though
+            # both are pet products.
             from backend.product_control_agent import (
                 compute_query_product_relevance,
-                MIN_RELEVANCE_SCORE,
+                CATEGORY_THRESHOLD,
+                PRODUCT_TYPE_THRESHOLD,
             )
-            rel_score, rel_matched = compute_query_product_relevance(
+            cat_score, type_score, rel_matched = compute_query_product_relevance(
                 intent,
                 winner.get("name") or "",
                 winner.get("category") or "",
             )
-            winner["query_relevance_score"] = rel_score
+            winner["query_relevance_score"] = cat_score
+            winner["query_product_type_score"] = type_score
             winner["query_relevance_matched"] = rel_matched
-            if rel_score < MIN_RELEVANCE_SCORE:
+            if cat_score < CATEGORY_THRESHOLD:
                 reason = (
-                    f"semantic_mismatch: relevance={rel_score:.2f} < {MIN_RELEVANCE_SCORE} "
-                    f"for query={intent!r}"
+                    f"category_mismatch: category_score={cat_score:.2f} < "
+                    f"{CATEGORY_THRESHOLD} for query={intent!r}"
                 )
                 logger.info(
-                    "[find-winner] RELEVANCE-REJECT id=%s reason=%s matched=%s",
-                    card.id, reason, rel_matched,
+                    "[find-winner] CATEGORY-REJECT id=%s reason=%s",
+                    card.id, reason,
                 )
                 rejection_log.append({
                     "id": card.id,
@@ -1786,6 +1811,25 @@ class ProductResearcher:
                     "rejected_at": datetime.now(timezone.utc).isoformat(),
                 })
                 continue
+            if type_score < PRODUCT_TYPE_THRESHOLD:
+                reason = (
+                    f"product_type_mismatch: product_type_score={type_score:.2f} < "
+                    f"{PRODUCT_TYPE_THRESHOLD} for query={intent!r}"
+                )
+                logger.info(
+                    "[find-winner] PRODUCT-TYPE-REJECT id=%s reason=%s",
+                    card.id, reason,
+                )
+                rejection_log.append({
+                    "id": card.id,
+                    "name": card.name,
+                    "category": card.category,
+                    "score": score,
+                    "reason": reason,
+                    "rejected_at": datetime.now(timezone.utc).isoformat(),
+                })
+                continue
+            winner["query_relevance_score"] = cat_score  # back-compat
 
             # If the materialized winner still has a data: URI placeholder
             # (the pool always does), try to enrich it with a real photo
