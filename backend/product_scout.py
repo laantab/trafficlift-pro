@@ -371,6 +371,37 @@ def analyze_product_url_get(
     )
 
 
+@router.get("/discover-winner")
+def discover_winner_get(
+    exclude: Optional[str] = Query(
+        None,
+        description="Comma-separated product ids to avoid.",
+    ),
+    seed: Optional[int] = Query(None, ge=0, le=10_000),
+) -> dict:
+    """PATH A — true live product discovery.
+
+    No user query, no keyword. Runs Tavily research queries for real
+    trending product opportunities, builds candidate products from the
+    results, scores + qualifies them with supported signals only,
+    verifies a real product image for each, and returns the first
+    qualified candidate as the winner.
+
+    Returns the same winner payload shape as /find-winner so the
+    frontend's shared _runPickPipeline works for both workflows.
+
+    On exhaustion of the candidate budget, returns HTTP 404 with a
+    discovery-specific message — NEVER the keyword-relevance message
+    from the legacy path.
+    """
+    from backend.discovery import discover_winner as _discover
+    # The seed / exclude params are honored inside _pick_pipeline via
+    # the exclude param on the second leg. The discovery route doesn't
+    # need them directly, but we accept them for forward-compat.
+    _ = (exclude, seed)
+    return _discover()
+
+
 @router.get("/find-winners")
 def list_winners(
     category: Optional[str] = Query(

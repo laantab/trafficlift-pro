@@ -2769,29 +2769,53 @@ def test_index_html_no_inline_onclick_on_find_winner_button():
         )
 
 
-def test_index_html_passes_url_or_keyword_param():
-    """findWinner must send 'url_or_keyword' (the live backend's contract)."""
+def test_index_html_passes_correct_params_per_workflow():
+    """PATH A (Find Winning Product) must call /discover-winner with NO
+    keyword input. PATH B (Analyze Product) must call /analyze-product-url
+    with the `url` query param."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    assert "url_or_keyword" in src, (
-        "findWinner must POST/GET 'url_or_keyword' to the backend"
+    a_start = src.index("async function findWinningProduct(")
+    a_end = src.index("async function analyzeProductUrl(", a_start)
+    a_body = src[a_start:a_end]
+    # PATH A: discovery endpoint only.
+    assert "/api/v1/discover-winner" in a_body, (
+        "PATH A must call /api/v1/discover-winner"
     )
-    assert "/api/v1/find-winner" in src, (
-        "findWinner must call /api/v1/find-winner"
+    # PATH B: analyze-product-url with 'url' param.
+    assert "/api/v1/analyze-product-url" in src, (
+        "PATH B must call /api/v1/analyze-product-url"
+    )
+    assert "params.set('url', url)" in src, (
+        "PATH B must send the user input via 'url' query param"
     )
 
 
 def test_index_html_workflows_have_independent_input_contracts():
-    """PATH A (findWinningProduct) intentionally uses 'trending product'
-    as the discovery seed (no input required). PATH B (analyzeProductUrl)
-    must NOT substitute any fallback — empty URL shows inline error and
-    returns early without calling the backend."""
+    """PATH A (findWinningProduct) must call the dedicated /discover-winner
+    endpoint — NEVER /find-winner and NEVER send a fake 'trending product'
+    seed. PATH B (analyzeProductUrl) must NOT substitute any fallback —
+    empty URL shows inline error and returns early."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    # PATH A's body must contain the explicit 'trending product' seed.
     a_start = src.index("async function findWinningProduct(")
-    a_end = src.index("</script>", a_start)
+    a_end = src.index("async function analyzeProductUrl(", a_start)
     a_body = src[a_start:a_end]
-    assert "'trending product'" in a_body, (
-        "PATH A must seed the discovery with the literal 'trending product'"
+    # PATH A must call /discover-winner.
+    assert "/api/v1/discover-winner" in a_body, (
+        "PATH A must call the dedicated /api/v1/discover-winner endpoint"
+    )
+    # PATH A must NOT call /find-winner (the legacy keyword path).
+    assert "/api/v1/find-winner" not in a_body, (
+        "PATH A must NOT call /api/v1/find-winner — it must use the "
+        "discovery endpoint exclusively"
+    )
+    # PATH A must NOT send a fake 'trending product' seed.
+    assert "'trending product'" not in a_body, (
+        "PATH A must NOT send a fake 'trending product' seed; "
+        "discovery runs live research"
+    )
+    # PATH A must NOT send url_or_keyword as a URLSearchParams key.
+    assert "params.set('url_or_keyword'" not in a_body, (
+        "PATH A must not send url_or_keyword (no keyword input)"
     )
     # PATH B's body must NOT have any hint || fallback for the URL param.
     b_start = src.index("async function analyzeProductUrl(")
@@ -3358,3 +3382,279 @@ def test_backend_find_winner_still_works_without_url_or_keyword():
     r = client.get("/api/v1/find-winner")
     # 200 with a winner OR 404 with relevance message — both are valid.
     assert r.status_code in (200, 404),         f"unexpected status; got {r.status_code}"
+
+
+
+# ── DISCOVERY PIPELINE REGRESSION (added 2026-09-28) ────────────────────
+# PATH A "Find Winning Product" must use a real discovery pipeline.
+# The legacy path that sent 'trending product' as a fake keyword is
+# dead — these tests lock the new architecture.
+
+
+def test_backend_discover_winner_route_exists():
+    """GET /api/v1/discover-winner must be defined in product_scout.py."""
+    from pathlib import Path
+    import re
+    src = (Path(ROOT) / "backend" / "product_scout.py").read_text(encoding="utf-8-sig")
+    assert re.search(r"""@router\.get\(\s*['"]/discover-winner""", src), (
+        "backend must define @router.get('/api/v1/discover-winner')"
+    )
+
+
+def test_backend_discovery_does_not_apply_query_relevance():
+    """The discovery module must NOT import or call the keyword
+    relevance gate (CATEGORY_THRESHOLD / PRODUCT_TYPE_THRESHOLD against
+    a user phrase). Discovery has no user query."""
+    from pathlib import Path
+    src = (Path(ROOT) / "backend" / "discovery.py").read_text(encoding="utf-8-sig")
+    # The legacy relevance gate is in product_control_agent.
+    assert "compute_query_product_relevance" not in src, (
+        "discovery.py must not call compute_query_product_relevance "
+        "(no user-query relevance in discovery mode)"
+    )
+    assert "CATEGORY_THRESHOLD" not in src, (
+        "discovery.py must not enforce CATEGORY_THRESHOLD against a user phrase"
+    )
+    assert "PRODUCT_TYPE_THRESHOLD" not in src, (
+        "discovery.py must not enforce PRODUCT_TYPE_THRESHOLD against a user phrase"
+    )
+
+
+def test_backend_discovery_uses_live_research_not_fake_keyword():
+    """Discovery must use the live_research module for product-opportunity
+    queries — NOT a hardcoded fake keyword."""
+    from pathlib import Path
+    src = (Path(ROOT) / "backend" / "discovery.py").read_text(encoding="utf-8-sig")
+    assert "live_research.research" in src, (
+        "discovery.py must use live_research.research() for live discovery"
+    )
+    # Must define multiple real product-opportunity queries.
+    assert "DISCOVERY_QUERIES" in src, (
+        "discovery.py must define DISCOVERY_QUERIES list of real search queries"
+    )
+    queries_match = False
+    import re as _re
+    m = _re.search(r"DISCOVERY_QUERIES\s*=\s*\[(.*?)\]", src, _re.DOTALL)  # noqa
+    if m:
+        queries = m.group(1)
+        # Must contain at least 3 distinct queries.
+        quoted = _re.findall(r"""['\"]([^'\"]+)['\"]""", queries)
+        if len(set(quoted)) >= 3:
+            queries_match = True
+    assert queries_match, (
+        "DISCOVERY_QUERIES must list at least 3 distinct real product queries"
+    )
+
+
+def test_backend_discovery_normalizes_and_rejects_non_product_titles():
+    """Discovery must reject article / blog / listicle titles via
+    _looks_like_article, and must require product-type noun signals."""
+    from backend.discovery import (
+        _looks_like_article, _has_product_signal, _normalize_title,
+        _derive_product_type, _infer_category,
+    )
+    # Sanity-check the helpers exist and work.
+    assert _derive_product_type("LED Desk Lamp") == "lamp"
+    assert _infer_category("Pet Dog Bed Orthopedic") == "Pet Supplies"
+    # Articles / blogs / listicles must be rejected.
+    assert _looks_like_article("Top 10 Best Kitchen Gadgets of 2026", "")
+    assert _looks_like_article("How to Choose the Perfect Lamp", "")
+    assert _looks_like_article("Review: Best Phone Stands", "")
+    assert _looks_like_article("Best vs Worst Kitchen Tools", "")
+    # Brand-only or generic must be rejected.
+    assert _looks_like_article("Amazon", "")
+    assert _looks_like_article("Best Sellers", "")
+    # Real product names must NOT be rejected as articles.
+    assert not _looks_like_article(
+        "Rotating Spice Rack Organizer 16 Jars", "")
+    assert not _looks_like_article("LED Desk Lamp with USB Port", "")
+    # Product-type signal required.
+    assert _has_product_signal("LED Desk Lamp with USB Port")
+    assert _has_product_signal("Rotating Spice Rack Organizer")
+    # Pure brand or category without product noun.
+    assert not _has_product_signal("Kitchen")
+    assert not _has_product_signal("Apple")
+    # Normalization strips Amazon prefix / suffix / list markers.
+    assert _normalize_title("Amazon.com: Rotating Spice Rack Organizer : Amazon.com") == "Rotating Spice Rack Organizer"
+    assert _normalize_title("Top 10: LED Desk Lamp 2026") == "LED Desk Lamp 2026"
+    # It strips the listicle prefix even if "2026" stays.
+    assert _normalize_title("Top 10: LED Desk Lamp") == "LED Desk Lamp"
+    assert _normalize_title(None) is None
+    assert _normalize_title("") is None
+    assert _normalize_title(None) is None
+    assert _normalize_title("") is None
+
+
+def test_backend_discovery_is_bounded():
+    """The discovery pipeline must have bounded constants."""
+    from backend import discovery
+    assert 1 <= discovery.MAX_DISCOVERY_RESEARCH_QUERIES <= 8, (
+        "MAX_DISCOVERY_RESEARCH_QUERIES must be in [1, 8]"
+    )
+    assert 1 <= discovery.MAX_DISCOVERY_CANDIDATES <= 16, (
+        "MAX_DISCOVERY_CANDIDATES must be in [1, 16]"
+    )
+    assert 1 <= discovery.MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE <= 5, (
+        "MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE must be in [1, 5]"
+    )
+    # Budget must be reasonable (under backend REQUEST_BUDGET_SECONDS=20).
+    assert 5.0 <= discovery.DISCOVERY_REQUEST_BUDGET_SECONDS <= 25.0, (
+        "DISCOVERY_REQUEST_BUDGET_SECONDS must be in [5, 25]"
+    )
+
+
+def test_backend_discovery_rejects_with_specific_message(monkeypatch):
+    """When discovery finds NO candidates, the 404 message must be the
+    discovery-specific wording — NOT the legacy query-relevance
+    wording."""
+    import types
+    from fastapi import HTTPException
+
+    # Stub out live_research.research so it returns empty envelopes.
+    import backend.discovery as discovery_mod
+    monkeypatch.setattr(
+        "backend.live_research.research",
+        lambda *a, **kw: types.SimpleNamespace(
+            research_status="fallback",
+            research_sources=[],
+            research_query="x",
+        ),
+    )
+
+    from backend.discovery import discover_winner
+    try:
+        discover_winner()
+    except HTTPException as exc:
+        # Must be discovery-specific, NOT the legacy pool-mismatch text.
+        assert "in our pool" not in exc.detail, (
+            f"discovery 404 must not include legacy 'in our pool' text; got {exc.detail!r}"
+        )
+        assert "matched your query" not in exc.detail, (
+            f"discovery 404 must not include legacy 'matched your query' text; got {exc.detail!r}"
+        )
+        assert "couldn't find a qualified product" in exc.detail.lower(), (
+            f"discovery 404 must include the discovery-specific text; got {exc.detail!r}"
+        )
+        return
+    raise AssertionError("discover_winner() should have raised HTTPException(404)")
+
+
+def test_backend_discovery_returns_qualified_winner(monkeypatch):
+    """Full happy path: discovery returns a winner payload when at least
+    one candidate has a verified image."""
+    import types
+    from backend import discovery as discovery_mod
+    from backend.product_control_agent import ProductControlAgent
+    from backend.discovery import discover_winner
+
+    # Build a fake Tavily envelope with one real-product result.
+    fake_sources = [
+        {
+            "title": "Rotating Spice Rack Organizer 16 Jars",
+            "url": "https://example.com/spice-rack",
+            "snippet": "A real product that organizes spices on your counter.",
+            "content": "A real product.",
+        },
+        {
+            "title": "LED Desk Lamp with USB Charging Port",
+            "url": "https://example.com/desk-lamp",
+            "snippet": "A useful product for office desks.",
+            "content": "Office desk lighting.",
+        },
+    ]
+
+    fake_env = types.SimpleNamespace(
+        research_status="live",
+        research_query="trending kitchen gadgets",
+        research_sources=fake_sources,
+    )
+
+    monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
+
+    # Stub image discovery to return a fake verified URL.
+    fake_image = "https://m.media-amazon.com/images/I/asin.jpg"
+    monkeypatch.setattr(
+        discovery_mod, "_find_image_for_candidate",
+        lambda card, intent="": fake_image,
+    )
+
+    # Stub the audit so the winner is accepted.
+    def _stub_evaluate(w):
+        r = types.SimpleNamespace()
+        r.ok = True
+        r.product = dict(w) if isinstance(w, dict) else {"name": "x"}
+        r.product.setdefault("image_status", "verified")
+        r.product.setdefault("image_url", fake_image)
+        r.primary_reason = "ok"
+        return r
+
+    monkeypatch.setattr(ProductControlAgent, "evaluate", staticmethod(_stub_evaluate))
+
+    winner = discover_winner()
+
+    assert winner.get("source") == "discovery", (
+        "winner must be tagged with source='discovery'"
+    )
+    assert winner.get("image_status") == "verified", (
+        "winner image must be verified"
+    )
+    assert winner.get("image_url"), "winner must have an image_url"
+    assert winner.get("discovery"), "winner must include discovery diagnostics"
+    # raw_results accumulates across all 5 queries (each with 2 sources
+    # in this stub); just check it's > 0 and bounded.
+    raw = winner["discovery"]["raw_results"]
+    assert raw >= 2, f"raw_results must be at least 2; got {raw}"
+    assert raw <= 50, f"raw_results must be bounded; got {raw}"
+    assert winner["discovery"]["normalized_candidates"] >= 1, (
+        "at least one candidate should be normalized from the sources"
+    )
+
+
+def test_backend_discovery_skips_candidate_without_verified_image(monkeypatch):
+    """If the first candidate's image cascade fails, discovery must
+    move to the next candidate — NOT return 404."""
+    import types
+    from backend import discovery as discovery_mod
+    from backend.product_control_agent import ProductControlAgent
+    from backend.discovery import discover_winner
+
+    fake_sources = [
+        {"title": "Broken Gadget No Noun", "url": "https://example.com/a",
+         "snippet": "x", "content": "x"},  # may be rejected
+        {"title": "LED Desk Lamp with USB Port", "url": "https://example.com/b",
+         "snippet": "y", "content": "y"},
+        {"title": "Rotating Spice Rack Organizer 16 Jars",
+         "url": "https://example.com/c",
+         "snippet": "z", "content": "z"},
+    ]
+    fake_env = types.SimpleNamespace(
+        research_status="live",
+        research_query="x",
+        research_sources=fake_sources,
+    )
+    monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
+
+    # First call to image search returns None (no image); second returns OK.
+    calls = {"n": 0}
+    def _fake_image(card, intent=""):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return "https://m.media-amazon.com/images/I/asin.jpg"
+    monkeypatch.setattr(discovery_mod, "_find_image_for_candidate", _fake_image)
+
+    class _Report:
+        ok = True
+        product = {"id": "x", "name": "y", "category": "z",
+                   "image_url": "https://x", "image_status": "verified",
+                   "url": "https://u"}
+        primary_reason = "ok"
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(lambda w: _Report()))
+
+    winner = discover_winner()
+    assert calls["n"] >= 2, (
+        f"discovery must try at least 2 candidates when the first has no image; "
+        f"got {calls['n']}"
+    )
+    assert winner.get("source") == "discovery"

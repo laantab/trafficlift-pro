@@ -2351,37 +2351,61 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     // endpoint with the default 'trending product' seed.
     async function findWinningProduct() {
         const btn = document.getElementById('findWinningProductBtn');
+
+        // Clear stale UI from a prior run so broken images / old error
+        // boxes / stale pin previews do not linger under the new run.
+        const executionEl = document.getElementById('executionOutput');
+        if (executionEl) {
+            executionEl.classList.add('hidden');
+            executionEl.innerHTML = '';
+        }
+        const resultsEl = document.getElementById('resultsContent');
+        if (resultsEl) {
+            resultsEl.innerHTML = '';
+            resultsEl.classList.add('hidden');
+        }
+        const inlineErrEl = document.getElementById('productUrlError');
+        if (inlineErrEl) {
+            inlineErrEl.textContent = '';
+            inlineErrEl.classList.add('hidden');
+        }
+        window.__currentWinner = null;
+        window.__lastPinDataUrl = null;
+        window.__lastPinResult = null;
+
         // Note: we deliberately do NOT read #productUrl here.
         const isFirstRun = !window.__pickPipelineRanOnce;
         window.__pickPipelineRanOnce = true;
         const prev = window.__lastWinnerId || '';
         const params = new URLSearchParams();
-        params.set('url_or_keyword', 'trending product');
         if (prev) params.set('exclude', prev);
-        const requestUrl = apiUrl(`/api/v1/find-winner?${params.toString()}`);
+        // PATH A calls ONLY the dedicated discovery endpoint - never
+        // /find-winner, never /analyze-product-url, never a keyword path.
+        const requestUrl = apiUrl(`/api/v1/discover-winner?${params.toString()}`);
         await _runPickPipeline({
             btn,
             urlInput: null,
             requestUrl,
             readUrlField: false,
-            workingLabel: 'Finding Winnerâ€¦',
+            workingLabel: 'Finding Winner...',
             idleLabel: 'Find Winning Product',
             successIdleLabel: 'Find Another Winner',
             stages: [
-                'Researching productsâ€¦',
-                'Scoring opportunitiesâ€¦',
-                'Verifying product imagesâ€¦',
-                'Selecting winnerâ€¦',
-                'Creating your pinâ€¦',
+                'Researching products...',
+                'Scoring opportunities...',
+                'Verifying product images...',
+                'Selecting winner...',
+                'Creating your pin...',
             ],
             subtext: isFirstRun
                 ? 'First request after idle may take ~60 s while the server warms up.'
-                : 'Researching trending products and finding the strongest qualified winner.',
-            noPhotoHeading: "We couldn't find a qualified product right now. Try again.",
+                : 'Running live research to discover a real trending product.',
+            noPhotoHeading: "We couldn't find a qualified product right now. Try Find Winning Product again.",
             failHeading: 'Find Winning Product failed',
-            failBody: 'Find Winning Product failed â€” check your network and try again.',
+            failBody: 'Find Winning Product failed - check your network and try again.',
         });
     }
+
 
     // â”€â”€ PATH B â€” Analyze a specific product URL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Reads ONLY the URL field. Empty input shows an inline error and
