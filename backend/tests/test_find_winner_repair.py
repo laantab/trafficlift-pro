@@ -37,6 +37,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from backend import live_research
+from backend import discovery as discovery_mod
 from backend.live_research import ResearchEnvelope, ResearchSource
 from backend.product_research import get_researcher, _build_label_to_key, _PINTEREST_FRIENDLY, _COMMERCIAL_HIGH
 
@@ -700,6 +701,42 @@ def test_path_a_preserves_results_scaffold():
     assert "resultsEl.innerHTML = ''" not in a_body
     assert "displayWinnerCard(winner)" in src
     assert 'id="executionOutput"' in src
+
+
+
+
+def test_path_a_rejects_listicle_as_winner():
+    """A roundup article is research evidence, never the product itself."""
+    title = "21 Trending products to sell online in 2026 | Printful"
+    snippet = "21 trending products to sell online in 2026 with fresh market data."
+    assert discovery_mod._looks_like_article(title, snippet) is True
+
+
+def test_path_a_requires_specific_product_from_snippet():
+    """Generic 'products' language without a concrete product noun must fail."""
+    title = "Trending products to sell online"
+    snippet = "Explore trending products and product ideas for online sellers."
+    assert discovery_mod._normalize_title(title, snippet) is None
+
+
+def test_path_a_can_extract_one_concrete_product_from_research_snippet():
+    """A roundup can still contribute a single concrete candidate via evidence."""
+    title = "Trending products to sell online"
+    snippet = "One breakout item is the rechargeable spin scrubber for bathroom cleaning."
+    name = discovery_mod._normalize_title(title, snippet)
+    assert name
+    assert discovery_mod._has_specific_product_signal(name)
+    assert "scrubber" in name.lower()
+
+
+def test_pin_preview_target_is_visible_in_winner_panel_once():
+    """The generated pin preview/download target must live beside the winner."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert src.count('id="pinterestResult"') == 1
+    winner_idx = src.index("Pinterest Ready-to-Post Pin")
+    result_idx = src.index('id="pinterestResult"')
+    why_idx = src.index("Why this is a winner")
+    assert winner_idx < result_idx < why_idx
 
 
 
