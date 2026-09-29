@@ -987,10 +987,15 @@ def _resolve_curated_image(entry: CuratedWinner,
 
     The image URLs come from Tavily's image-search endpoint and are
     validated + ranked through the same pipeline as live research.
+
+    The collected URLs are capped at MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE
+    to keep the validation cost bounded — each HEAD validation can
+    take up to ``DISCOVERY_IMAGE_HEAD_TIMEOUT`` seconds.
     """
     queries = entry.get("image_queries") or []
     if not queries:
         return None
+    cap = MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE
     all_urls: list[str] = []
     seen: set[str] = set()
     for query in queries:
@@ -1007,7 +1012,7 @@ def _resolve_curated_image(entry: CuratedWinner,
                 seen.add(u)
                 all_urls.append(u)
         # Stop gathering once we have enough candidates.
-        if len(all_urls) >= 6:
+        if len(all_urls) >= cap:
             break
     if not all_urls:
         return None
