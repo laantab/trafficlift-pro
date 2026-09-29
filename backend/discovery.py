@@ -191,10 +191,13 @@ def _normalize_title(raw_title: str, snippet: str = "") -> Optional[str]:
     # If the title has NO specific product signal (only generic stems
     # like "products" / "items") AND a snippet is available, try to
     # extract a real product phrase from the snippet.
-    if not _has_specific_product_signal(t) and snippet:
-        extracted = _extract_product_phrase_from_snippet(snippet)
-        if extracted and len(extracted) >= 6 and len(extracted) <= 120:
-            return extracted
+    if not _has_specific_product_signal(t):
+        if snippet:
+            extracted = _extract_product_phrase_from_snippet(snippet)
+            if extracted and len(extracted) >= 6 and len(extracted) <= 120:
+                return extracted
+        # A generic article/listicle title is research evidence, not a product.
+        return None
     return t
 
 
