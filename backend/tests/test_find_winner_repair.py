@@ -740,6 +740,155 @@ def test_pin_preview_target_is_visible_in_winner_panel_once():
 
 
 
+
+# ── MiniMax H3 V2 video integration contract ────────────────────────────────
+
+def test_video_client_uses_current_h3_api_host():
+    from backend.video import MiniMaxVideoClient
+    assert MiniMaxVideoClient.BASE_URL == "https://api.minimax.io"
+    assert "MiniMax-H3" in MiniMaxVideoClient.SUPPORTED_MODELS
+    assert "MiniMax-H3-Max" in MiniMaxVideoClient.SUPPORTED_MODELS
+    assert "MiniMax-Hailuo-2.3" not in MiniMaxVideoClient.SUPPORTED_MODELS
+
+
+def test_video_submit_uses_v2_content_array_and_reference_image(monkeypatch):
+    from backend import video as video_mod
+
+    captured = {}
+
+    class Resp:
+        status_code = 200
+        text = ""
+        def raise_for_status(self): pass
+        def json(self): return {"task_id": "task-123"}
+
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def post(self, url, json=None, headers=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return Resp()
+
+    monkeypatch.setattr(video_mod.httpx, "Client", Client)
+    client = video_mod.MiniMaxVideoClient(api_key="test-key")
+    task = client.submit(
+        "Show the product rotating slowly",
+        model="MiniMax-H3",
+        duration=10,
+        ratio="9:16",
+        resolution="768P",
+        reference_image_url="https://example.com/product.jpg",
+    )
+    assert task.task_id == "task-123"
+    assert captured["url"] == "https://api.minimax.io/v2/video_generation"
+    body = captured["json"]
+    assert "prompt" not in body
+    assert body["content"][0] == {"type": "text", "text": "Show the product rotating slowly"}
+    assert body["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/product.jpg"},
+        "role": "reference_image",
+    }
+
+
+def test_video_query_reads_v2_task_content_url(monkeypatch):
+    from backend import video as video_mod
+
+    class Resp:
+        status_code = 200
+        text = ""
+        def raise_for_status(self): pass
+        def json(self):
+            return {
+                "task": {
+                    "id": "task-123",
+                    "model": "MiniMax-H3",
+                    "status": "succeeded",
+                    "content": {"url": "https://cdn.example.com/final.mp4"},
+                    "duration": 10,
+                    "resolution": "768P",
+                    "ratio": "9:16",
+                }
+            }
+
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def get(self, url, headers=None, params=None):
+            assert url.endswith("/v2/query/video_generation/task-123")
+            return Resp()
+
+    monkeypatch.setattr(video_mod.httpx, "Client", Client)
+    client = video_mod.MiniMaxVideoClient(api_key="test-key")
+    task = client.query("task-123", model="MiniMax-H3")
+    assert task.status == "succeeded"
+    assert task.video_url == "https://cdn.example.com/final.mp4"
+    assert task.duration_seconds == 10
+
+
+def test_video_query_legacy_fallback_resolves_file_id(monkeypatch):
+    from backend import video as video_mod
+
+    calls = []
+
+    class Resp:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = ""
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise video_mod.httpx.HTTPStatusError(
+                    "error",
+                    request=video_mod.httpx.Request("GET", "https://api.minimax.io"),
+                    response=video_mod.httpx.Response(self.status_code),
+                )
+        def json(self): return self._payload
+
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def get(self, url, headers=None, params=None):
+            calls.append((url, params))
+            if "/v2/query/" in url:
+                return Resp(404, {})
+            if "/v1/query/video_generation" in url:
+                return Resp(200, {
+                    "task_id": "task-legacy",
+                    "status": "Success",
+                    "file_id": "file-999",
+                    "base_resp": {"status_code": 0, "status_msg": "success"},
+                })
+            if "/v1/files/retrieve" in url:
+                return Resp(200, {
+                    "file": {"download_url": "https://cdn.example.com/legacy.mp4"},
+                    "base_resp": {"status_code": 0},
+                })
+            raise AssertionError(url)
+
+    monkeypatch.setattr(video_mod.httpx, "Client", Client)
+    client = video_mod.MiniMaxVideoClient(api_key="test-key")
+    task = client.query("task-legacy", model="MiniMax-H3")
+    assert task.status == "Success"
+    assert task.video_url == "https://cdn.example.com/legacy.mp4"
+    assert any("/v1/files/retrieve" in url for url, _ in calls)
+
+
+def test_video_frontend_uses_current_winner_and_valid_h3_models():
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "function buildWinnerVideoPrompt" in src
+    assert "window.__currentWinner" in src
+    assert "reference_image_url" in src
+    assert "MiniMax-H3-Max" in src
+    assert "MiniMax-Hailuo-2.3" not in src
+    assert "syncVideoModelOptions" in src
+
+
 # ── CLEAN ONE-CLICK REBUILD (fourth repair pass) ──────────────────────────
 
 
