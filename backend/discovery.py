@@ -699,7 +699,16 @@ def _validate_and_rank(urls: list[str], name: str, category: str,
             validated.append((u, check))
     if not validated:
         return None
-    ranked = rank_image_candidates(validated, name, category)
+    # ``rank_image_candidates`` takes a list[str] of URLs plus
+    # keyword-only product_name / category. Extract just the URLs here.
+    url_only = [u for (u, _c) in validated]
+    try:
+        ranked = rank_image_candidates(
+            url_only, product_name=name, category=category,
+        )
+    except TypeError as exc:
+        logger.warning("[discover] rank_image_candidates signature mismatch: %s", exc)
+        ranked = []
     if not ranked:
         return None
     best_url, best_score = ranked[0]
