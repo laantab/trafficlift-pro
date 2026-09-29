@@ -111,17 +111,33 @@ _GENERIC_TITLE_TOKENS = {
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _looks_like_article(title: str, snippet: str) -> bool:
-    """True when the Tavily result is CLEARLY non-product (downloads,
-    courses, generic store pages). Listicles and blog posts that
-    describe products are accepted — the snippet usually names real
-    products even when the title is "Best X 2026"."""
+    """Return True when a search result is not itself one concrete product.
+
+    Research articles/listicles remain useful as *evidence*, but they must
+    never become the winner payload. PATH A promises one sellable product
+    per click, so titles such as "21 Trending Products to Sell in 2026",
+    "Best Products for TikTok", category/search pages, and roundup articles
+    are rejected as product candidates.
+    """
     text = f"{title} {snippet}"
     if _NON_PRODUCT_TITLE_RE.search(text):
         return True
     low = (title or "").strip().lower()
     if low in _GENERIC_TITLE_TOKENS:
         return True
-    return False
+
+    # Strong listicle / roundup / category-page signals.
+    listicle_patterns = (
+        r"\b(?:top|best)\s+\d+\b",
+        r"\b\d+\s+(?:trending|best|top|viral|winning)\s+products?\b",
+        r"\bproducts?\s+to\s+sell\b",
+        r"\btrending\s+products?\b",
+        r"\bbest\s+products?\b",
+        r"\bproduct\s+ideas?\b",
+        r"\broundup\b",
+        r"\bbest\s+sellers?\b",
+    )
+    return any(re.search(p, low, re.IGNORECASE) for p in listicle_patterns)
 
 
 def _has_specific_product_signal(name: str) -> bool:
@@ -198,13 +214,12 @@ def _extract_product_phrase_from_snippet(snippet: str) -> Optional[str]:
     if not snippet:
         return None
     low = snippet.lower()
-    # Try SPECIFIC stems first (most concrete product types).
+    # Only accept SPECIFIC product nouns. Generic words such as
+    # "product", "item", "kit", or "set" are not enough to establish a
+    # single concrete winner and were the root cause of listicle pages
+    # being promoted as products.
     specific_stems = _SPECIFIC_NOUN_STEMS
     best_pos, best_stem = _find_first_stem(low, specific_stems)
-    if best_pos < 0:
-        # Fall back to GENERIC stems only if no specific match.
-        generic_stems = _GENERIC_NOUN_STEMS
-        best_pos, best_stem = _find_first_stem(low, generic_stems)
     if best_pos < 0:
         return None
     # Slice the snippet around the match: take up to 5 words BEFORE and
@@ -509,9 +524,12 @@ def _build_candidates_from_envelope(
         name = _normalize_title(raw_title, snippet)
         if not name:
             continue
-        # Reject if the name has no product noun signal at all.
-        if not _has_product_signal(name):
-            logger.info("[discover] reject generic/no-noun: %r", name[:80])
+        # PATH A must return one concrete product, never a roundup title.
+        # Requiring a SPECIFIC noun prevents generic/listicle candidates such
+        # as "21 Trending Products..." from passing just because they contain
+        # the word "products".
+        if not _has_specific_product_signal(name):
+            logger.info("[discover] reject non-concrete candidate: %r", name[:80])
             continue
         # Deduplicate by case-insensitive name prefix.
         key = name.lower().split(" ")[0:4]
