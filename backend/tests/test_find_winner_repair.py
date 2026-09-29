@@ -3509,9 +3509,9 @@ def test_backend_discovery_is_bounded():
 
 
 def test_backend_discovery_rejects_with_specific_message(monkeypatch):
-    """When discovery finds NO candidates, the 404 message must be the
-    discovery-specific wording — NOT the legacy query-relevance
-    wording."""
+    """When discovery finds NO candidates AND curated fallback also
+    fails, the 404 message must be the discovery-specific wording —
+    NOT the legacy query-relevance wording."""
     import types
     from fastapi import HTTPException
 
@@ -3524,6 +3524,11 @@ def test_backend_discovery_rejects_with_specific_message(monkeypatch):
             research_sources=[],
             research_query="x",
         ),
+    )
+    # Stub the curated picker to return None so we fall through to 404.
+    monkeypatch.setattr(
+        discovery_mod, "_pick_curated_winner",
+        lambda **kw: None,
     )
 
     from backend.discovery import discover_winner

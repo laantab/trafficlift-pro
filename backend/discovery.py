@@ -691,7 +691,11 @@ def _validate_and_rank(urls: list[str], name: str, category: str,
     validated: list[tuple[str, object]] = []
     for u in urls:
         try:
-            check = _validate_image(u, timeout=head_timeout)
+            # _validate_image expects ``head_timeout`` as a kwarg, NOT
+            # ``timeout``. (Earlier passing ``timeout=`` here silently
+            # raised TypeError, which we caught and treated as 'no
+            # image' — that's the original PATH A 404 root cause.)
+            check = _validate_image(u, head_timeout=head_timeout)
         except Exception as exc:
             logger.info("[discover] validate error for %s: %s", u[:80], exc)
             continue
