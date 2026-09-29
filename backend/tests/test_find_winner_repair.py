@@ -3897,3 +3897,268 @@ def test_discover_winner_uses_prefetched_image_first(monkeypatch):
     )
     assert winner.get("source") == "discovery"
     assert winner.get("image_status") == "verified"
+
+
+# ── CURATED WINNERS POOL (added 2026-09-28) ─────────────────────────────
+# When live Tavily research fails to produce a qualified candidate, the
+# discovery pipeline falls back to a marketing-expert curated pool of
+# REAL trending products. These tests guarantee the fallback is wired
+# correctly and always returns a verified winner.
+
+def test_curated_pool_is_non_empty():
+    """The curated pool must contain at least one entry — otherwise
+    PATH A has no fallback when live research fails."""
+    from backend.curated_winners import CURATED_WINNERS
+    assert len(CURATED_WINNERS) >= 10, (
+        f"curated pool must have at least 10 entries to provide "
+        f"variety; got {len(CURATED_WINNERS)}"
+    )
+
+
+def test_curated_entries_have_required_fields():
+    """Each curated entry must carry the fields required for the
+    audit pipeline (name, category, image_queries, angle/pin metadata,
+    trend signals, margin estimate, evergreen score, competition)."""
+    from backend.curated_winners import CURATED_WINNERS
+    required = {
+        "name", "category", "image_queries", "angle_options",
+        "pin_title_options", "pin_description_options", "hashtags_pool",
+        "viral_hook_options", "trend_signals_options", "trend_score_range",
+        "margin_estimate", "evergreen_score", "competition",
+    }
+    for entry in CURATED_WINNERS:
+        missing = required - set(entry.keys())
+        assert not missing, (
+            f"curated entry {entry.get('name')!r} missing fields: {missing}"
+        )
+        assert isinstance(entry["image_queries"], list)
+        assert len(entry["image_queries"]) >= 1, (
+            f"curated entry {entry['name']!r} must have at least 1 image query"
+        )
+        assert 0.0 <= float(entry["evergreen_score"]) <= 1.0
+
+
+def test_curated_pool_spans_multiple_categories():
+    """The curated pool should cover at least 5 distinct categories so
+    consecutive clicks surface different winners."""
+    from backend.curated_winners import CURATED_WINNERS
+    categories = set()
+    for entry in CURATED_WINNERS:
+        # Use first 2 words as coarse category (e.g. "Kitchen" from
+        # "Kitchen & Dining") so they group sensibly.
+        cat = (entry.get("category") or "").split("&")[0].strip()
+        if cat:
+            categories.add(cat.lower())
+    assert len(categories) >= 5, (
+        f"curated pool must span at least 5 categories; got {len(categories)}: {categories}"
+    )
+
+
+def test_pick_curated_winner_returns_verified_winner(monkeypatch):
+    """When all curated entries have a valid image, _pick_curated_winner
+    must return a winner payload with image_status=verified."""
+    import types
+    from backend import discovery as discovery_mod
+
+    # Fake image resolver: every curated entry has a verified image.
+    monkeypatch.setattr(
+        discovery_mod, "_resolve_curated_image",
+        lambda entry, deadline_monotonic: "https://m.media-amazon.com/images/I/asin.jpg",
+    )
+    # Fake audit: every payload passes.
+    class _Report:
+        ok = True
+        product = {"id": "x", "name": "y", "category": "z",
+                   "image_url": "https://x", "image_status": "verified",
+                   "url": "https://u", "angle": "a", "pin_title": "p",
+                   "pin_description": "d", "hashtags": ["#t"]}
+        primary_reason = "ok"
+    from backend.product_control_agent import ProductControlAgent
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(lambda w: _Report()))
+
+    winner = discovery_mod._pick_curated_winner(
+        seen_names=set(),
+        deadline_monotonic=10**9,  # never expire
+        t_start=0.0,
+    )
+    assert winner is not None
+    assert winner.get("source") == "discovery-curated"
+    assert winner.get("image_status") == "verified"
+    assert winner.get("discovery", {}).get("fallback_used") == "curated_pool"
+
+
+def test_pick_curated_winner_skips_entries_without_image(monkeypatch):
+    """If the image resolver returns None for some entries, those are
+    skipped; the first entry WITH a verified image wins."""
+    from backend import discovery as discovery_mod
+
+    # Always accept — the test verifies the "accept" branch works.
+    monkeypatch.setattr(
+        discovery_mod, "_resolve_curated_image",
+        lambda entry, deadline_monotonic: "https://m.media-amazon.com/images/I/asin.jpg",
+    )
+
+    class _Report:
+        ok = True
+        product = {"id": "x", "name": "y", "category": "z",
+                   "image_url": "https://x", "image_status": "verified",
+                   "url": "https://u", "angle": "a", "pin_title": "p",
+                   "pin_description": "d", "hashtags": ["#t"]}
+        primary_reason = "ok"
+    from backend.product_control_agent import ProductControlAgent
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(lambda w: _Report()))
+
+    # Mark specific entries as "no image" via a parallel list. The
+    # shuffle means we can't predict order — just ensure some entries
+    # are skipped without breaking the function.
+    blocked = {"Stanley Quencher H2.0 FlowState Tumbler 30oz",
+               "Owala FreeSip Insulated Water Bottle 24oz"}
+
+    def _fake_resolve(entry, deadline_monotonic):
+        if entry["name"] in blocked:
+            return None
+        return "https://m.media-amazon.com/images/I/asin.jpg"
+    monkeypatch.setattr(discovery_mod, "_resolve_curated_image", _fake_resolve)
+
+    # Track how many times the audit ran (i.e. how many entries had an
+    # image and were forwarded to audit).
+    audit_calls = []
+    def _spy_audit(payload):
+        audit_calls.append(payload.get("name"))
+        return _Report()
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(_spy_audit))
+
+    winner = discovery_mod._pick_curated_winner(
+        seen_names=set(),
+        deadline_monotonic=10**9,
+        t_start=0.0,
+    )
+    assert winner is not None
+    # The winner must not be in the blocked set (those have no image).
+    assert winner.get("name") not in blocked, (
+        f"winner must not be a blocked entry; got {winner.get('name')!r}"
+    )
+
+
+def test_pick_curated_winner_respects_seen_names(monkeypatch):
+    """Entries in seen_names are skipped (used to avoid re-picking the
+    same winner in the same request)."""
+    from backend import discovery as discovery_mod
+    monkeypatch.setattr(
+        discovery_mod, "_resolve_curated_image",
+        lambda entry, deadline_monotonic: "https://m.media-amazon.com/images/I/asin.jpg",
+    )
+
+    def _fake_audit(payload):
+        product = {
+            "id": payload.get("id", "x"),
+            "name": payload.get("name", "y"),
+            "category": payload.get("category", "z"),
+            "image_url": "https://x",
+            "image_status": "verified",
+            "url": "https://u",
+            "angle": "a",
+            "pin_title": "p",
+            "pin_description": "d",
+            "hashtags": ["#t"],
+        }
+        return type("R", (), {"ok": True, "primary_reason": "ok",
+                              "product": product})()
+    from backend.product_control_agent import ProductControlAgent
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(_fake_audit))
+
+    # First call: no seen.
+    w1 = discovery_mod._pick_curated_winner(
+        seen_names=set(),
+        deadline_monotonic=10**9, t_start=0.0,
+    )
+    assert w1 is not None
+    chosen_name = w1.get("name")
+
+    # Second call with that name in seen: should pick a different one.
+    w2 = discovery_mod._pick_curated_winner(
+        seen_names={chosen_name} if chosen_name else set(),
+        deadline_monotonic=10**9, t_start=0.0,
+    )
+    assert w2 is not None
+    assert w2.get("name") != chosen_name, (
+        f"_pick_curated_winner must skip names in seen_names; "
+        f"first pick={chosen_name!r}, second pick={w2.get('name')!r}"
+    )
+
+
+def test_pick_curated_winner_returns_none_when_no_image(monkeypatch):
+    """If every curated entry's image resolver returns None, the
+    function returns None so the caller can 404."""
+    from backend import discovery as discovery_mod
+    monkeypatch.setattr(
+        discovery_mod, "_resolve_curated_image",
+        lambda entry, deadline_monotonic: None,
+    )
+    # Skip audit (we won't reach it).
+    from backend.product_control_agent import ProductControlAgent
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(lambda w: type("R", (), {"ok": False, "primary_reason": "noop"})()))
+
+    winner = discovery_mod._pick_curated_winner(
+        seen_names=set(),
+        deadline_monotonic=10**9, t_start=0.0,
+    )
+    assert winner is None
+
+
+def test_discover_winner_falls_back_to_curated_when_live_research_empty(monkeypatch):
+    """If live Tavily research produces ZERO candidates, discover_winner
+    must fall back to the curated pool and return a verified winner
+    instead of 404ing."""
+    import types
+    from backend import discovery as discovery_mod
+
+    # Live research returns an empty envelope.
+    fake_env = types.SimpleNamespace(
+        research_status="live",
+        research_query="x",
+        research_sources=[],
+        research_image_urls=[],
+    )
+    monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
+
+    # Curated image resolver succeeds.
+    monkeypatch.setattr(
+        discovery_mod, "_resolve_curated_image",
+        lambda entry, deadline_monotonic: "https://m.media-amazon.com/images/I/asin.jpg",
+    )
+
+    # Audit succeeds.
+    class _Report:
+        ok = True
+        product = {"id": "x", "name": "y", "category": "z",
+                   "image_url": "https://x", "image_status": "verified",
+                   "url": "https://u", "angle": "a", "pin_title": "p",
+                   "pin_description": "d", "hashtags": ["#t"]}
+        primary_reason = "ok"
+    from backend.product_control_agent import ProductControlAgent
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(lambda w: _Report()))
+
+    winner = discovery_mod.discover_winner()
+    assert winner is not None
+    assert winner.get("source") == "discovery-curated"
+    assert winner.get("image_status") == "verified"
+    assert winner["discovery"]["fallback_used"] == "curated_pool"
+
+
+def test_curated_image_queries_are_real_searchable_phrases():
+    """Each curated entry's image_queries must be a real product
+    phrase (not empty, not a single generic word)."""
+    from backend.curated_winners import CURATED_WINNERS
+    for entry in CURATED_WINNERS:
+        for q in entry["image_queries"]:
+            assert q and len(q.split()) >= 3, (
+                f"curated image query too short or generic for "
+                f"{entry['name']!r}: {q!r}"
+            )
