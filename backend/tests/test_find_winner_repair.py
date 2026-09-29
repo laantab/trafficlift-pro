@@ -683,6 +683,26 @@ def test_case_24_pin_uses_pinterest_brand_color():
         "CTA bar must use brand pink/rose colors"
 
 
+
+def test_path_a_preserves_results_scaffold():
+    """PATH A must never clear resultsContent.innerHTML.
+
+    executionOutput, productSummary, and assetOutput are children of
+    resultsContent. Clearing the parent deletes executionOutput before
+    displayWinnerCard() runs, producing a successful backend call with a
+    blank Execution Output panel.
+    """
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    a_start = src.index("async function findWinningProduct(")
+    a_end = src.index("async function analyzeProductUrl(", a_start)
+    a_body = src[a_start:a_end]
+
+    assert "resultsEl.innerHTML = ''" not in a_body
+    assert "displayWinnerCard(winner)" in src
+    assert 'id="executionOutput"' in src
+
+
+
 # ── CLEAN ONE-CLICK REBUILD (fourth repair pass) ──────────────────────────
 
 

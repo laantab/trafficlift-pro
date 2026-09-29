@@ -2384,9 +2384,17 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
         }
         const resultsEl = document.getElementById('resultsContent');
         if (resultsEl) {
-            resultsEl.innerHTML = '';
+            // IMPORTANT: preserve the results scaffold. executionOutput,
+            // productSummary, and assetOutput all live inside resultsContent.
+            // Clearing resultsEl.innerHTML deletes executionOutput itself,
+            // so displayWinnerCard() has nowhere to render even when the
+            // backend and Pinterest generation both succeed.
             resultsEl.classList.add('hidden');
         }
+        const assetOutputEl = document.getElementById('assetOutput');
+        if (assetOutputEl) assetOutputEl.innerHTML = '';
+        const productSummaryEl = document.getElementById('productSummary');
+        if (productSummaryEl) productSummaryEl.classList.add('hidden');
         const inlineErrEl = document.getElementById('productUrlError');
         if (inlineErrEl) {
             inlineErrEl.textContent = '';
