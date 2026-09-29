@@ -469,6 +469,33 @@ def diagnostics_discover_winner() -> dict:
                     "category": first_entry.get("category"),
                     "has_direct_url": bool(first_entry.get("direct_image_url")),
                     "direct_urls_count": len(first_entry.get("direct_image_urls") or [])})
+        # Direct-validate each direct URL ourselves to see if HEAD works
+        from backend.product_control_agent import _validate_image, rank_image_candidates
+        direct_urls = list(first_entry.get("direct_image_urls") or [])
+        if first_entry.get("direct_image_url"):
+            direct_urls.insert(0, first_entry["direct_image_url"])
+        for u in direct_urls:
+            t_v = _t.monotonic()
+            try:
+                chk = _validate_image(u, head_timeout=2.0)
+                log.append({
+                    "step": "direct validate",
+                    "url": u[:80],
+                    "elapsed_ms": round((_t.monotonic() - t_v) * 1000),
+                    "ok": chk.ok,
+                    "reason": chk.reason,
+                    "status": chk.image_status,
+                    "ct": chk.image_content_type,
+                    "bytes": chk.image_bytes,
+                    "http": chk.http_status,
+                })
+            except Exception as exc:
+                log.append({
+                    "step": "direct validate error",
+                    "url": u[:80],
+                    "elapsed_ms": round((_t.monotonic() - t_v) * 1000),
+                    "error": str(exc),
+                })
         # Test _resolve_curated_image
         image = _discovery_mod._resolve_curated_image(first_entry, deadline_monotonic)
         log.append({"step": "_resolve_curated_image result",
