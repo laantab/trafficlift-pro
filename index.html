@@ -1110,7 +1110,6 @@
                         <select id="videoModel" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                             <option value="MiniMax-H3" selected>MiniMax-H3 (quality Â· native audio)</option>
                             <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast Â· native audio)</option>
-                            <option value="MiniMax-Hailuo-2.3">MiniMax-Hailuo-2.3 (cheap Â· silent)</option>
                         </select>
                     </div>
                     <div>
@@ -1137,8 +1136,6 @@
                         <select id="videoResolution" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                             <option value="768P" selected>768P</option>
                             <option value="2K">2K (H3 only)</option>
-                            <option value="480P">480P (H3-Max only)</option>
-                            <option value="1080P">1080P (Hailuo-2.3 6s only)</option>
                         </select>
                     </div>
                 </div>
@@ -1227,9 +1224,46 @@ Scene 3 â€” Call to Action (8-15 seconds): Camera sweeps toward a giant glo
 
 Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, subtle electronic risers building through Scene 2 and peaking at the CTA in Scene 3, a confident professional male voiceover delivering the dialogue in Scene 3, and a clean cinematic mix throughout.`;
 
+    function buildWinnerVideoPrompt(winner) {
+        if (!winner || !winner.name) return VIDEO_DEFAULT_PROMPT;
+        const hook = winner.viral_hook || winner.angle || winner.pin_title || '';
+        const description = winner.pin_description || '';
+        return `Create a polished vertical 9:16 short-form product advertisement for "${winner.name}".
+
+Use the supplied product image as the visual reference. Keep the product recognizable and visually dominant throughout the video. Do not substitute a different product or brand.
+
+Hook: ${hook}
+Product message: ${description}
+
+Scene 1 (0-3s): Immediate close-up product reveal with energetic camera movement and bold premium lighting.
+Scene 2 (3-8s): Show the product in an aspirational real-world use scene while keeping the same product identity and appearance.
+Scene 3 (8-15s): Hero product shot with a clean call to action. End on the exact product, centered and clearly visible.
+
+Style: premium ecommerce ad, realistic product photography, smooth cinematic motion, crisp detail, social-media pacing, no unrelated products, no collage, no UI screenshots.
+
+Audio: upbeat modern commercial music, subtle sound design, and a concise confident voiceover naming the product and its main benefit.`;
+    }
+
+    function syncVideoModelOptions() {
+        const modelEl = document.getElementById('videoModel');
+        const resEl = document.getElementById('videoResolution');
+        if (!modelEl || !resEl) return;
+        const model = modelEl.value;
+        const previous = resEl.value;
+        const allowed = model === 'MiniMax-H3-Max'
+            ? [['768P','768P'], ['480P','480P (H3-Max)']]
+            : [['768P','768P'], ['2K','2K (H3)']];
+        resEl.innerHTML = allowed.map(([v, label]) =>
+            `<option value="${v}">${label}</option>`
+        ).join('');
+        if (allowed.some(([v]) => v === previous)) resEl.value = previous;
+        else resEl.value = '768P';
+    }
+
     function openVideoModal() {
         const promptEl = document.getElementById('videoPrompt');
-        if (!promptEl.value.trim()) promptEl.value = VIDEO_DEFAULT_PROMPT;
+        promptEl.value = buildWinnerVideoPrompt(window.__currentWinner);
+        syncVideoModelOptions();
         updateVideoPromptCount();
         document.getElementById('videoStatus').textContent = '';
         document.getElementById('videoResult').classList.add('hidden');
@@ -1254,6 +1288,9 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
     }
     document.addEventListener('input', (e) => {
         if (e.target && e.target.id === 'videoPrompt') updateVideoPromptCount();
+    });
+    document.addEventListener('change', (e) => {
+        if (e.target && e.target.id === 'videoModel') syncVideoModelOptions();
     });
 
     async function submitVideoRender() {
@@ -1286,7 +1323,14 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
             const r = await fetch(apiUrl('/api/v1/video/generate'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, model, duration, ratio, resolution }),
+                body: JSON.stringify({
+                    prompt,
+                    model,
+                    duration,
+                    ratio,
+                    resolution,
+                    reference_image_url: (window.__currentWinner && window.__currentWinner.image_url) || null,
+                }),
             });
             const data = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
