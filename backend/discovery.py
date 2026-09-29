@@ -901,28 +901,36 @@ def _pick_curated_winner(*, seen_names: set[str],
         logger.warning("[discover] curated pool is empty — fallback disabled")
         return None
 
-    # Build candidate order: shuffle, but skip the most recently picked
-    # names so consecutive clicks surface different winners.
+    # Build candidate order. Priority:
+    #   1. Entries with hardcoded direct_image_url(s) — fastest path,
+    #      guaranteed to work without Tavily. These are tried FIRST so
+    #      PATH A always returns within budget.
+    #   2. Other entries (Tavily image-search path).
+    # Within each priority tier, shuffle to provide variety, but skip
+    # names that were picked very recently (sliding window).
     pool = list(CURATED_WINNERS)
     random.shuffle(pool)
+    fast_pool = [w for w in pool if w.get("direct_image_url") or w.get("direct_image_urls")]
+    slow_pool = [w for w in pool if w not in fast_pool]
 
     # Trim recent window.
     if len(_RECENT_CURATED_NAMES) > CURATED_SEEN_WINDOW:
         _RECENT_CURATED_NAMES = _RECENT_CURATED_NAMES[-CURATED_SEEN_WINDOW:]
     recent_set = set(_RECENT_CURATED_NAMES)
 
-    # First pass: try non-recent entries.
-    first_pass = [w for w in pool if w["name"] not in recent_set and w["name"] not in seen_names]
-    if not first_pass:
-        # Allow repeats if we've exhausted non-recent entries.
-        first_pass = [w for w in pool if w["name"] not in seen_names]
-        if not first_pass:
-            first_pass = pool
+    # First pass: try non-recent entries from FAST pool, then SLOW pool.
+    ordered: list = []
+    for tier in (fast_pool, slow_pool):
+        non_recent = [w for w in tier if w["name"] not in recent_set and w["name"] not in seen_names]
+        ordered.extend(non_recent)
+    # If we filtered out everything, allow repeats within each tier.
+    if not ordered:
+        ordered = list(fast_pool) + list(slow_pool)
 
-    for entry in first_pass:
+    for entry in ordered:
         if time.monotonic() > deadline_monotonic:
             logger.info("[discover] curated: budget exhausted after %d entries",
-                        len(first_pass))
+                        len(ordered))
             return None
         winner = _try_curated_entry(entry, deadline_monotonic, t_start)
         if winner is not None:
