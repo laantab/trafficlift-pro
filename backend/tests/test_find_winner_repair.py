@@ -3663,3 +3663,237 @@ def test_backend_discovery_skips_candidate_without_verified_image(monkeypatch):
         f"got {calls['n']}"
     )
     assert winner.get("source") == "discovery"
+
+
+# ── LIVE TAVILY IMAGES EXTRACTION (added 2026-09-28) ────────────────────
+# Tavily's `images` response field is the PRIMARY source of real product
+# photos. The previous implementation ignored it entirely, leaving
+# `research_image_urls` empty for Tavily responses. The discovery
+# pipeline needs these to qualify candidates with verified product photos.
+
+def test_tavily_images_field_extracted_from_response():
+    """The Tavily provider must surface its dedicated `images` field as
+    ``research_image_urls`` on the returned envelope — this is the
+    primary source of real product photos."""
+    from unittest import mock
+    fake_response = mock.Mock()
+    fake_response.status_code = 200
+    fake_response.json.return_value = {
+        "query": "trending products",
+        "results": [
+            {"title": "Trending Products", "url": "https://example.com/a",
+             "content": "Top picks include ultrasonic facial brush."},
+        ],
+        "images": [
+            "https://cdn.shopify.com/s/files/1/abc/products/brush.jpg",
+            "https://cb.scene7.com/is/image/Crate/gadget_Hero?wid=1440",
+        ],
+    }
+    with mock.patch.dict("os.environ", {"TAVILY_API_KEY": "fake-key-for-test"}), \
+         mock.patch("backend.live_research.requests.post", return_value=fake_response):
+        from backend.live_research import research
+        env = research("trending products")
+
+    assert len(env.research_image_urls) == 2, (
+        f"expected 2 images from Tavily `images` field; got "
+        f"{len(env.research_image_urls)}: {env.research_image_urls}"
+    )
+    assert "https://cdn.shopify.com/" in env.research_image_urls[0]
+    assert "https://cb.scene7.com/" in env.research_image_urls[1]
+
+
+def test_tavily_images_dict_shape_handled():
+    """Tavily's older API shape returns images as ``[{url, description}]``
+    dicts. The extractor must accept both shapes."""
+    from unittest import mock
+    fake_response = mock.Mock()
+    fake_response.status_code = 200
+    fake_response.json.return_value = {
+        "query": "q",
+        "results": [],
+        "images": [
+            {"url": "https://cdn.shopify.com/p1.jpg", "description": "p1"},
+            {"url": "https://m.media-amazon.com/p2.jpg"},
+        ],
+    }
+    with mock.patch.dict("os.environ", {"TAVILY_API_KEY": "fake-key-for-test"}), \
+         mock.patch("backend.live_research.requests.post", return_value=fake_response):
+        from backend.live_research import research
+        env = research("q")
+
+    assert env.research_image_urls == [
+        "https://cdn.shopify.com/p1.jpg",
+        "https://m.media-amazon.com/p2.jpg",
+    ]
+
+
+# ── BROADER PRODUCT SIGNAL (added 2026-09-28) ───────────────────────────
+# Live Tavily results for trending-product queries are mostly listicle /
+# blog titles like "Best Kitchen Gadgets" or "Trending Products". These
+# must be recognized as valid product opportunities.
+
+def test_product_signal_accepts_listicle_titles():
+    """Listicle titles with broad product words ('gadget', 'products',
+    'supplies', 'kit') must pass _has_product_signal so they survive the
+    discovery filter."""
+    from backend.discovery import _has_product_signal
+    assert _has_product_signal("Best Kitchen Gadgets")
+    assert _has_product_signal("Trending Products")
+    assert _has_product_signal("Top Pet Supplies")
+    assert _has_product_signal("Phone Stand")          # singular
+    assert _has_product_signal("Phone Stands")         # plural (stem + s)
+    assert _has_product_signal("Best Coffee Accessories")
+    assert _has_product_signal("Phone Stand Kit")      # 'kit' as whole word
+
+
+def test_product_signal_rejects_brand_or_category_alone():
+    """Single-word brand/category titles must still fail _has_product_signal
+    so we don't return garbage."""
+    from backend.discovery import _has_product_signal
+    assert not _has_product_signal("Kitchen")          # 'kit' is not a whole word here
+    assert not _has_product_signal("Apple")
+    assert not _has_product_signal("")
+
+
+# ── SNIPPET-BASED PRODUCT NAME EXTRACTION (added 2026-09-28) ────────────
+# When a Tavily result has a generic title like "Trending Products", the
+# real product name is typically mentioned in the opening sentences of
+# the snippet. The normalizer should pick it up.
+
+def test_normalize_extracts_product_from_snippet_when_title_generic():
+    """When the title has no product signal, extract a real product
+    phrase from the snippet."""
+    from backend.discovery import _normalize_title
+    snippet = (
+        "Top trending products include the Ultrasonic Silicone Facial "
+        "Cleansing Brush, Mini Air Purifier, and Smart Desk Lamp."
+    )
+    name = _normalize_title("Trending Products", snippet)
+    assert name and "Ultrasonic" in name, (
+        f"expected extracted product name with 'Ultrasonic'; got {name!r}"
+    )
+    assert "Cleansing" in name or "Brush" in name, (
+        f"expected the brush phrase; got {name!r}"
+    )
+
+
+def test_normalize_keeps_good_title_unchanged():
+    """When the title already has product signal, normalization keeps
+    the title even when a snippet is provided."""
+    from backend.discovery import _normalize_title
+    snippet = "Some unrelated mention of a desk lamp somewhere."
+    name = _normalize_title("Rotating Spice Rack Organizer 16 Jars", snippet)
+    assert name == "Rotating Spice Rack Organizer 16 Jars"
+
+
+def test_normalize_handles_snippet_without_product_noun():
+    """If the snippet has no product noun either, fall back to the
+    normalized title (which may itself be rejected upstream by
+    _has_product_signal)."""
+    from backend.discovery import _normalize_title
+    snippet = "A long-form essay about retail industry trends."
+    name = _normalize_title("Trending Products", snippet)
+    # Falls back to title (which is generic) — caller will then
+    # decide based on _has_product_signal.
+    assert name == "Trending Products"
+
+
+# ── HOST WHITELIST EXPANSION (added 2026-09-28) ──────────────────────────
+
+def test_scene7_host_is_product_host():
+    """The Adobe Scene7 CDN is used by Crate & Barrel, Target, and
+    many other retailers. The matcher must recognize any subdomain."""
+    from backend.product_control_agent import (
+        PRODUCT_HOST_SCORES, rank_image_candidates,
+    )
+    assert "scene7.com" in PRODUCT_HOST_SCORES, (
+        "PRODUCT_HOST_SCORES must include scene7.com for Adobe CDN coverage"
+    )
+    score = rank_image_candidates(
+        ["https://cb.scene7.com/is/image/Crate/Hero?wid=1440"],
+        product_name="Kitchen Gadgets",
+        category="Kitchen & Cooking",
+    )
+    assert score and score[0][1] >= 25, (
+        f"scene7.com URLs must clear MIN_PRODUCT_IMAGE_SCORE=25; "
+        f"got {score[0][1] if score else None}"
+    )
+
+
+def test_alidropship_host_is_product_host():
+    """aliDropship.com hosts legitimate product imagery at wp-content
+    paths; the host bonus offsets the lifestyle-path penalty so
+    well-named URLs (matching the candidate name) clear the threshold."""
+    from backend.product_control_agent import (
+        PRODUCT_HOST_SCORES, rank_image_candidates,
+    )
+    assert "alidropship.com" in PRODUCT_HOST_SCORES
+    # With filename match, total should pass threshold.
+    score = rank_image_candidates(
+        ["https://alidropship.com/wp-content/uploads/2025/07/Ultrasonic-Silicone-Facial-Cleansing-Brush.webp"],
+        product_name="Ultrasonic Silicone Facial Cleansing Brush",
+        category="Beauty",
+    )
+    assert score and score[0][1] >= 25, (
+        f"aliDropship URL with filename match must clear threshold; "
+        f"got {score[0][1] if score else None}"
+    )
+
+
+# ── DISCOVERY HAPPY PATH WITH PRE-FETCHED IMAGES (added 2026-09-28) ─────
+# The end-to-end discovery pipeline must succeed when:
+#   - one candidate is normalized with a real product name
+#   - the Tavily pre-fetched image list contains a high-scoring URL
+#   - the cascade path is not exercised (pre-fetched is accepted first)
+
+def test_discover_winner_uses_prefetched_image_first(monkeypatch):
+    """If the Tavily envelope's research_image_urls contains a high-scoring
+    image, discover_winner must use it WITHOUT running the cascade."""
+    import types
+    from backend import discovery as discovery_mod
+    from backend.product_control_agent import ProductControlAgent
+
+    # Real-shape envelope with research_image_urls populated.
+    fake_sources = [
+        {"title": "LED Desk Lamp with USB Port", "url": "https://example.com/lamp",
+         "snippet": "A real product for office desks.",
+         "content": "Desk lighting."},
+    ]
+    fake_image_urls = [
+        "https://m.media-amazon.com/images/I/asin.jpg",
+    ]
+    fake_env = types.SimpleNamespace(
+        research_status="live",
+        research_query="trending desk gadgets",
+        research_sources=fake_sources,
+        research_image_urls=fake_image_urls,
+    )
+    monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
+
+    # Spy on _find_image_for_candidate to confirm pre-fetched is used.
+    captured = {"called": 0, "pre_count": 0}
+    def _spy(card, intent="", tavily_image_urls=None):
+        captured["called"] += 1
+        captured["pre_count"] = len(tavily_image_urls or [])
+        # Return verified URL if a pre-fetched image was supplied.
+        if tavily_image_urls:
+            return tavily_image_urls[0]
+        return None
+    monkeypatch.setattr(discovery_mod, "_find_image_for_candidate", _spy)
+
+    class _Report:
+        ok = True
+        product = {"id": "x", "name": "y", "category": "z",
+                   "image_url": "https://x", "image_status": "verified",
+                   "url": "https://u"}
+        primary_reason = "ok"
+    monkeypatch.setattr(ProductControlAgent, "evaluate",
+                        staticmethod(lambda w: _Report()))
+
+    winner = discovery_mod.discover_winner()
+
+    assert captured["pre_count"] >= 1, (
+        "pre-fetched Tavily images must be passed to _find_image_for_candidate"
+    )
+    assert winner.get("source") == "discovery"
+    assert winner.get("image_status") == "verified"

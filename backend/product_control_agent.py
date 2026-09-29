@@ -144,16 +144,30 @@ PRODUCT_HOST_SCORES: dict[str, int] = {
     "gdx-assets.costco.com": 55,
     "img.kentfaith.com": 35,
     "www.4allpromos.com": 30,
+    # Adobe Scene7 CDN — used by Crate & Barrel, Target, Williams Sonoma,
+    # Sur La Table, and many other retailers. URLs look like
+    # ``cb.scene7.com/is/image/Crate/...`` and are dynamic CDN-served
+    # product photos (typically large JPG/WEBP, no scenery). The
+    # ``scene7.com`` key matches every subdomain via the
+    # ``host.endswith(".scene7.com")`` matcher.
+    "scene7.com": 35,
     # Shopify-hosted product images (most retailers render a single product
     # shot for these).
     "cdn.shopify.com": 35,
-    "www.progressivedesk.com": 25,
+    "progressivedesk.com": 30,
+    "www.progressivedesk.com": 30,
     "carlsonpetproducts.com": 25,
     "www.letifly.com": 25,
     "www.pamperedchef.com": 25,
     "jasonmarkk.com": 25,
     "speedcleaning.com": 25,
     "slickproductsusa.com": 25,
+    # AliDropship hosts a large library of product imagery at
+    # ``/wp-content/uploads/...`` paths. We still apply the wp-content
+    # lifestyle-path penalty, but a strong host bonus offsets it so
+    # well-named URLs (matching the candidate product name) clear the
+    # threshold.
+    "alidropship.com": 40,
     # Generic / unknown hosts — neutral.
 }
 LIFESTYLE_HOST_SCORES: dict[str, int] = {

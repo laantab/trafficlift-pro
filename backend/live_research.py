@@ -97,10 +97,18 @@ def _is_tavily_configured() -> bool:
     return bool(os.getenv("TAVILY_API_KEY", "").strip())
 
 
-def _query_tavily(query: str, max_results: int) -> list[ResearchSource]:
-    """Hit the Tavily API. Returns [] on any failure (caller maps to fallback)."""
+def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], list[str]]:
+    """Hit the Tavily API. Returns (results, image_urls).
+
+    The image_urls come from Tavily's `images` response field (enabled by
+    `include_images: True`). This is the PRIMARY way real product photos
+    get into our pipeline — article URLs in `results` rarely end in
+    image extensions, so we MUST extract the dedicated `images` field.
+
+    Returns ([], []) on any failure (caller maps to fallback).
+    """
     if not _is_tavily_configured():
-        return []
+        return [], []
     api_key = os.getenv("TAVILY_API_KEY", "").strip()
     try:
         resp = requests.post(
@@ -111,14 +119,14 @@ def _query_tavily(query: str, max_results: int) -> list[ResearchSource]:
                 "max_results": max_results,
                 "search_depth": "basic",
                 "include_answer": False,
-                "include_images": True,   # also surface image URLs for candidate enrichment
+                "include_images": True,   # surface image URLs for candidate enrichment
                 "topic": "general",
             },
             timeout=DEFAULT_TIMEOUT,
         )
         if resp.status_code != 200:
             logger.warning("Tavily HTTP %s: %s", resp.status_code, resp.text[:200])
-            return []
+            return [], []
         data = resp.json()
         results = data.get("results") or []
         out: list[ResearchSource] = []
@@ -131,14 +139,30 @@ def _query_tavily(query: str, max_results: int) -> list[ResearchSource]:
                     provider="tavily",
                 )
             )
-        return out
+        # Extract the dedicated `images` field. Tavily returns it as a
+        # list of plain URL strings (newer API) OR a list of
+        # ``{url, description}`` dicts (older API). Handle both.
+        images: list[str] = []
+        for img in (data.get("images") or []):
+            u: Optional[str] = None
+            if isinstance(img, str):
+                u = img.strip()
+            elif isinstance(img, dict):
+                for k in ("url", "image", "src", "image_url"):
+                    v = img.get(k)
+                    if isinstance(v, str) and v.strip():
+                        u = v.strip()
+                        break
+            if u and u.startswith(("http://", "https://")) and u not in images:
+                images.append(u)
+        return out, images
     except Exception as exc:
         logger.warning("Tavily request failed: %s", exc)
-        return []
+        return [], []
 
 
-def _query_duckduckgo(query: str, max_results: int) -> list[ResearchSource]:
-    """Zero-key DuckDuckGo HTML scrape. Returns [] on any failure."""
+def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource], list[str]]:
+    """Zero-key DuckDuckGo HTML scrape. Returns (results, image_urls)."""
     try:
         resp = requests.post(
             DDG_ENDPOINT,
@@ -152,7 +176,7 @@ def _query_duckduckgo(query: str, max_results: int) -> list[ResearchSource]:
         )
         if resp.status_code != 200:
             logger.warning("DDG HTTP %s", resp.status_code)
-            return []
+            return [], []
 
         from bs4 import BeautifulSoup  # local import — keep top-level clean
 
@@ -189,10 +213,14 @@ def _query_duckduckgo(query: str, max_results: int) -> list[ResearchSource]:
                     provider="duckduckgo",
                 )
             )
-        return out
+        # DDG HTML rarely exposes direct image URLs in the result list,
+        # but some result URLs DO end in image extensions. Defer to the
+        # same defensive scan we use for Tavily sources.
+        image_urls = _collect_image_urls_from_sources(out)
+        return out, image_urls
     except Exception as exc:
         logger.warning("DDG request failed: %s", exc)
-        return []
+        return [], []
 
 
 def _summarize_sources(query: str, sources: list[ResearchSource]) -> str:
@@ -243,6 +271,10 @@ def research(
 
     Never fabricates sources or summary text — ``research_summary`` is always
     derived from real returned snippets.
+
+    The returned envelope's ``research_image_urls`` is populated from the
+    provider's dedicated images field (Tavily `images`, DDG URL-extension
+    scan) — NOT just from URLs embedded in the text result URLs.
     """
     q = (query or "").strip()
     if not q:
@@ -256,24 +288,32 @@ def research(
 
     # 1. Tavily
     if _is_tavily_configured():
-        tav_hits = _query_tavily(q, max_results)
-        if tav_hits:
-            tav_images = _collect_image_urls_from_sources(tav_hits)
+        tav_hits, tav_images = _query_tavily(q, max_results)
+        # Accept the Tavily response when EITHER results OR images are
+        # non-empty. Some Tavily responses return images without text
+        # results (or vice versa) and we still want the data we got.
+        if tav_hits or tav_images:
+            # Defensive: also pick up any image URLs hidden in result URLs
+            # (covers rare older Tavily responses without a dedicated
+            # images field).
+            for u in _collect_image_urls_from_sources(tav_hits):
+                if u not in tav_images:
+                    tav_images.append(u)
             return ResearchEnvelope(
                 research_status="live" if len(tav_hits) >= 3 else "partial",
                 research_timestamp=_now_iso(),
                 research_provider="tavily",
                 research_sources=[asdict(s) for s in tav_hits],
-                research_summary=_summarize_sources(q, tav_hits),
+                research_summary=_summarize_sources(q, tav_hits) if tav_hits
+                                else f"Tavily returned {len(tav_images)} image(s) for '{q}'.",
                 research_query=q,
                 research_image_urls=tav_images,
             )
         logger.info("Tavily returned no hits, falling back to DuckDuckGo")
 
     # 2. DuckDuckGo fallback
-    ddg_hits = _query_duckduckgo(q, max_results)
+    ddg_hits, ddg_images = _query_duckduckgo(q, max_results)
     if ddg_hits:
-        ddg_images = _collect_image_urls_from_sources(ddg_hits)
         return ResearchEnvelope(
             research_status="live" if len(ddg_hits) >= 3 else "partial",
             research_timestamp=_now_iso(),

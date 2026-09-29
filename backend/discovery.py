@@ -111,7 +111,24 @@ def _looks_like_article(title: str, snippet: str) -> bool:
     return False
 
 
-def _normalize_title(raw_title: str) -> Optional[str]:
+def _has_specific_product_signal(name: str) -> bool:
+    """True if the name contains at least one SPECIFIC product noun.
+
+    Used by the title normalizer: if the title ONLY has generic stems
+    (``product``, ``item``, ``kit``, ``set``, …) and no specific stem
+    (``brush``, ``lamp``, ``organizer``, …), treat the title as a
+    SEO-only phrase and try to extract a better name from the snippet.
+    """
+    if not name:
+        return False
+    low = name.lower()
+    for stem in _SPECIFIC_NOUN_STEMS:
+        if re.search(_stem_pattern(stem), low):
+            return True
+    return False
+
+
+def _normalize_title(raw_title: str, snippet: str = "") -> Optional[str]:
     """Clean a raw Tavily title into a usable product name.
 
     Strips common noise patterns:
@@ -119,6 +136,12 @@ def _normalize_title(raw_title: str) -> Optional[str]:
       - ' : Amazon.com' suffix
       - leading list markers ('Top 10…', 'Best 5…')
       - trailing '... [Review]' style suffixes
+
+    If the resulting title has only GENERIC product signal (e.g.
+    "Trending Products" — has "products" but no concrete noun like
+    "brush"), try to extract a concrete product name from the snippet.
+    Listicle articles typically name their top picks in the opening
+    sentences.
     """
     if not raw_title:
         return None
@@ -136,7 +159,147 @@ def _normalize_title(raw_title: str) -> Optional[str]:
     t = t.strip().strip('"').strip("'").strip()
     if not t or len(t) < 6 or len(t) > 150:
         return None
+    # If the title has NO specific product signal (only generic stems
+    # like "products" / "items") AND a snippet is available, try to
+    # extract a real product phrase from the snippet.
+    if not _has_specific_product_signal(t) and snippet:
+        extracted = _extract_product_phrase_from_snippet(snippet)
+        if extracted and len(extracted) >= 6 and len(extracted) <= 120:
+            return extracted
     return t
+
+
+def _extract_product_phrase_from_snippet(snippet: str) -> Optional[str]:
+    """Find a product-noun-bearing phrase in the snippet.
+
+    Looks for the first occurrence of a SPECIFIC product noun in the
+    snippet and returns a short surrounding phrase (up to ~6 words,
+    capitalized as in the snippet). Generic stems (``product``,
+    ``item``, ``kit``, ``set``, …) are only used as a fallback when no
+    specific stem is found — otherwise the extractor would latch onto
+    "products" in phrases like "Top trending products" and miss the
+    actual product name mentioned later.
+
+    Returns None if no product noun is found anywhere in the snippet.
+    """
+    if not snippet:
+        return None
+    low = snippet.lower()
+    # Try SPECIFIC stems first (most concrete product types).
+    specific_stems = _SPECIFIC_NOUN_STEMS
+    best_pos, best_stem = _find_first_stem(low, specific_stems)
+    if best_pos < 0:
+        # Fall back to GENERIC stems only if no specific match.
+        generic_stems = _GENERIC_NOUN_STEMS
+        best_pos, best_stem = _find_first_stem(low, generic_stems)
+    if best_pos < 0:
+        return None
+    # Slice the snippet around the match: take up to 5 words BEFORE and
+    # 1 word AFTER the stem, capped at ~60 chars total. We DO walk
+    # through whitespace — we only stop at sentence punctuation
+    # (period, semicolon, exclamation, question mark) so the phrase
+    # stays within a single sentence fragment.
+    sentence_breaks = {".", ";", "!", "?", "\n"}
+    start = best_pos
+    words_before = 0
+    while start > 0 and snippet[start - 1] not in sentence_breaks and \
+            words_before < 5 and (best_pos - start) < 60:
+        # Walk backward through a single whitespace-delimited word.
+        # First, skip any whitespace.
+        while start > 0 and snippet[start - 1] in " \t":
+            start -= 1
+        # Now walk backward through the word chars until whitespace or
+        # a sentence break.
+        while start > 0 and snippet[start - 1] not in " \t" and \
+                snippet[start - 1] not in sentence_breaks:
+            start -= 1
+        words_before += 1
+    end = best_pos + len(best_stem)
+    words_after = 0
+    while end < len(snippet) and snippet[end] not in sentence_breaks and \
+            words_after < 1 and (end - best_pos) < 40:
+        # Skip whitespace, then walk through the next word.
+        while end < len(snippet) and snippet[end] in " \t":
+            end += 1
+        while end < len(snippet) and snippet[end] not in " \t" and \
+                snippet[end] not in sentence_breaks:
+            end += 1
+        words_after += 1
+    phrase = snippet[start:end].strip(" .,;:!?\"'")
+    if not phrase or len(phrase) < 6:
+        return None
+    # Drop leading articles / fillers that wouldn't make a good product
+    # name (e.g. "include the Ultrasonic Brush" → "Ultrasonic Brush").
+    words = phrase.split()
+    drop = {"a", "an", "the", "and", "or", "include", "includes",
+            "with", "featuring", "like", "such", "as"}
+    while words and words[0].lower() in drop:
+        words.pop(0)
+    if not words:
+        return None
+    phrase = " ".join(words)
+    if len(phrase) < 6:
+        return None
+    # Title-case the phrase nicely.
+    out_words = []
+    for i, w in enumerate(words):
+        if i == 0:
+            out_words.append(w[:1].upper() + w[1:])
+        elif w.lower() in {"a", "an", "the", "and", "or", "for", "with",
+                           "to", "of", "in", "on", "at", "by"}:
+            out_words.append(w.lower())
+        else:
+            out_words.append(w[:1].upper() + w[1:])
+    return " ".join(out_words)
+
+
+def _find_first_stem(low: str, stems: tuple) -> tuple:
+    """Return (position, stem) of the first stem occurrence in ``low``
+    text, or (-1, "") if none match."""
+    best_pos = -1
+    best_stem = ""
+    for stem in stems:
+        m = re.search(_stem_pattern(stem), low)
+        if m and (best_pos == -1 or m.start() < best_pos):
+            best_pos = m.start()
+            best_stem = stem
+            if best_pos == 0:
+                break
+    return best_pos, best_stem
+
+
+# Specific (concrete) product types — used first by the snippet extractor
+# so we prefer concrete nouns like "brush", "lamp", "mug" over generic
+# words like "products", "items", "kit".
+_SPECIFIC_NOUN_STEMS = (
+    "lamp", "light", "organizer", "rack", "stand", "holder", "shelf",
+    "charger", "cable", "speaker", "headphone", "earbud", "mat",
+    "brush", "scrubber", "vacuum", "mop", "spray", "towel", "bed",
+    "bowl", "feeder", "leash", "collar", "mug", "cup", "knife",
+    "pan", "pot", "tray", "stool", "chair", "desk", "monitor",
+    "keyboard", "mouse", "router", "hub", "adapter", "pillow",
+    "blanket", "duvet", "sheet", "filter", "purifier", "fan",
+    "heater", "cooler", "bottle", "flask", "jug", "pitcher",
+    "thermos", "kettle", "blender", "mixer", "grill", "fryer",
+    "oven", "stove", "fridge", "freezer", "washer", "dryer",
+    "drill", "saw", "screwdriver", "hammer", "wrench", "tool",
+    "bag", "backpack", "wallet", "purse", "belt", "watch",
+    "ring", "necklace", "earring", "bracelet", "scarf", "hat",
+    "glove", "sock", "shoe", "boot", "sandal", "sneaker",
+    "shirt", "pants", "dress", "jacket", "coat", "sweater",
+    "hoodie", "cushion", "sofa", "table", "mirror",
+    "gadget", "supplies", "gear", "equipment",
+    "device", "machine", "system",
+)
+
+
+# Generic stems — only used as fallback in the snippet extractor. Kept
+# separate so the extractor can prefer specific nouns.
+_GENERIC_NOUN_STEMS = (
+    "product", "item", "kit", "set", "bundle",
+    "accessory", "solution", "essential",
+    "innovation", "necessity",
+)
 
 
 def _derive_product_type(name: str) -> Optional[str]:
@@ -154,6 +317,9 @@ def _derive_product_type(name: str) -> Optional[str]:
         "keyboard", "mouse", "router", "hub", "adapter", "pillow",
         "blanket", "duvet", "sheet", "filter", "purifier", "fan",
         "heater", "cooler", "bottle", "flask", "jug", "pitcher",
+        # Broader nouns from listicle titles
+        "gadget", "gadgets", "product", "products", "kit", "set",
+        "accessory", "accessories", "tool", "tools", "supplies",
     )
     for t in TYPE_TOKENS:
         if re.search(r"\b" + re.escape(t) + r"\b", low):
@@ -196,12 +362,47 @@ def _infer_category(name: str) -> str:
     return "Trending General"
 
 
+def _stem_pattern(stem: str) -> str:
+    """Return a whole-word regex pattern that matches the stem AND its
+    common English plurals (``stand`` → ``stands``, ``accessory`` →
+    ``accessories``, ``box`` → ``boxes``).
+    """
+    if stem.endswith("y"):
+        # y → ies plural (e.g. accessory → accessories)
+        return r"\b" + re.escape(stem[:-1]) + r"(?:y|ies)\b"
+    if stem.endswith(("s", "x", "z", "sh", "ch")):
+        return r"\b" + re.escape(stem) + r"(?:es|s)?\b"
+    return r"\b" + re.escape(stem) + r"(?:s|es)?\b"
+
+
 def _has_product_signal(name: str) -> bool:
-    """True if the name contains at least one product-ish noun."""
+    """True if the name contains at least one product-ish noun.
+
+    The list combines three layers:
+      1. Specific product nouns (lamp, organizer, mug, ...)
+      2. Broader product signals (gadget, product, kit, accessory, ...)
+
+    Tier 2 is included because live Tavily results for discovery queries
+    frequently have generic listicle titles like "Best Kitchen Gadgets"
+    or "Top Pet Products". Rejecting those means we'd miss the actual
+    product-rich source pages.
+
+    Single-word phrases like "Kitchen" or "Apple" (brand/category alone,
+    no product signal) still fail — they don't contain ANY product
+    noun or specific broad signal.
+
+    Match is **whole-word** so ``"kit"`` does NOT match inside
+    ``"kitchen"``, ``"mat"`` does NOT match inside ``"format"``.
+
+    Each stem is matched against itself AND its plural (``stand`` →
+    ``stands``, ``accessory`` → ``accessories``) so listicle titles
+    like "Top 10 Phone Stands" and "Best Coffee Accessories" pass.
+    """
     if not name:
         return False
     low = name.lower()
-    PRODUCT_NOUNS = (
+    PRODUCT_NOUN_STEMS = (
+        # Specific product types
         "lamp", "light", "organizer", "rack", "stand", "holder", "shelf",
         "charger", "cable", "speaker", "headphone", "earbud", "mat",
         "brush", "scrubber", "vacuum", "mop", "spray", "towel", "bed",
@@ -217,10 +418,17 @@ def _has_product_signal(name: str) -> bool:
         "ring", "necklace", "earring", "bracelet", "scarf", "hat",
         "glove", "sock", "shoe", "boot", "sandal", "sneaker",
         "shirt", "pants", "dress", "jacket", "coat", "sweater",
-        "hoodie", "pillow", "cushion", "sofa", "bed", "desk",
-        "table", "chair", "lamp", "mirror",
+        "hoodie", "cushion", "sofa", "table", "mirror",
+        # Broader product signals — listicle/blog titles contain these
+        "gadget", "product", "item", "kit", "set", "bundle",
+        "accessory", "supplies", "gear", "equipment",
+        "solution", "device", "machine", "system", "essential",
+        "tool", "innovation", "necessity",
     )
-    return any(w in low for w in PRODUCT_NOUNS)
+    for stem in PRODUCT_NOUN_STEMS:
+        if re.search(_stem_pattern(stem), low):
+            return True
+    return False
 
 
 def _score_candidate(card: ProductCard, evidence_count: int) -> int:
@@ -285,7 +493,7 @@ def _build_candidates_from_envelope(
         if _looks_like_article(raw_title, snippet):
             logger.info("[discover] reject article/blog: %r", raw_title[:80])
             continue
-        name = _normalize_title(raw_title)
+        name = _normalize_title(raw_title, snippet)
         if not name:
             continue
         # Reject if the name has no product noun signal at all.
@@ -362,17 +570,52 @@ def _build_candidates_from_envelope(
 
 # ── Image discovery for a candidate ─────────────────────────────────────
 
+# Cap how many pre-fetched Tavily images we validate per candidate. This
+# keeps the worst-case validation work bounded:
+#   8 candidates × 5 images × 2s HEAD = 80s worst case if all time out.
+# We cap at 4 (enough to surface the top picks from Tavily) and STOP
+# validating as soon as we find a strong image.
+MAX_PREFETCHED_IMAGES_PER_CANDIDATE = 4
+
+# Per-URL HEAD timeout for discovery. Shorter than the 3s default so a
+# dead CDN cannot blow the discovery budget.
+DISCOVERY_IMAGE_HEAD_TIMEOUT = 2.0
+
+
 def _find_image_for_candidate(card: ProductCard, intent: str = "",
                                 tavily_image_urls: Optional[list[str]] = None) -> Optional[str]:
-    """Run the existing image cascade for one candidate.
+    """Find a verified product image for one candidate.
 
-    Returns a verified URL or None. Does NOT mutate the card.
+    Strategy (ordered by speed and quality):
+      1. **Tavily pre-fetched images** — these came back in the SAME
+         request that surfaced this candidate. Tavily's image ranking is
+         high quality, and they're already on Tavily's CDN. Validate +
+         rank them; accept the first one above ``MIN_PRODUCT_IMAGE_SCORE``.
+      2. **Image cascade** — run ``build_image_query_cascade`` and
+         Tavily-image-search each variant. Bounded by
+         ``MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE``.
+      3. Return None if neither yields a verified, scored image.
 
-    If the cascade fails to surface a high-scoring image, falls back to
-    Tavily's pre-fetched image_urls from the original research query
-    (those are typically the article hero images and may be product
-    shots).
+    This is faster than running a full cascade on every candidate (we
+    only call Tavily-image-search as a fallback), and it surfaces the
+    best images Tavily already curated.
     """
+    # ── STEP 1: try pre-fetched Tavily images first ─────────────────────
+    pre_urls = list(tavily_image_urls or []) if tavily_image_urls else []
+    pre_urls = pre_urls[:MAX_PREFETCHED_IMAGES_PER_CANDIDATE]
+    pre_verified = _validate_and_rank(
+        pre_urls, card.name, card.category or "",
+        head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+    )
+    if pre_verified:
+        url, score = pre_verified
+        logger.info(
+            "[discover] image from pre-fetched tavily card=%r score=%d url=%s",
+            card.name[:60], score, url[:80],
+        )
+        return url
+
+    # ── STEP 2: cascade fallback ───────────────────────────────────────
     cascade = build_image_query_cascade(
         product_name=card.name,
         category=card.category or "",
@@ -380,7 +623,6 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "",
     )
     if not cascade:
         return None
-    # Cap at MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE
     cascade = cascade[:MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE]
 
     candidate_urls: list[str] = []
@@ -397,41 +639,48 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "",
             seen.add(u)
             candidate_urls.append(u)
 
-    # Fallback: also try Tavily's pre-fetched images from research.
-    if tavily_image_urls:
-        for u in tavily_image_urls:
-            if u and u not in seen:
-                seen.add(u)
-                candidate_urls.append(u)
+    cascade_verified = _validate_and_rank(
+        candidate_urls, card.name, card.category or "",
+        head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+    )
+    if cascade_verified:
+        url, score = cascade_verified
+        logger.info(
+            "[discover] image from cascade card=%r score=%d url=%s",
+            card.name[:60], score, url[:80],
+        )
+        return url
 
-    # Validate and rank.
+    logger.info("[discover] no verified image card=%r (pre=%d cascade=%d)",
+                card.name[:60], len(pre_urls), len(candidate_urls))
+    return None
+
+
+def _validate_and_rank(urls: list[str], name: str, category: str,
+                       *, head_timeout: float = DISCOVERY_IMAGE_HEAD_TIMEOUT
+                       ) -> Optional[tuple[str, int]]:
+    """Validate each URL via HEAD, then rank the survivors. Return the
+    best (url, score) above ``MIN_PRODUCT_IMAGE_SCORE`` or None."""
+    if not urls:
+        return None
     validated: list[tuple[str, object]] = []
-    for u in candidate_urls:
+    for u in urls:
         try:
-            check = _validate_image(u, timeout=3.0)
+            check = _validate_image(u, timeout=head_timeout)
         except Exception as exc:
             logger.info("[discover] validate error for %s: %s", u[:80], exc)
             continue
         if check and check.ok:
             validated.append((u, check))
-
     if not validated:
         return None
-    ranked = rank_image_candidates(validated, card.name, card.category or "")
+    ranked = rank_image_candidates(validated, name, category)
     if not ranked:
         return None
     best_url, best_score = ranked[0]
     if best_score < MIN_PRODUCT_IMAGE_SCORE:
-        logger.info(
-            "[discover] image below threshold card=%r best_score=%d",
-            card.name[:60], best_score,
-        )
         return None
-    logger.info(
-        "[discover] image accepted card=%r score=%d url=%s",
-        card.name[:60], best_score, best_url[:80],
-    )
-    return best_url
+    return best_url, best_score
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
