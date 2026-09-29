@@ -22,4 +22,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest tree-sitter tree-sitter-javascript
       - name: Run Find Winner regression suite
-        run: python -m pytest backend/tests/test_find_winner_repair.py -q
+        run: |
+          mkdir -p video
+          python -m pytest backend/tests/test_find_winner_repair.py -q
