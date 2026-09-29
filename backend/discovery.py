@@ -48,11 +48,13 @@ logger = logging.getLogger(__name__)
 MAX_DISCOVERY_RESEARCH_QUERIES = 5
 MAX_DISCOVERY_CANDIDATES = 8
 MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE = 3
-DISCOVERY_REQUEST_BUDGET_SECONDS = 18.0
+DISCOVERY_REQUEST_BUDGET_SECONDS = 19.0
 
 # How long the live-research phase may consume before we cut over to
-# the curated pool. Keeps the curated fallback from starving.
-LIVE_PHASE_BUDGET_SECONDS = 10.0
+# the curated pool. Keeps the curated fallback from starving. With
+# 5s live, curated gets ~14s — enough for ~5 curated entries (each
+# takes ~2s for Tavily image-search + validation + audit).
+LIVE_PHASE_BUDGET_SECONDS = 5.0
 
 # Cap on consecutive duplicate curated picks before we resample.
 # Real users typically refresh only a few times per session, so this
@@ -992,6 +994,26 @@ def _resolve_curated_image(entry: CuratedWinner,
     to keep the validation cost bounded — each HEAD validation can
     take up to ``DISCOVERY_IMAGE_HEAD_TIMEOUT`` seconds.
     """
+    # Fast path: try the hardcoded `direct_image_url` / `direct_image_urls`
+    # first. These are real CDN URLs (Shopify, Amazon, scene7, etc.) that
+    # have been hand-verified for stability. If HEAD returns ok=True, we
+    # return immediately — no Tavily call, no scoring delay.
+    direct_urls = list(entry.get("direct_image_urls") or [])
+    if entry.get("direct_image_url"):
+        direct_urls.insert(0, entry["direct_image_url"])
+    if direct_urls:
+        verified = _validate_and_rank(
+            direct_urls, entry["name"], entry.get("category") or "",
+            head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+        )
+        if verified:
+            logger.info(
+                "[discover] curated image from direct hardcoded URL for %r",
+                entry["name"][:60],
+            )
+            return verified[0]
+
+    # Normal path: Tavily image-search with the curated queries.
     queries = entry.get("image_queries") or []
     if not queries:
         return None

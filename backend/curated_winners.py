@@ -30,6 +30,8 @@ class CuratedWinner(TypedDict, total=False):
     source_label: str        # "Amazon", "Walmart", "Temu", "Shopify"
     source_url: str
     image_queries: list[str] # tried in order — first hit wins
+    direct_image_url: str    # hardcoded last-resort image URL (verified)
+    direct_image_urls: list[str]  # multiple hardcoded fallbacks (verified)
     angle_options: list[str]
     pin_title_options: list[str]
     pin_description_options: list[str]
@@ -52,6 +54,11 @@ CURATED_WINNERS: list[CuratedWinner] = [
         "category": "Kitchen & Dining",
         "source_label": "Amazon Best Seller",
         "source_url": "https://www.amazon.com/Best-Sellers-Kitchen-Dining/zgbs/kitchen",
+        "direct_image_url": "https://m.media-amazon.com/images/I/71oa+k5-vHL.jpg",
+        "direct_image_urls": [
+            "https://www.stanley1913.com/cdn/shop/files/Web_PNG_Square-TheQuencherH2.0FlowStateTumbler30OZ-Daffodil-Front.png?v=17691",
+            "https://m.media-amazon.com/images/I/71oa+k5-vHL.jpg",
+        ],
         "image_queries": [
             "Stanley Quencher H2.0 FlowState Tumbler 30oz product photo",
             "Stanley Quencher H2.0 Tumbler Peony stainless steel",
@@ -607,6 +614,7 @@ CURATED_WINNERS: list[CuratedWinner] = [
         "category": "Aesthetic Home Decor",
         "source_label": "Temu Viral Hit",
         "source_url": "https://trend-finds.shop/blog/best-temu-home-gadgets-2026",
+        "direct_image_url": "https://www.ltdcommodities.com/cdn/shop/files/Sunet_Projection_Lamp_Projection_Lamp_2125336_zm_8eab7da8-5216-4d90-93a7-a0d4276b8a14.jpg?v=1755371710",
         "image_queries": [
             "Sunset Projection Lamp product photo",
             "Sunset lamp rainbow projection LED room decor",
