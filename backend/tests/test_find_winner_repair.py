@@ -3844,15 +3844,13 @@ def test_normalize_keeps_good_title_unchanged():
 
 
 def test_normalize_handles_snippet_without_product_noun():
-    """If the snippet has no product noun either, fall back to the
-    normalized title (which may itself be rejected upstream by
-    _has_product_signal)."""
+    """If neither title nor snippet identifies one concrete product,
+    normalization must reject the candidate instead of returning a
+    generic roundup title."""
     from backend.discovery import _normalize_title
     snippet = "A long-form essay about retail industry trends."
     name = _normalize_title("Trending Products", snippet)
-    # Falls back to title (which is generic) — caller will then
-    # decide based on _has_product_signal.
-    assert name == "Trending Products"
+    assert name is None
 
 
 # ── HOST WHITELIST EXPANSION (added 2026-09-28) ──────────────────────────
