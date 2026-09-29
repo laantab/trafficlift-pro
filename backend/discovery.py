@@ -134,6 +134,7 @@ def _looks_like_article(title: str, snippet: str) -> bool:
         r"\btrending\s+products?\b",
         r"\bbest\s+products?\b",
         r"\bproduct\s+ideas?\b",
+        r"\b(?:best|top|trending|viral)\b.*\b(?:gadgets?|tools?|accessories|supplies|products?|items?)\b.*\b20\d{2}\b",
         r"\broundup\b",
         r"\bbest\s+sellers?\b",
     )
