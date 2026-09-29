@@ -89,7 +89,7 @@ class MiniMaxVideoClient:
     async / frontend-polling patterns.
     """
 
-    BASE_URL = "https://api.minimax.io/v2"
+    BASE_URL = "https://api.minimax.io"
 
     SUPPORTED_MODELS = {
         # model:        (min, max) duration, allowed ratios, allowed resolutions
@@ -203,11 +203,11 @@ class MiniMaxVideoClient:
             # Reference-to-video content item (H3 / H3-Max).
             payload["content"].append({
                 "type": "image_url",
-                "image_url": reference_image_url,
+                "image_url": {"url": reference_image_url},
                 "role": "reference_image",
             })
 
-        url = f"{self.base_url}/video_generation"
+        url = f"{self.base_url}/v2/video_generation"
         logger.info("MiniMax submit model=%s duration=%ss ratio=%s res=%s",
                     model, duration, ratio, resolution)
 
@@ -245,18 +245,22 @@ class MiniMaxVideoClient:
     # ── Public: query ─────────────────────────────────────────────────────────
 
     def query(self, task_id: str, model: Optional[str] = None) -> VideoTask:
-        """
-        Look up the current status of a previously-submitted task.
-        Returns a fresh VideoTask snapshot (status, video_url if done, etc.).
-        """
-        url = f"{self.base_url}/query/video_generation/{task_id}"
-        headers = self._headers()
+        """Look up task status and resolve a playable MP4 URL.
 
+        Current H3 docs use the V2 query endpoint and return the final URL
+        inside task.content.url. Some deployed accounts still expose the
+        older V1 query plus file-retrieve flow. Support both shapes.
+        """
+        headers = self._headers()
+        data = None
+
+        v2_url = f"{self.base_url}/v2/query/video_generation/{task_id}"
         try:
             with httpx.Client(timeout=30.0) as client:
-                resp = client.get(url, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
+                resp = client.get(v2_url, headers=headers)
+                if resp.status_code != 404:
+                    resp.raise_for_status()
+                    data = resp.json()
         except httpx.HTTPStatusError as exc:
             raise MiniMaxVideoError(
                 f"MiniMax query HTTP {exc.response.status_code}: {exc.response.text[:500]}"
@@ -264,33 +268,65 @@ class MiniMaxVideoClient:
         except httpx.RequestError as exc:
             raise MiniMaxVideoError(f"MiniMax query network error: {exc}") from exc
 
-        # V2 wraps the actual task under {"task": {...}} and exposes the
-        # playable MP4 at task.content.url.
-        task_data = data.get("task") if isinstance(data.get("task"), dict) else data
-        status = task_data.get("status") or "running"
-        content = task_data.get("content") if isinstance(task_data.get("content"), dict) else {}
-        video_url = (
-            content.get("url")
-            or task_data.get("video_url")
-            or task_data.get("url")
-        )
-        failure = (
-            task_data.get("failure_reason")
-            or task_data.get("error")
-            or task_data.get("message")
-        )
+        if isinstance(data, dict) and isinstance(data.get("task"), dict):
+            task_data = data["task"]
+            content = task_data.get("content") if isinstance(task_data.get("content"), dict) else {}
+            return VideoTask(
+                task_id=str(task_data.get("id") or task_id),
+                model=model or task_data.get("model", "MiniMax-H3"),
+                status=task_data.get("status") or "running",
+                video_url=content.get("url") or task_data.get("video_url") or task_data.get("url"),
+                failure_reason=task_data.get("failure_reason") or task_data.get("error") or task_data.get("message"),
+                duration_seconds=task_data.get("duration"),
+                resolution=task_data.get("resolution"),
+                ratio=task_data.get("ratio"),
+                created_at=float(task_data.get("created_at") or time.time()),
+                updated_at=float(task_data.get("updated_at") or time.time()),
+            )
+
+        v1_url = f"{self.base_url}/v1/query/video_generation"
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.get(v1_url, params={"task_id": task_id}, headers=headers)
+                resp.raise_for_status()
+                legacy = resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise MiniMaxVideoError(
+                f"MiniMax query HTTP {exc.response.status_code}: {exc.response.text[:500]}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise MiniMaxVideoError(f"MiniMax query network error: {exc}") from exc
+
+        base_resp = legacy.get("base_resp") if isinstance(legacy.get("base_resp"), dict) else {}
+        if base_resp.get("status_code") not in (None, 0):
+            raise MiniMaxVideoError(base_resp.get("status_msg") or f"MiniMax query error {base_resp.get('status_code')}")
+
+        status = legacy.get("status") or "running"
+        file_id = legacy.get("file_id")
+        video_url = None
+        if file_id and status in ("Success", "succeeded"):
+            retrieve_url = f"{self.base_url}/v1/files/retrieve"
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    rr = client.get(retrieve_url, params={"file_id": file_id}, headers=headers)
+                    rr.raise_for_status()
+                    fd = rr.json()
+                file_data = fd.get("file") if isinstance(fd.get("file"), dict) else {}
+                video_url = file_data.get("download_url") or file_data.get("url")
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                raise MiniMaxVideoError(f"MiniMax file retrieve error: {exc}") from exc
 
         return VideoTask(
-            task_id=str(task_data.get("id") or task_data.get("task_id") or task_id),
-            model=model or task_data.get("model", "MiniMax-H3"),
+            task_id=str(legacy.get("task_id") or task_id),
+            model=model or legacy.get("model", "MiniMax-H3"),
             status=status,
             video_url=video_url,
-            failure_reason=failure,
-            duration_seconds=task_data.get("duration"),
-            resolution=task_data.get("resolution"),
-            ratio=task_data.get("ratio"),
-            created_at=float(task_data.get("created_at") or time.time()),
-            updated_at=float(task_data.get("updated_at") or time.time()),
+            failure_reason=legacy.get("failure_reason") or base_resp.get("status_msg"),
+            duration_seconds=legacy.get("duration"),
+            resolution=legacy.get("resolution"),
+            ratio=legacy.get("ratio"),
+            created_at=float(legacy.get("created_at") or time.time()),
+            updated_at=float(legacy.get("updated_at") or time.time()),
         )
 
     # ── Public: render (submit + poll until done) ─────────────────────────────
