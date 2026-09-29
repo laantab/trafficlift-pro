@@ -596,7 +596,8 @@ DISCOVERY_IMAGE_HEAD_TIMEOUT = 2.0
 
 
 def _find_image_for_candidate(card: ProductCard, intent: str = "",
-                                tavily_image_urls: Optional[list[str]] = None) -> Optional[str]:
+                                tavily_image_urls: Optional[list[str]] = None,
+                                deadline_monotonic: Optional[float] = None) -> Optional[str]:
     """Find a verified product image for one candidate.
 
     Strategy (ordered by speed and quality):
@@ -609,11 +610,16 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "",
          ``MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE``.
       3. Return None if neither yields a verified, scored image.
 
-    This is faster than running a full cascade on every candidate (we
-    only call Tavily-image-search as a fallback), and it surfaces the
-    best images Tavily already curated.
+    If ``deadline_monotonic`` is provided, the function returns None as
+    soon as the wall clock crosses it (avoids blowing the parent
+    request budget while validating slow CDNs).
     """
+    def _budget_left() -> bool:
+        return deadline_monotonic is None or time.monotonic() < deadline_monotonic
+
     # ── STEP 1: try pre-fetched Tavily images first ─────────────────────
+    if not _budget_left():
+        return None
     pre_urls = list(tavily_image_urls or []) if tavily_image_urls else []
     pre_urls = pre_urls[:MAX_PREFETCHED_IMAGES_PER_CANDIDATE]
     pre_verified = _validate_and_rank(
@@ -629,6 +635,8 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "",
         return url
 
     # ── STEP 2: cascade fallback ───────────────────────────────────────
+    if not _budget_left():
+        return None
     cascade = build_image_query_cascade(
         product_name=card.name,
         category=card.category or "",
@@ -641,6 +649,8 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "",
     candidate_urls: list[str] = []
     seen: set[str] = set()
     for q in cascade:
+        if not _budget_left():
+            break
         try:
             urls = live_research.research_images(q, max_results=3) or []
         except Exception as exc:
@@ -652,6 +662,8 @@ def _find_image_for_candidate(card: ProductCard, intent: str = "",
             seen.add(u)
             candidate_urls.append(u)
 
+    if not _budget_left():
+        return None
     cascade_verified = _validate_and_rank(
         candidate_urls, card.name, card.category or "",
         head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
@@ -758,12 +770,23 @@ def discover_winner() -> dict:
         len(candidates),
     )
 
+    # Cap live candidate attempts so the curated fallback always has
+    # time to run. The curated pool has 20+ entries; live research only
+    # needs to surface ONE qualified winner.
+    MAX_LIVE_CANDIDATE_ATTEMPTS = 1
+
     for idx, (card, ev_count, tavily_imgs) in enumerate(candidates):
+        if idx >= MAX_LIVE_CANDIDATE_ATTEMPTS:
+            logger.info("[discover] live candidate attempt cap reached at idx=%d", idx)
+            break
         if time.monotonic() > live_deadline:
             logger.info("[discover] live candidate phase time-out at idx=%d", idx)
             break
         # Image discovery (with Tavily pre-fetched images as fallback).
-        image_url = _find_image_for_candidate(card, tavily_image_urls=tavily_imgs)
+        image_url = _find_image_for_candidate(
+            card, tavily_image_urls=tavily_imgs,
+            deadline_monotonic=live_deadline,
+        )
         if not image_url:
             logger.info("[discover] skip candidate=%r (no verified image)",
                         card.name[:60])

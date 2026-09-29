@@ -3580,7 +3580,7 @@ def test_backend_discovery_returns_qualified_winner(monkeypatch):
     fake_image = "https://m.media-amazon.com/images/I/asin.jpg"
     monkeypatch.setattr(
         discovery_mod, "_find_image_for_candidate",
-        lambda card, intent="", tavily_image_urls=None: fake_image,
+        lambda card, intent="", tavily_image_urls=None, deadline_monotonic=None: fake_image,
     )
 
     # Stub the audit so the winner is accepted.
@@ -3616,53 +3616,48 @@ def test_backend_discovery_returns_qualified_winner(monkeypatch):
 
 
 def test_backend_discovery_skips_candidate_without_verified_image(monkeypatch):
-    """If the first candidate's image cascade fails, discovery must
-    move to the next candidate — NOT return 404."""
+    """If the live candidate's image cascade fails, discovery must
+    fall back to the curated pool — NOT return 404."""
     import types
     from backend import discovery as discovery_mod
     from backend.product_control_agent import ProductControlAgent
     from backend.discovery import discover_winner
 
     fake_sources = [
-        {"title": "Broken Gadget No Noun", "url": "https://example.com/a",
-         "snippet": "x", "content": "x"},  # may be rejected
         {"title": "LED Desk Lamp with USB Port", "url": "https://example.com/b",
-         "snippet": "y", "content": "y"},
-        {"title": "Rotating Spice Rack Organizer 16 Jars",
-         "url": "https://example.com/c",
-         "snippet": "z", "content": "z"},
+         "snippet": "A useful product for office desks.",
+         "content": "Office desk lighting."},
     ]
     fake_env = types.SimpleNamespace(
         research_status="live",
         research_query="x",
         research_sources=fake_sources,
+        research_image_urls=[],
     )
     monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
 
-    # First call to image search returns None (no image); second returns OK.
-    calls = {"n": 0}
-    def _fake_image(card, intent="", tavily_image_urls=None):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return None
-        return "https://m.media-amazon.com/images/I/asin.jpg"
-    monkeypatch.setattr(discovery_mod, "_find_image_for_candidate", _fake_image)
+    # Live image discovery returns None (no verified image).
+    monkeypatch.setattr(
+        discovery_mod, "_find_image_for_candidate",
+        lambda card, intent="", tavily_image_urls=None, deadline_monotonic=None: None,
+    )
 
-    class _Report:
-        ok = True
-        product = {"id": "x", "name": "y", "category": "z",
-                   "image_url": "https://x", "image_status": "verified",
-                   "url": "https://u"}
-        primary_reason = "ok"
-    monkeypatch.setattr(ProductControlAgent, "evaluate",
-                        staticmethod(lambda w: _Report()))
+    # Stub the curated picker so it returns a winner without hitting
+    # Tavily. We test that the curated fallback path is exercised.
+    monkeypatch.setattr(
+        discovery_mod, "_pick_curated_winner",
+        lambda **kw: {"name": "Stanley Quencher Tumbler",
+                      "source": "discovery-curated",
+                      "image_status": "verified",
+                      "discovery": {"fallback_used": "curated_pool"}},
+    )
 
     winner = discover_winner()
-    assert calls["n"] >= 2, (
-        f"discovery must try at least 2 candidates when the first has no image; "
-        f"got {calls['n']}"
+    assert winner.get("source") == "discovery-curated", (
+        f"when live candidate fails, discover_winner must fall back to "
+        f"curated pool; got source={winner.get('source')!r}"
     )
-    assert winner.get("source") == "discovery"
+    assert winner["discovery"]["fallback_used"] == "curated_pool"
 
 
 # ── LIVE TAVILY IMAGES EXTRACTION (added 2026-09-28) ────────────────────
@@ -3872,7 +3867,7 @@ def test_discover_winner_uses_prefetched_image_first(monkeypatch):
 
     # Spy on _find_image_for_candidate to confirm pre-fetched is used.
     captured = {"called": 0, "pre_count": 0}
-    def _spy(card, intent="", tavily_image_urls=None):
+    def _spy(card, intent="", tavily_image_urls=None, deadline_monotonic=None):
         captured["called"] += 1
         captured["pre_count"] = len(tavily_image_urls or [])
         # Return verified URL if a pre-fetched image was supplied.
