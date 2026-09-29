@@ -3520,11 +3520,11 @@ def test_backend_discovery_normalizes_and_rejects_non_product_titles():
     assert _looks_like_article("Online Course for Pet Owners", "")
     assert _looks_like_article("Subscribe to our Newsletter Signup", "")
     assert _looks_like_article("About Us - Our Story", "")
-    # Listicles / blogs that describe products are ACCEPTED — the
-    # snippet usually names the actual product and image search
-    # finds the product photo.
-    assert not _looks_like_article("Best Kitchen Gadgets 2026", "")
-    assert not _looks_like_article("Top 10 Phone Stands", "")
+    # Research roundups are evidence only; they cannot become winners.
+    assert _looks_like_article("Best Kitchen Gadgets 2026", "")
+    assert _looks_like_article("Top 10 Phone Stands", "")
+    # A comparison phrase without a list/year marker may still contribute
+    # a concrete product after snippet extraction.
     assert not _looks_like_article("Best vs Worst Kitchen Tools", "")
     # Real product names must NOT be rejected.
     assert not _looks_like_article(
