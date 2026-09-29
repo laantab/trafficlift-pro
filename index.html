@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TrafficLift Pro v2.0 â€” AI Traffic Engine</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>TrafficLift Pro v2.1 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -11,6 +14,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
+    <meta name="app-version" content="2.1-discover-fix-2026-09-28">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -2296,14 +2300,14 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                 || /verified product photo/i.test(msg);
             const heading = isWinnerStage
                 ? (isTimeout
-                    ? 'Server is waking up â€” please try again'
+                    ? 'Server is waking up — please try again'
                     : isNoPhotoError
                         ? noPhotoHeading
                         : failHeading)
                 : (isTimeout
-                    ? 'Server is waking up â€” please try again'
+                    ? 'Server is waking up — please try again'
                     : 'Pinterest generation failed');
-            const backendDetail = (msg.match(/HTTP 404\s*â€”\s*(.+)$/)
+            const backendDetail = (msg.match(/HTTP 404\s*—\s*(.+)$/)
                 || msg.match(/No product candidate in our pool[^"]*/)
                 || msg.match(/We found matching products[^"]*/))[0] || '';
             const body = isWinnerStage
@@ -2314,8 +2318,13 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                         : failBody)
                 : (isTimeout
                     ? 'Pinterest generation is taking longer than usual. Click again.'
-                    : 'Winner found, but Pinterest generation failed.');
-            if (executionEl) {
+                    : 'Winner card is below — Pinterest package generation hit an error. You can retry it with the “Retry Pinterest Package” button.');
+            // IMPORTANT: only overwrite the executionOutput area with an
+            // error if the WINNER stage failed. If the winner was already
+            // displayed, show the Pinterest-generation error in a separate
+            // banner BELOW the winner card so the user keeps seeing the
+            // product photo and copy they came here for.
+            if (executionEl && isWinnerStage) {
                 executionEl.classList.remove('hidden');
                 executionEl.innerHTML = `
                     <div class="bg-rose-900/40 border border-rose-700/40 text-rose-200 rounded-xl p-5 space-y-2">
@@ -2326,6 +2335,20 @@ Audio design: Crisp electronic background beat at 120 BPM with deep sub-bass, su
                         <p class="text-sm">${body}</p>
                         <p class="text-xs text-rose-300/80 font-mono">${escapeHtml(msg)}</p>
                     </div>`;
+                try { lucide.createIcons(); } catch (_) {}
+            } else if (executionEl) {
+                // Winner-stage succeeded but Pinterest generation failed.
+                // Append a non-destructive warning banner under the card.
+                const banner = document.createElement('div');
+                banner.className = 'mt-4 bg-amber-900/30 border border-amber-700/40 text-amber-100 rounded-xl p-4 space-y-1';
+                banner.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-300"></i>
+                        <strong class="font-semibold text-sm">Pinterest package unavailable</strong>
+                    </div>
+                    <p class="text-xs">${escapeHtml(body)}</p>
+                    <p class="text-[10px] font-mono text-amber-200/70">${escapeHtml(msg)}</p>`;
+                executionEl.appendChild(banner);
                 try { lucide.createIcons(); } catch (_) {}
             }
             if (typeof showToast === 'function') {
