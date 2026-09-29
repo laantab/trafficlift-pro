@@ -89,7 +89,7 @@ class MiniMaxVideoClient:
     async / frontend-polling patterns.
     """
 
-    BASE_URL = "https://api.minimax.chat/v1"
+    BASE_URL = "https://api.minimax.io/v2"
 
     SUPPORTED_MODELS = {
         # model:        (min, max) duration, allowed ratios, allowed resolutions
@@ -99,9 +99,6 @@ class MiniMaxVideoClient:
         "MiniMax-H3-Max":     {"min_dur": 5,  "max_dur": 15,
                                 "ratios": ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
                                 "resolutions": ["480P", "768P"]},
-        "MiniMax-Hailuo-2.3": {"min_dur": 6,  "max_dur": 10,
-                                "ratios": ["adaptive", "16:9"],
-                                "resolutions": ["768P", "1080P"]},
     }
 
     TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "Success", "Fail"}
@@ -191,18 +188,24 @@ class MiniMaxVideoClient:
         if not (1 <= len(prompt) <= 7000):
             raise MiniMaxVideoError("prompt must be 1-7000 characters")
 
+        # MiniMax H3 V2 requires multimodal input through a content array.
+        # Keep the production path text-to-video unless/until a reference
+        # media item is explicitly supplied in the provider's documented V2
+        # content format.
         payload: dict = {
             "model":      model,
-            "prompt":     prompt,
+            "content":    [{"type": "text", "text": prompt}],
             "duration":   duration,
             "ratio":      ratio,
             "resolution": resolution,
         }
         if reference_image_url:
-            payload["input_image"] = {
-                "mime_type": "image/png",
-                "url":       reference_image_url,
-            }
+            # Reference-to-video content item (H3 / H3-Max).
+            payload["content"].append({
+                "type": "image_url",
+                "image_url": reference_image_url,
+                "role": "reference_image",
+            })
 
         url = f"{self.base_url}/video_generation"
         logger.info("MiniMax submit model=%s duration=%ss ratio=%s res=%s",
@@ -261,26 +264,33 @@ class MiniMaxVideoClient:
         except httpx.RequestError as exc:
             raise MiniMaxVideoError(f"MiniMax query network error: {exc}") from exc
 
-        status = data.get("status") or "running"
+        # V2 wraps the actual task under {"task": {...}} and exposes the
+        # playable MP4 at task.content.url.
+        task_data = data.get("task") if isinstance(data.get("task"), dict) else data
+        status = task_data.get("status") or "running"
+        content = task_data.get("content") if isinstance(task_data.get("content"), dict) else {}
         video_url = (
-            data.get("video_url")
-            or (data.get("assets", [{}])[0].get("url") if data.get("assets") else None)
-            or data.get("file_id")
-            or data.get("url")
+            content.get("url")
+            or task_data.get("video_url")
+            or task_data.get("url")
         )
-        failure = data.get("failure_reason") or data.get("error") or data.get("message")
+        failure = (
+            task_data.get("failure_reason")
+            or task_data.get("error")
+            or task_data.get("message")
+        )
 
         return VideoTask(
-            task_id=str(data.get("task_id") or task_id),
-            model=model or data.get("model", "MiniMax-H3"),
+            task_id=str(task_data.get("id") or task_data.get("task_id") or task_id),
+            model=model or task_data.get("model", "MiniMax-H3"),
             status=status,
             video_url=video_url,
             failure_reason=failure,
-            duration_seconds=data.get("duration"),
-            resolution=data.get("resolution"),
-            ratio=data.get("ratio"),
-            created_at=float(data.get("created_at") or time.time()),
-            updated_at=float(data.get("updated_at") or time.time()),
+            duration_seconds=task_data.get("duration"),
+            resolution=task_data.get("resolution"),
+            ratio=task_data.get("ratio"),
+            created_at=float(task_data.get("created_at") or time.time()),
+            updated_at=float(task_data.get("updated_at") or time.time()),
         )
 
     # ── Public: render (submit + poll until done) ─────────────────────────────
