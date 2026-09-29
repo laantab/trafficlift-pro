@@ -889,6 +889,37 @@ def test_video_frontend_uses_current_winner_and_valid_h3_models():
     assert "syncVideoModelOptions" in src
 
 
+
+def test_video_winner_state_persists_across_refresh():
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "WINNER_SESSION_KEY" in src
+    assert "sessionStorage.setItem(WINNER_SESSION_KEY" in src
+    assert "restoreCurrentWinner()" in src
+    assert "persistCurrentWinner(winner)" in src
+
+
+def test_video_modal_requires_product_winner():
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    start = src.index("function openVideoModal()")
+    end = src.index("function closeVideoModal()", start)
+    body = src[start:end]
+    assert "const winner = restoreCurrentWinner()" in body
+    assert "Choose a product first" in body
+    assert "buildWinnerVideoPrompt(winner)" in body
+    assert "buildWinnerVideoPrompt(window.__currentWinner)" not in body
+
+
+def test_video_restore_button_restores_product_prompt_not_saas_template():
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert "Restore product prompt" in src
+    start = src.index("function fillVideoPromptTemplate()")
+    end = src.index("function updateVideoPromptCount()", start)
+    body = src[start:end]
+    assert "restoreCurrentWinner()" in body
+    assert "buildWinnerVideoPrompt(winner)" in body
+    assert "VIDEO_DEFAULT_PROMPT" not in body
+
+
 # ── CLEAN ONE-CLICK REBUILD (fourth repair pass) ──────────────────────────
 
 

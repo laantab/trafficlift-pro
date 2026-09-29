@@ -378,6 +378,33 @@
     let currentResults = null;
     let historyOpen = false;
 
+    const WINNER_SESSION_KEY = 'tlp_current_winner';
+
+    function persistCurrentWinner(winner) {
+        window.__currentWinner = winner || null;
+        try {
+            if (winner) sessionStorage.setItem(WINNER_SESSION_KEY, JSON.stringify(winner));
+            else sessionStorage.removeItem(WINNER_SESSION_KEY);
+        } catch (e) {
+            console.warn('[winner-state] persist failed', e);
+        }
+    }
+
+    function restoreCurrentWinner() {
+        if (window.__currentWinner && window.__currentWinner.name) return window.__currentWinner;
+        try {
+            const raw = sessionStorage.getItem(WINNER_SESSION_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.name) return null;
+            window.__currentWinner = parsed;
+            return parsed;
+        } catch (e) {
+            console.warn('[winner-state] restore failed', e);
+            return null;
+        }
+    }
+
     // â”€â”€â”€ API Base URL resolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // 1. <meta name="api-base" content="..."> in <head>   (build-time / hard-coded)
     // 2. localStorage['tlp_api_base']                    (user-edited at runtime)
@@ -434,6 +461,7 @@
 
     // â”€â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     document.addEventListener('DOMContentLoaded', () => {
+        restoreCurrentWinner();
         updateChannelGrid();
         fetchHealthStatus();
         loadHistory();
@@ -1099,7 +1127,7 @@
                         placeholder="Describe the vertical 9:16 short you want â€” visual style, scene sequence, voiceover dialogue, audio cues."
                         class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 transition font-mono"></textarea>
                     <div class="flex items-center justify-between mt-1">
-                        <button onclick="fillVideoPromptTemplate()" class="text-xs text-brand-400 hover:text-brand-300 transition">Insert TrafficLift template</button>
+                        <button onclick="fillVideoPromptTemplate()" class="text-xs text-brand-400 hover:text-brand-300 transition">Restore product prompt</button>
                         <span id="videoPromptCount" class="text-xs text-slate-500">0 / 7000</span>
                     </div>
                 </div>
@@ -1261,8 +1289,17 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     function openVideoModal() {
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.name) {
+            showToast(
+                'Choose a product first',
+                'Click Find Winning Product before rendering a product video.',
+                'warning'
+            );
+            return;
+        }
         const promptEl = document.getElementById('videoPrompt');
-        promptEl.value = buildWinnerVideoPrompt(window.__currentWinner);
+        promptEl.value = buildWinnerVideoPrompt(winner);
         syncVideoModelOptions();
         updateVideoPromptCount();
         document.getElementById('videoStatus').textContent = '';
@@ -1279,7 +1316,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         modal.classList.remove('flex');
     }
     function fillVideoPromptTemplate() {
-        document.getElementById('videoPrompt').value = VIDEO_DEFAULT_PROMPT;
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.name) {
+            showToast('Choose a product first', 'Find a winning product before restoring the video prompt.', 'warning');
+            return;
+        }
+        document.getElementById('videoPrompt').value = buildWinnerVideoPrompt(winner);
         updateVideoPromptCount();
     }
     function updateVideoPromptCount() {
@@ -1329,7 +1371,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     duration,
                     ratio,
                     resolution,
-                    reference_image_url: (window.__currentWinner && window.__currentWinner.image_url) || null,
+                    reference_image_url: (restoreCurrentWinner() && restoreCurrentWinner().image_url) || null,
                 }),
             });
             const data = await r.json().catch(() => ({}));
@@ -2275,7 +2317,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             console.log('[pick-pipeline] âœ“', { id: winner.id, name: winner.name });
 
             window.__lastWinnerId = winner.id;
-            window.__currentWinner = winner;
+            persistCurrentWinner(winner);
             // PATH A never reads the URL field. PATH B may update it with
             // the resolved final URL so the user sees what we analyzed.
             if (readUrlField && urlInput && winner.url) {
