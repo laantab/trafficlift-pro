@@ -37,6 +37,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from backend import live_research
+from backend import discovery as discovery_mod
 from backend.live_research import ResearchEnvelope, ResearchSource
 from backend.product_research import get_researcher, _build_label_to_key, _PINTEREST_FRIENDLY, _COMMERCIAL_HIGH
 
@@ -700,6 +701,42 @@ def test_path_a_preserves_results_scaffold():
     assert "resultsEl.innerHTML = ''" not in a_body
     assert "displayWinnerCard(winner)" in src
     assert 'id="executionOutput"' in src
+
+
+
+
+def test_path_a_rejects_listicle_as_winner():
+    """A roundup article is research evidence, never the product itself."""
+    title = "21 Trending products to sell online in 2026 | Printful"
+    snippet = "21 trending products to sell online in 2026 with fresh market data."
+    assert discovery_mod._looks_like_article(title, snippet) is True
+
+
+def test_path_a_requires_specific_product_from_snippet():
+    """Generic 'products' language without a concrete product noun must fail."""
+    title = "Trending products to sell online"
+    snippet = "Explore trending products and product ideas for online sellers."
+    assert discovery_mod._normalize_title(title, snippet) is None
+
+
+def test_path_a_can_extract_one_concrete_product_from_research_snippet():
+    """A roundup can still contribute a single concrete candidate via evidence."""
+    title = "Trending products to sell online"
+    snippet = "One breakout item is the rechargeable spin scrubber for bathroom cleaning."
+    name = discovery_mod._normalize_title(title, snippet)
+    assert name
+    assert discovery_mod._has_specific_product_signal(name)
+    assert "scrubber" in name.lower()
+
+
+def test_pin_preview_target_is_visible_in_winner_panel_once():
+    """The generated pin preview/download target must live beside the winner."""
+    src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
+    assert src.count('id="pinterestResult"') == 1
+    winner_idx = src.index("Pinterest Ready-to-Post Pin")
+    result_idx = src.index('id="pinterestResult"')
+    why_idx = src.index("Why this is a winner")
+    assert winner_idx < result_idx < why_idx
 
 
 
@@ -3483,11 +3520,11 @@ def test_backend_discovery_normalizes_and_rejects_non_product_titles():
     assert _looks_like_article("Online Course for Pet Owners", "")
     assert _looks_like_article("Subscribe to our Newsletter Signup", "")
     assert _looks_like_article("About Us - Our Story", "")
-    # Listicles / blogs that describe products are ACCEPTED — the
-    # snippet usually names the actual product and image search
-    # finds the product photo.
-    assert not _looks_like_article("Best Kitchen Gadgets 2026", "")
-    assert not _looks_like_article("Top 10 Phone Stands", "")
+    # Research roundups are evidence only; they cannot become winners.
+    assert _looks_like_article("Best Kitchen Gadgets 2026", "")
+    assert _looks_like_article("Top 10 Phone Stands", "")
+    # A comparison phrase without a list/year marker may still contribute
+    # a concrete product after snippet extraction.
     assert not _looks_like_article("Best vs Worst Kitchen Tools", "")
     # Real product names must NOT be rejected.
     assert not _looks_like_article(
@@ -3807,15 +3844,13 @@ def test_normalize_keeps_good_title_unchanged():
 
 
 def test_normalize_handles_snippet_without_product_noun():
-    """If the snippet has no product noun either, fall back to the
-    normalized title (which may itself be rejected upstream by
-    _has_product_signal)."""
+    """If neither title nor snippet identifies one concrete product,
+    normalization must reject the candidate instead of returning a
+    generic roundup title."""
     from backend.discovery import _normalize_title
     snippet = "A long-form essay about retail industry trends."
     name = _normalize_title("Trending Products", snippet)
-    # Falls back to title (which is generic) — caller will then
-    # decide based on _has_product_signal.
-    assert name == "Trending Products"
+    assert name is None
 
 
 # ── HOST WHITELIST EXPANSION (added 2026-09-28) ──────────────────────────
