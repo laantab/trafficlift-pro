@@ -395,11 +395,9 @@ def discover_winner_get(
     from the legacy path.
     """
     from backend.discovery import discover_winner as _discover
-    # The seed / exclude params are honored inside _pick_pipeline via
-    # the exclude param on the second leg. The discovery route doesn't
-    # need them directly, but we accept them for forward-compat.
-    _ = (exclude, seed)
-    return _discover()
+    excl = {x for x in (exclude or "").split(",") if x} if exclude else set()
+    _ = seed
+    return _discover(exclude_ids=excl)
 
 
 @router.get("/find-winners")

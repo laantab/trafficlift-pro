@@ -920,6 +920,94 @@ def test_video_restore_button_restores_product_prompt_not_saas_template():
     assert "VIDEO_DEFAULT_PROMPT" not in body
 
 
+
+def test_discover_route_forwards_exclude_to_live_discovery(monkeypatch):
+    from fastapi.testclient import TestClient
+    import backend.product_scout as scout_mod
+    from trafficlift_pro import app
+
+    captured = {}
+    def fake_discover(*, exclude_ids=None):
+        captured["exclude_ids"] = set(exclude_ids or set())
+        return {
+            "id": "discover-new-123",
+            "name": "New Product",
+            "category": "Tech & Gadgets",
+            "image_url": "https://example.com/new.jpg",
+            "image_status": "verified",
+        }
+
+    monkeypatch.setattr("backend.discovery.discover_winner", fake_discover)
+    c = TestClient(app)
+    r = c.get("/api/v1/discover-winner?exclude=discover-old-001")
+    assert r.status_code == 200, r.text
+    assert captured["exclude_ids"] == {"discover-old-001"}
+
+
+def test_live_discovery_skips_excluded_candidate(monkeypatch):
+    import backend.discovery as d
+
+    card1 = d.ProductCard(
+        id="discover-old-001",
+        name="Rechargeable Spin Scrubber",
+        category="Home & Cleaning",
+        image_url="data:image/svg+xml;base64,AA==",
+        url="https://example.com/1",
+        angle_options=["a" * 50],
+        pin_title_options=["x"],
+        pin_description_options=["x"],
+        hashtags_pool=["#x"],
+        viral_hook_options=["x"],
+        trend_score_range=(90, 95),
+        trend_signals_options=[["x"]],
+        margin_estimate="High",
+        evergreen_score=0.9,
+        competition="Medium",
+        competition_reasons=[],
+    )
+    card2 = d.ProductCard(
+        id="discover-new-002",
+        name="Magnetic Phone Stand",
+        category="Tech & Gadgets",
+        image_url="data:image/svg+xml;base64,AA==",
+        url="https://example.com/2",
+        angle_options=["b" * 50],
+        pin_title_options=["y"],
+        pin_description_options=["y"],
+        hashtags_pool=["#y"],
+        viral_hook_options=["y"],
+        trend_score_range=(80, 85),
+        trend_signals_options=[["y"]],
+        margin_estimate="Medium",
+        evergreen_score=0.8,
+        competition="Medium",
+        competition_reasons=[],
+    )
+
+    env = mock.Mock()
+    env.research_sources = [{"title":"t","url":"https://example.com","snippet":"s"}]
+    env.research_image_urls = []
+    env.research_query = "q"
+
+    monkeypatch.setattr(d, "DISCOVERY_QUERIES", ["q"])
+    monkeypatch.setattr(d, "MAX_DISCOVERY_RESEARCH_QUERIES", 1)
+    monkeypatch.setattr(d.live_research, "research", lambda *a, **k: env)
+    monkeypatch.setattr(d, "_build_candidates_from_envelope", lambda *a, **k: [card1, card2])
+    monkeypatch.setattr(d, "_find_image_for_candidate", lambda *a, **k: "https://example.com/image.jpg")
+
+    class Report:
+        ok = True
+        product = {
+            "id":"discover-new-002","name":"Magnetic Phone Stand",
+            "category":"Tech & Gadgets","image_url":"https://example.com/image.jpg"
+        }
+        primary_reason = ""
+    monkeypatch.setattr(d.ProductControlAgent, "evaluate", lambda *a, **k: Report())
+
+    winner = d.discover_winner(exclude_ids={"discover-old-001"})
+    assert winner["id"] == "discover-new-002"
+
+
 # ── CLEAN ONE-CLICK REBUILD (fourth repair pass) ──────────────────────────
 
 
