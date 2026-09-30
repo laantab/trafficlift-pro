@@ -745,7 +745,7 @@ def _validate_and_rank(urls: list[str], name: str, category: str,
 
 # ── Main entry point ─────────────────────────────────────────────────────
 
-def discover_winner() -> dict:
+def discover_winner(*, exclude_ids: Optional[set[str]] = None) -> dict:
     """Run the live discovery pipeline and return a winner payload.
 
     Strategy:
@@ -761,6 +761,7 @@ def discover_winner() -> dict:
         qualified candidate is found within the budget.
     """
     from fastapi import HTTPException
+    exclude_ids = set(exclude_ids or set())
     t_start = time.monotonic()
     logger.info("[discover] ==== START discovery ====")
     live_deadline = t_start + LIVE_PHASE_BUDGET_SECONDS
@@ -811,6 +812,9 @@ def discover_winner() -> dict:
     MAX_LIVE_CANDIDATE_ATTEMPTS = 1
 
     for idx, (card, ev_count, tavily_imgs) in enumerate(candidates):
+        if card.id in exclude_ids:
+            logger.info("[discover] skip excluded live candidate id=%s name=%r", card.id, card.name[:60])
+            continue
         if idx >= MAX_LIVE_CANDIDATE_ATTEMPTS:
             logger.info("[discover] live candidate attempt cap reached at idx=%d", idx)
             break
@@ -891,6 +895,7 @@ def discover_winner() -> dict:
     # when Tavily is unavailable.
     curated = _pick_curated_winner(
         seen_names=set(),
+        exclude_ids=exclude_ids,
         deadline_monotonic=t_start + DISCOVERY_REQUEST_BUDGET_SECONDS,
         t_start=t_start,
     )
@@ -916,6 +921,7 @@ _RECENT_CURATED_NAMES: list[str] = []
 
 
 def _pick_curated_winner(*, seen_names: set[str],
+                          exclude_ids: Optional[set[str]] = None,
                           deadline_monotonic: float,
                           t_start: float) -> Optional[dict]:
     """Pick the next curated winner whose image we can verify.
@@ -931,6 +937,7 @@ def _pick_curated_winner(*, seen_names: set[str],
     verified image.
     """
     global _RECENT_CURATED_NAMES
+    exclude_ids = set(exclude_ids or set())
 
     if not CURATED_WINNERS:
         logger.warning("[discover] curated pool is empty — fallback disabled")
@@ -955,12 +962,24 @@ def _pick_curated_winner(*, seen_names: set[str],
 
     # First pass: try non-recent entries from FAST pool, then SLOW pool.
     ordered: list = []
+    def _curated_id(entry):
+        card_id = re.sub(r"\W+", "-", entry["name"].lower())[:60].strip("-") or "curated"
+        return f"curated-{card_id}"
+
     for tier in (fast_pool, slow_pool):
-        non_recent = [w for w in tier if w["name"] not in recent_set and w["name"] not in seen_names]
+        non_recent = [
+            w for w in tier
+            if w["name"] not in recent_set
+            and w["name"] not in seen_names
+            and _curated_id(w) not in exclude_ids
+        ]
         ordered.extend(non_recent)
     # If we filtered out everything, allow repeats within each tier.
     if not ordered:
-        ordered = list(fast_pool) + list(slow_pool)
+        ordered = [
+            w for w in (list(fast_pool) + list(slow_pool))
+            if _curated_id(w) not in exclude_ids
+        ]
 
     for entry in ordered:
         if time.monotonic() > deadline_monotonic:
