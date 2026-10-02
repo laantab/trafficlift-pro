@@ -1118,8 +1118,41 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs text-slate-400 leading-relaxed">
-                    Submit a text-to-video render to MiniMax. H3 / H3-Max include a synchronized native audio track (voiceover + ambience + sound effects described in your prompt).
+                    Render a product promo from the selected winner image. Local RTX runs on your Windows PC and creates silent video; MiniMax is an optional cloud service.
                 </p>
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
+                    <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
+                        <option value="local" selected>Local RTX 3060 (this PC)</option>
+                        <option value="minimax">MiniMax cloud</option>
+                    </select>
+                </div>
+                <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
+                    <p class="text-xs text-slate-400">Start <code>Start_Local_Video_Bridge.bat</code> on your PC, leave its window open, then enter the pairing code shown there.</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Local bridge</label>
+                            <input id="localVideoBase" value="http://127.0.0.1:8765" spellcheck="false" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100">
+                        </div>
+                        <div>
+                            <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Pairing code</label>
+                            <input id="localVideoToken" type="password" autocomplete="off" spellcheck="false" placeholder="Shown in bridge window" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button type="button" onclick="checkLocalVideoBridge()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs">Check connection</button>
+                        <span id="localVideoConnection" class="text-xs text-slate-500"></span>
+                    </div>
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Duration</label>
+                        <select id="localVideoDuration" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100">
+                            <option value="2" selected>2 seconds (test)</option>
+                            <option value="4">4 seconds</option>
+                            <option value="5">5 seconds</option>
+                            <option value="6">6 seconds</option>
+                        </select>
+                    </div>
+                </div>
 
                 <div>
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Prompt</label>
@@ -1132,7 +1165,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
+                <div id="minimaxVideoOptions" class="grid grid-cols-2 gap-3 hidden">
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Model</label>
                         <select id="videoModel" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
@@ -1300,6 +1333,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
+        document.getElementById('videoProvider').value = 'local';
+        document.getElementById('localVideoToken').value = '';
+        document.getElementById('localVideoConnection').textContent = '';
+        syncVideoProviderOptions();
         syncVideoModelOptions();
         updateVideoPromptCount();
         document.getElementById('videoStatus').textContent = '';
@@ -1333,7 +1370,98 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     });
     document.addEventListener('change', (e) => {
         if (e.target && e.target.id === 'videoModel') syncVideoModelOptions();
+        if (e.target && e.target.id === 'videoProvider') syncVideoProviderOptions();
     });
+
+    function syncVideoProviderOptions() {
+        const local = document.getElementById('videoProvider').value === 'local';
+        document.getElementById('localVideoOptions').classList.toggle('hidden', !local);
+        document.getElementById('minimaxVideoOptions').classList.toggle('hidden', local);
+    }
+
+    function getLocalVideoBridge() {
+        const raw = document.getElementById('localVideoBase').value.trim().replace(/\/+$/, '');
+        const url = new URL(raw);
+        if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) ||
+            url.username || url.password || url.search || url.hash || (url.port && url.port !== '8765') || (url.pathname && url.pathname !== '/')) {
+            throw new Error('Bridge address must be http://127.0.0.1:8765 or http://localhost:8765.');
+        }
+        return raw;
+    }
+
+    function getLocalVideoHeaders() {
+        const token = document.getElementById('localVideoToken').value.trim();
+        if (!token) throw new Error('Enter the pairing code from the open bridge window.');
+        return { 'Authorization': 'Bearer ' + token };
+    }
+
+    async function checkLocalVideoBridge() {
+        const output = document.getElementById('localVideoConnection');
+        output.textContent = 'Checking…';
+        try {
+            const base = getLocalVideoBridge();
+            const response = await fetch(base + '/health', { headers: getLocalVideoHeaders(), cache: 'no-store' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || ('HTTP ' + response.status));
+            output.textContent = 'Connected to ' + (data.engine || 'local renderer') + '.';
+        } catch (error) {
+            output.textContent = error.message || String(error);
+        }
+    }
+
+    async function submitLocalVideoRender(prompt, statusEl, resultEl) {
+        const base = getLocalVideoBridge();
+        const headers = getLocalVideoHeaders();
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.image_url) throw new Error('The selected winner has no downloadable product image.');
+        const duration = Number(document.getElementById('localVideoDuration').value);
+        const frames = ({2: 49, 4: 97, 5: 121, 6: 145})[duration];
+        if (!frames) throw new Error('Choose a supported local duration.');
+        statusEl.textContent = 'Sending the product image and prompt to this PC…';
+        const started = Date.now();
+        const response = await fetch(base + '/api/jobs', {
+            method: 'POST',
+            headers: {...headers, 'Content-Type': 'application/json'},
+            body: JSON.stringify({prompt, image_url: winner.image_url, frames})
+        });
+        const submitted = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(submitted.detail || ('HTTP ' + response.status));
+        const jobId = submitted.job && submitted.job.job_id;
+        if (!jobId) throw new Error('The local bridge did not return a job ID.');
+        statusEl.textContent = 'Queued on this PC. LTX can take several minutes; keep the bridge window open.';
+        for (;;) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            const check = await fetch(base + '/api/jobs/' + encodeURIComponent(jobId), {headers, cache: 'no-store'});
+            const data = await check.json().catch(() => ({}));
+            if (!check.ok) throw new Error(data.detail || ('HTTP ' + check.status));
+            const job = data.job || {};
+            statusEl.textContent = job.status === 'running'
+                ? 'Generating on your RTX 3060… ' + (job.progress || 0) + '% · ' + Math.floor((Date.now() - started) / 60000) + ' min'
+                : (job.message || 'Local video status: ' + job.status);
+            if (job.status === 'failed') throw new Error(job.error || 'Local video generation failed.');
+            if (job.status === 'succeeded') {
+                const videoResponse = await fetch(base + '/api/jobs/' + encodeURIComponent(jobId) + '/video', {headers, cache: 'no-store'});
+                if (!videoResponse.ok) throw new Error('The video was generated but could not be downloaded (HTTP ' + videoResponse.status + ').');
+                const videoUrl = URL.createObjectURL(await videoResponse.blob());
+                resultEl.replaceChildren();
+                const video = document.createElement('video');
+                video.controls = true; video.playsInline = true; video.src = videoUrl;
+                video.className = 'w-full max-h-[60vh] mx-auto';
+                const box = document.createElement('div');
+                box.className = 'rounded-xl overflow-hidden border border-slate-700 bg-black';
+                box.appendChild(video);
+                const link = document.createElement('a');
+                link.href = videoUrl; link.download = 'trafficlift-local-' + jobId.slice(0, 8) + '.mp4';
+                link.className = 'inline-flex items-center gap-1.5 mt-3 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium';
+                link.textContent = 'Download MP4';
+                resultEl.append(box, link);
+                resultEl.classList.remove('hidden');
+                statusEl.textContent = 'Local video ready · ' + duration + ' seconds · silent · ' + Math.floor((Date.now() - started) / 1000) + ' seconds elapsed.';
+                showToast('Local video ready', 'Generated on your RTX 3060.', 'success');
+                return;
+            }
+        }
+    }
 
     async function submitVideoRender() {
         const prompt     = document.getElementById('videoPrompt').value.trim();
@@ -1341,6 +1469,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const duration   = parseInt(document.getElementById('videoDuration').value, 10);
         const ratio      = document.getElementById('videoRatio').value;
         const resolution = document.getElementById('videoResolution').value;
+        const provider   = document.getElementById('videoProvider').value;
         const statusEl   = document.getElementById('videoStatus');
         const resultEl   = document.getElementById('videoResult');
         const submitBtn  = document.getElementById('videoSubmitBtn');
@@ -1359,9 +1488,14 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         lucide.createIcons();
         resultEl.classList.add('hidden');
         resultEl.innerHTML = '';
-        statusEl.innerHTML = '<span class="text-slate-400">Submitting to MiniMaxâ€¦</span>';
+        statusEl.textContent = provider === 'local' ? 'Connecting to local RTX bridge…' : 'Submitting to MiniMax…';
 
         try {
+            if (provider === 'local') {
+                await submitLocalVideoRender(prompt, statusEl, resultEl);
+                return;
+            }
+            statusEl.innerHTML = '<span class="text-slate-400">Submitting to MiniMax…</span>';
             const r = await fetch(apiUrl('/api/v1/video/generate'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
