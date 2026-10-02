@@ -21,11 +21,11 @@ function Get-VerifiedFile($url, $path, $hash) {
     Invoke-WebRequest -UseBasicParsing $url -OutFile $temp
     if ((Get-FileHash $temp -Algorithm SHA256).Hash -ne $hash) {
         Remove-Item $temp -Force
-        throw 'Downloaded voice file failed its integrity check. Try again.'
+        throw ('Downloaded file failed its integrity check: ' + (Split-Path $path -Leaf) + '. Try again.')
     }
     Move-Item $temp $path -Force
 }
-Get-VerifiedFile 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx' (Join-Path $models 'kokoro-v1.0.int8.onnx') 'ae315a79b623f244700e4afb9246c46a26066782e049ba174bf3ba433970ee9c'
+Get-VerifiedFile 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx' (Join-Path $models 'kokoro-v1.0.int8.onnx') '6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb'
 Get-VerifiedFile 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin' (Join-Path $models 'voices-v1.0.bin') 'bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d'
 if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
     $tools = Join-Path $repo '.video-tools'
