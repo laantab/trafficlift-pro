@@ -94,7 +94,7 @@
                     <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
                     <span class="hidden sm:inline text-slate-300">API</span>
                 </button>
-                <button onclick="openVideoModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition" title="Render Short Video (MiniMax)">
+                <button onclick="openVideoModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition" title="Create Product Video">
                     <i data-lucide="video" class="w-4 h-4 text-slate-400"></i>
                     <span class="hidden sm:inline text-slate-300">Video</span>
                 </button>
@@ -1110,7 +1110,7 @@
             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
                 <h3 class="font-semibold flex items-center gap-2">
                     <i data-lucide="video" class="w-4 h-4 text-brand-400"></i>
-                    Render Short Video (MiniMax)
+                    Create Product Video
                 </h3>
                 <button onclick="closeVideoModal()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
                     <i data-lucide="x" class="w-4 h-4"></i>
@@ -1118,14 +1118,28 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs text-slate-400 leading-relaxed">
-                    Render a product promo from the selected winner image. Local RTX runs on your Windows PC and creates silent video; MiniMax is an optional cloud service.
+                    Make a narrated product video with your real photo, captions, and a clear closing action. Free Studio runs on this computer.
                 </p>
                 <div>
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
-                        <option value="local" selected>Local RTX 3060 (this PC)</option>
+                        <option value="free" selected>Free narrated photo video</option>
+                        <option value="local">Local RTX 3060 (this PC)</option>
                         <option value="minimax">MiniMax cloud</option>
                     </select>
+                </div>
+                <div id="freeVideoOptions" class="space-y-3">
+                    <img id="freeProductPreview" alt="Selected product photo" class="w-full max-h-64 object-contain rounded-xl bg-slate-950">
+                    <p class="text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
+                    <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <label class="block text-xs text-slate-400">Seller fact (optional; copy a supported benefit)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Leave blank for a simple product showcase" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="text-xs text-slate-400">Length<select id="freeVideoLength" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></label>
+                        <label class="text-xs text-slate-400">Scene style<select id="freeVideoStyle" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="warm">Warm studio</option><option value="clean">Clean studio</option><option value="bold">Bold studio</option></select></label>
+                    </div>
+                    <p class="text-xs text-slate-500">Three scenes: product reveal → closer look → call to action. Captions and voice included. The destination link is provided separately for your post.</p>
+                    <details><summary class="text-sm cursor-pointer">Past videos</summary><div id="freeVideoHistory" class="mt-2 space-y-2 text-sm"></div></details>
                 </div>
                 <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
                     <p class="text-xs text-slate-400">Start <code>Start_Local_Video_Bridge.bat</code> on your PC, leave its window open, then enter the pairing code shown there.</p>
@@ -1154,7 +1168,7 @@
                     </div>
                 </div>
 
-                <div>
+                <div id="videoPromptOptions">
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Prompt</label>
                     <textarea id="videoPrompt" rows="6" maxlength="7000"
                         placeholder="Describe the vertical 9:16 short you want â€” visual style, scene sequence, voiceover dialogue, audio cues."
@@ -1333,7 +1347,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'local';
+        document.getElementById('videoProvider').value = 'free';
+        document.getElementById('freeProductPreview').src = winner.image_url || '';
+        document.getElementById('freeProductName').value = winner.name;
+        document.getElementById('freeProductUrl').value = winner.url || '';
+        document.getElementById('freeProductFact').value = '';
+        loadFreeVideoHistory();
         document.getElementById('localVideoToken').value = '';
         document.getElementById('localVideoConnection').textContent = '';
         syncVideoProviderOptions();
@@ -1374,9 +1393,76 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     });
 
     function syncVideoProviderOptions() {
-        const local = document.getElementById('videoProvider').value === 'local';
-        document.getElementById('localVideoOptions').classList.toggle('hidden', !local);
-        document.getElementById('minimaxVideoOptions').classList.toggle('hidden', local);
+        const provider = document.getElementById('videoProvider').value;
+        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free');
+        document.getElementById('localVideoOptions').classList.toggle('hidden', provider !== 'local');
+        document.getElementById('minimaxVideoOptions').classList.toggle('hidden', provider !== 'minimax');
+        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free');
+    }
+
+    async function freeVideoRequest(path, options = {}) {
+        const response = await fetch(apiUrl(path), {...options, signal: AbortSignal.timeout(30000)});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Check the product fields and try again.');
+        return data;
+    }
+    function showFreeVideo(job, resultEl) {
+        if (job.status !== 'succeeded' || !job.video_url) return;
+        resultEl.replaceChildren();
+        const video = document.createElement('video');
+        video.controls = true; video.playsInline = true; video.preload = 'metadata';
+        video.src = apiUrl(job.video_url); video.className = 'w-full max-h-[60vh]';
+        const download = document.createElement('a');
+        download.href = apiUrl(job.video_url); download.textContent = 'Download checked MP4';
+        download.className = 'block mt-3 text-brand-400';
+        const destination = document.createElement('a');
+        destination.href = job.product_url; destination.target = '_blank'; destination.rel = 'noopener noreferrer';
+        destination.textContent = 'Product destination for your post'; destination.className = 'block mt-2 text-brand-400';
+        resultEl.append(video, download, destination); resultEl.classList.remove('hidden');
+    }
+    async function loadFreeVideoHistory() {
+        const list = document.getElementById('freeVideoHistory');
+        list.textContent = 'Loading…';
+        try {
+            const data = await freeVideoRequest('/api/v1/photo-videos'); list.replaceChildren();
+            for (const job of data.videos || []) {
+                const row = document.createElement('div');
+                const label = document.createElement('span');
+                label.textContent = job.name + ' · ' + new Date(job.created_at * 1000).toLocaleDateString() + ' · ' + job.status;
+                row.append(label);
+                if (job.status === 'succeeded') {
+                    const button = document.createElement('button'); button.textContent = ' Open'; button.className = 'text-brand-400';
+                    button.onclick = () => showFreeVideo(job, document.getElementById('videoResult')); row.append(button);
+                }
+                list.append(row);
+            }
+            if (!list.childNodes.length) list.textContent = 'Your finished videos will appear here.';
+        } catch (error) { list.textContent = error.message; }
+    }
+    async function submitFreeVideo(statusEl, resultEl) {
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.image_url) throw new Error('Choose a product with a real photo first.');
+        const payload = {
+            name: document.getElementById('freeProductName').value.trim(),
+            image_url: winner.image_url,
+            product_url: document.getElementById('freeProductUrl').value.trim(),
+            benefit: document.getElementById('freeProductFact').value.trim(),
+            seconds: Number(document.getElementById('freeVideoLength').value),
+            style: document.getElementById('freeVideoStyle').value
+        };
+        statusEl.textContent = 'Getting photo';
+        const data = await freeVideoRequest('/api/v1/photo-videos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const id = data.video.id;
+        // A timeout does not cancel the worker or start another render.
+        const until = Date.now() + 20 * 60 * 1000;
+        while (Date.now() < until) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const current = await freeVideoRequest('/api/v1/photo-videos/' + encodeURIComponent(id));
+            const job = current.video; statusEl.textContent = job.message;
+            if (job.status === 'failed') throw new Error(job.message);
+            if (job.status === 'succeeded') { showFreeVideo(job,resultEl); await loadFreeVideoHistory(); return; }
+        }
+        throw new Error('This video is still running. Check Past videos before starting another.');
     }
 
     function getLocalVideoBridge() {
@@ -1474,7 +1560,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const resultEl   = document.getElementById('videoResult');
         const submitBtn  = document.getElementById('videoSubmitBtn');
 
-        if (!prompt) {
+        if (provider !== 'free' && !prompt) {
             statusEl.innerHTML = '<span class="text-red-400">Prompt is required.</span>';
             return;
         }
@@ -1491,6 +1577,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         statusEl.textContent = provider === 'local' ? 'Connecting to local RTX bridge…' : 'Submitting to MiniMax…';
 
         try {
+            if (provider === 'free') {
+                await submitFreeVideo(statusEl, resultEl);
+                return;
+            }
             if (provider === 'local') {
                 await submitLocalVideoRender(prompt, statusEl, resultEl);
                 return;
@@ -1517,9 +1607,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
             await pollVideoUntilDone(taskId, model, statusEl, resultEl);
         } catch (e) {
-            statusEl.innerHTML =
-                '<span class="text-red-400">Submission failed:</span> <span class="text-slate-400">' +
-                (e.message || String(e)) + '</span>';
+            statusEl.textContent = 'Video could not finish: ' + (e.message || String(e));
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Render Video</span>';

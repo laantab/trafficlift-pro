@@ -738,6 +738,8 @@ async def clear_all_campaigns() -> JSONResponse:
 
 # Mount the product-scout router (trending/evergreen product suggestions).
 app.include_router(product_scout_router)
+from backend.photo_video_api import router as photo_video_router
+app.include_router(photo_video_router)
 
 @app.get("/", include_in_schema=False)
 async def root():
