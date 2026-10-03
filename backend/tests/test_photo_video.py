@@ -37,14 +37,21 @@ def test_setup_missing_no_job(client,payload,tmp_path):
         assert client.post('/api/v1/photo-videos',json=payload).status_code==503
     assert not list(tmp_path.iterdir())
 
-def test_sales_review_blocks_before_setup_or_job(client,payload,tmp_path):
+def test_blank_benefit_starts_preview_job(client,payload,tmp_path):
     payload['benefit']=''
-    with patch.object(api,'dependencies') as setup:
-        response=client.post('/api/v1/photo-videos',json=payload)
-        assert response.status_code==422
-        assert 'practical benefit' in response.json()['detail']
-        setup.assert_not_called()
-    assert not list(tmp_path.iterdir())
+    payload['seconds']=15
+    with patch.object(api,'dependencies'),patch.object(api.threading,'Thread') as thread:
+        try:
+            response=client.post('/api/v1/photo-videos',json=payload)
+            assert response.status_code==202
+            job=response.json()['video']
+            saved=json.loads((tmp_path/job['id']/'job.json').read_text())
+            assert saved['sales_plan']['mode']=='photo_preview'
+            assert saved['sales_plan']['review']['status']=='PASS'
+            assert saved['sales_plan']['evidence']==[]
+            thread.return_value.start.assert_called_once()
+        finally:
+            if api.lock.locked():api.lock.release()
 
 def test_reviewed_sales_plan_saved_with_job(client,payload,tmp_path):
     payload.update(buyer_need='A warmer room',consideration='Includes a stand')

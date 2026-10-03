@@ -1119,7 +1119,7 @@
                     <p class="text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
                     <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
-                    <label class="block text-xs text-slate-400">Practical benefit (copy from this exact seller listing)<textarea id="freeProductFact" required maxlength="160" rows="2" placeholder="What does this help the buyer do? Use supported seller information." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
+                    <label class="block text-xs text-slate-400">Seller benefit (optional — improves the sales script)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Add a supported benefit, or leave blank for a narrated photo preview." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
                     <label class="block text-xs text-slate-400">Buyer need (optional)<input id="freeBuyerNeed" maxlength="100" placeholder="For example: Easier sipping at your desk" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Buying detail (optional; copy from the same listing)<input id="freeBuyingDetail" maxlength="120" placeholder="Supported size, care or included accessories" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <p class="text-xs text-slate-400">Use facts for this exact product. Scripts are checked before rendering. Photos highlight features; they do not prove performance.</p>
@@ -1443,8 +1443,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             seconds: Number(document.getElementById('freeVideoLength').value),
             style: document.getElementById('freeVideoStyle').value
         };
-        if (!payload.benefit) throw new Error('Add a practical benefit supported by the exact seller listing.');
-        statusEl.textContent = 'Checking sales script';
+        statusEl.textContent = payload.benefit ? 'Checking sales script' : 'Preparing narrated photo preview';
         const data = await freeVideoRequest('/api/v1/photo-videos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const id = data.video.id;
         // A timeout does not cancel the worker or start another render.

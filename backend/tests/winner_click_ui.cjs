@@ -30,5 +30,18 @@ const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',i
   assert.equal(b.requests.length,1);assert(b.nodes.get('executionOutput').innerHTML.includes('Find Winning Product failed'));
   assert.equal(b.nodes.get('findWinningProductBtn').disabled,false);
  }
+ // Exercise the real free-video submission with the untouched, blank benefit field.
+ b=browser({ok:true,json:async()=>winner});
+ b.context.window.__currentWinner={...winner,url:'https://example.com/product'};
+ for(const [id,value] of Object.entries({freeProductName:'Juicer',freeProductUrl:'https://example.com/product',freeProductFact:'',freeBuyerNeed:'',freeBuyingDetail:'',freeVideoLength:'15',freeVideoStyle:'warm'})) b.context.document.getElementById(id).value=value;
+ let submitted;
+ b.context.freeVideoRequest=async(path,options)=>{
+  if(options?.method==='POST'){submitted=JSON.parse(options.body);return {video:{id:'one'}};}
+  return {video:{status:'succeeded',video_url:'/video',message:'Ready'}};
+ };
+ b.context.setTimeout=fn=>fn();b.context.showFreeVideo=()=>{};b.context.loadFreeVideoHistory=async()=>{};
+ await b.context.submitFreeVideo({textContent:''},{});
+ assert(submitted,'Blank benefit must reach the video API');assert.equal(submitted.benefit,'');
+ assert.equal(submitted.image_url,winner.image_url);assert.equal(submitted.seconds,15);
  console.log('PASS: actual button request, same origin, Pinterest continuation, visible failures, curated rejection');
 })().catch(e=>{console.error(e);process.exitCode=1});

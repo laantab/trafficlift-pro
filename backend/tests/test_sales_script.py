@@ -22,9 +22,21 @@ def test_script_uses_product_fact_source_and_one_cta():
     assert all('performance test' in scene['visual'] or scene['stage']!='benefit' for scene in result['scenes'])
 
 
-def test_no_generic_showcase_without_supported_benefit():
-    with pytest.raises(ValueError,match='practical benefit'):
-        plan(benefit='',consideration='Includes a straw')
+def test_missing_benefit_produces_honest_preview_with_cta():
+    result=plan(benefit='',buyer_need='Guaranteed weight loss',consideration='Includes a straw',seconds=15)
+    assert result['mode']=='photo_preview'
+    assert result['review']['status']=='PASS'
+    assert result['evidence']==[]
+    script=' '.join(result['phrases'])
+    assert 'Guaranteed' not in script and 'straw' not in script
+    assert 'current pricing and specifications' in script
+    assert 'no benefit claims' in result['review']['evidence_status']
+
+
+def test_preview_fits_fifteen_seconds_with_long_product_name():
+    result=plan(name=' '.join(['Product']*11),benefit='',seconds=15)
+    assert result['review']['status']=='PASS'
+    assert result['product']==' '.join(['Product']*11)
 
 
 @pytest.mark.parametrize('benefit',['Guaranteed results','Hurry, selling out','We tested it','Only $19.99','Save 50% off'])

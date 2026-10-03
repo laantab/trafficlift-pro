@@ -15,8 +15,8 @@ def clean(value, limit=160):
 
 def review(plan, seconds):
     errors = []
-    if not plan['evidence']:
-        errors.append('Add a practical benefit supported by the exact seller listing.')
+    if not plan['evidence'] and plan.get('mode') != 'photo_preview':
+        errors.append('A benefit-led script needs seller information.')
     script = ' '.join(plan['phrases'])
     # Honest photo-only output cannot prove performance or a real demonstration.
     if re.search(r'\b(watch (?:it|this)|as you can see|we tested|proven by|guaranteed|best ever|everyone loves|selling out|hurry|limited time)\b', script, re.I):
@@ -26,7 +26,9 @@ def review(plan, seconds):
     if len(script.split()) > int((seconds - 1.6) * 2.25):
         errors.append('The script needs a longer video. Choose 30 or 60 seconds, or shorten the seller benefit.')
     return {'status': 'FAIL' if errors else 'PASS', 'errors': errors,
-            'evidence_status': 'Seller text supplied by user; not independently verified',
+            'evidence_status': ('No seller benefit supplied; photo preview makes no benefit claims'
+                                if plan.get('mode') == 'photo_preview' else
+                                'Seller text supplied by user; not independently verified'),
             'visual_mode': 'Real product photo and close-up framing; no performance demonstration'}
 
 
@@ -36,7 +38,25 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     need = clean(buyer_need, 100)
     consideration = clean(consideration, 120)
     if not benefit:
-        raise ValueError('Add a practical benefit supported by the exact seller listing.')
+        # Discovery hands over a photo and identity, not a verified benefit.
+        # Render an explicit photo preview instead of inventing a fact or
+        # requiring the user to research and fill a field before every video.
+        spoken_name = ' '.join(name.split()[:8])
+        phrases = [f'Take a closer look at {spoken_name}.',
+                   'Explore the product photos.',
+                   'Tap the product link for current pricing and specifications.']
+        plan = {'version': '2.1', 'mode': 'photo_preview', 'product': name,
+                'buyer_need': '', 'hook_candidates': [phrases[0]], 'selected_hook': 0,
+                'phrases': phrases, 'captions': ['A closer look', 'Product photo', 'Check details and price'],
+                'destination': destination, 'evidence': [],
+                'scenes': [{'stage': stage, 'narration': phrase, 'visual': 'Show the actual product photo; no performance demonstration'}
+                           for stage, phrase in zip(['hook', 'photo', 'cta'], phrases)],
+                'workflow': ['conversion_copy', 'visual_direction', 'editorial_review'],
+                'engine': 'local photo-preview rules; no language-model calls'}
+        plan['review'] = review(plan, seconds)
+        if plan['review']['errors']:
+            raise ValueError(' '.join(plan['review']['errors']))
+        return plan
     # Buyer research: preserve the source and exact supplied fact rather than
     # treating generated Pinterest copy as factual evidence.
     evidence = [{'text': benefit, 'source_url': destination, 'origin': 'user_supplied_seller_text'}] if benefit else []
