@@ -1,7 +1,7 @@
 """backend/live_research.py
 Live Internet research layer for the winning-product picker.
 
-Two providers, no fabrication:
+Three providers, no fabrication:
 
 * **Tavily** — primary. Used when ``TAVILY_API_KEY`` is configured.
   Endpoint: https://api.tavily.com/search. Returns clean structured hits.
@@ -34,6 +34,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -42,6 +44,12 @@ from urllib.parse import unquote
 import requests
 
 logger = logging.getLogger("live_research")
+_DIAGNOSTICS = threading.local()
+
+def _problem(message):
+    errors = getattr(_DIAGNOSTICS, 'errors', None)
+    if errors is not None: errors.append(message)
+
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -80,6 +88,8 @@ class ResearchEnvelope:
     # Image URLs discovered alongside the text research. Used by the
     # researcher to enrich candidates with real product photos.
     research_image_urls: list[str] = field(default_factory=list)
+
+    research_errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -175,6 +185,7 @@ def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource
             timeout=DEFAULT_TIMEOUT,
         )
         if resp.status_code != 200:
+            _problem(f"DuckDuckGo HTTP {resp.status_code}")
             logger.warning("DDG HTTP %s", resp.status_code)
             return [], []
 
@@ -216,10 +227,47 @@ def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource
         # DDG HTML rarely exposes direct image URLs in the result list,
         # but some result URLs DO end in image extensions. Defer to the
         # same defensive scan we use for Tavily sources.
+        if not out: _problem("DuckDuckGo returned no parsed results")
         image_urls = _collect_image_urls_from_sources(out)
         return out, image_urls
     except Exception as exc:
+        _problem("DuckDuckGo request failed: " + type(exc).__name__)
         logger.warning("DDG request failed: %s", exc)
+        return [], []
+
+
+def _query_bing_rss(query: str, max_results: int):
+    """Independent zero-key RSS fallback. Empty/error feeds are not evidence."""
+    try:
+        response = requests.get('https://www.bing.com/search',
+                                params={'q': query, 'format': 'rss'},
+                                headers={'User-Agent': DEFAULT_USER_AGENT}, timeout=4)
+        if response.status_code != 200:
+            _problem(f'Bing RSS HTTP {response.status_code}')
+            return [], []
+        if len(response.content) > 2_000_000:
+            _problem('Bing RSS response too large')
+            return [], []
+        root = ET.fromstring(response.content)
+        if root.tag != 'rss':
+            _problem('Bing did not return an RSS feed')
+            return [], []
+        out = []
+        from urllib.parse import urlsplit
+        from bs4 import BeautifulSoup
+        for item in root.findall('./channel/item')[:max_results]:
+            title = (item.findtext('title') or '').strip()
+            url = (item.findtext('link') or '').strip()
+            parsed = urlsplit(url)
+            if not title or parsed.scheme not in {'http','https'} or not parsed.hostname:
+                continue
+            snippet = BeautifulSoup(item.findtext('description') or '', 'html.parser').get_text(' ',strip=True)
+            out.append(ResearchSource(title=title[:200],snippet=snippet[:500],url=url,provider='bing_rss'))
+        if not out: _problem('Bing RSS returned no results')
+        return out, _collect_image_urls_from_sources(out)
+    except Exception as exc:
+        _problem('Bing RSS request failed: ' + type(exc).__name__)
+        logger.warning('Bing RSS request failed (%s)', type(exc).__name__)
         return [], []
 
 
@@ -276,6 +324,7 @@ def research(
     provider's dedicated images field (Tavily `images`, DDG URL-extension
     scan) — NOT just from URLs embedded in the text result URLs.
     """
+    _DIAGNOSTICS.errors = []
     q = (query or "").strip()
     if not q:
         return ResearchEnvelope(
@@ -324,12 +373,22 @@ def research(
             research_image_urls=ddg_images,
         )
 
+    # 3. An independent public feed; no API key or paid calls.
+    bing_hits, bing_images = _query_bing_rss(q, max_results)
+    if bing_hits:
+        return ResearchEnvelope(research_status='live' if len(bing_hits)>=3 else 'partial',
+            research_timestamp=_now_iso(), research_provider='bing_rss',
+            research_sources=[asdict(source) for source in bing_hits],
+            research_summary=_summarize_sources(q,bing_hits), research_query=q,
+            research_image_urls=bing_images, research_errors=list(_DIAGNOSTICS.errors))
+
     # 3. No evidence anywhere
     return ResearchEnvelope(
         research_status="fallback",
         research_timestamp=_now_iso(),
         research_provider="none",
         research_summary=f"Live research unavailable for '{q}'.",
+        research_errors=list(_DIAGNOSTICS.errors),
         research_query=q,
     )
 

@@ -23,7 +23,7 @@ MAX_QUERIES = 3
 MAX_CANDIDATES = 12
 MAX_QUALIFICATION = MAX_CANDIDATES
 REQUEST_SECONDS = 32
-RESEARCH_SECONDS = 11
+RESEARCH_SECONDS = 16
 logger = logging.getLogger(__name__)
 _POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix='discovery')
 
@@ -98,7 +98,11 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
     envelopes = bounded_map(lambda q: live_research.research(q, max_results=6), queries, RESEARCH_SECONDS)
     available = [e for e in envelopes if e.research_status in {'live','partial'} and e.research_sources]
     if not available:
-        raise HTTPException(503, 'Live product research is unavailable right now. No saved-list product was substituted. Try again shortly.')
+        errors = sorted({message for env in envelopes if env is not None
+                         for message in getattr(env, 'research_errors', [])})
+        detail = ' '.join(errors) or 'Search providers timed out or returned no usable results.'
+        raise HTTPException(503, 'Live product research is unavailable. ' + detail +
+                            ' No saved-list product was substituted.')
     titles = set()
     candidates = []
     candidate_keys = set()
