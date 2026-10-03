@@ -24,4 +24,6 @@ jobs:
       - name: Run Find Winner regression suite
         run: |
           mkdir -p video
-          python -m pytest backend/tests/test_find_winner_repair.py -q
+          python -m pytest backend/tests/test_find_winner_repair.py backend/tests/test_discovery_redesign.py -q
+      - name: Check persistent discovery browser history
+        run: node backend/tests/discovery_history_ui.cjs

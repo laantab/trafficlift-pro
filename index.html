@@ -14,7 +14,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
-    <meta name="app-version" content="2.1-discover-fix-2026-09-28">
+    <meta name="app-version" content="3.0-fresh-discovery-2026-10-02">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -1694,7 +1694,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     <div class="flex flex-wrap items-center gap-2">
                         ${trendScore !== null ? `
                             <span class="text-xs font-bold px-2.5 py-1 rounded-lg border ${scoreBg} ${scoreColor}">
-                                Trend score: ${trendScore}/100
+                                ${data.discovery?.version === '3.0' ? 'Research evidence' : 'Trend score'}: ${trendScore}/${data.discovery?.version === '3.0' ? '60' : '100'}
                             </span>` : ''}
                         ${margin ? `<span class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">Margin: ${escapeHtml(margin)}</span>` : ''}
                         ${evergreen !== null ? `<span class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">Evergreen: ${(evergreen * 100).toFixed(0)}%</span>` : ''}
@@ -2405,10 +2405,21 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
         let success = false;
         try {
+            if (!readUrlField) {
+                if (winner.source !== 'discovery' || winner.discovery?.version !== '3.0') {
+                    throw new Error('The server has not returned a fresh research result. Update the discovery backend; saved-list products are not accepted here.');
+                }
+                const seen = discoveryHistory();
+                const keys = winner.identity_keys || [];
+                if (seen.some(item => item.id === winner.id || item.keys.some(key => keys.includes(key)))) {
+                    throw new Error('This product was already shown. Try again to research another category.');
+                }
+            }
+
             console.log('[pick-pipeline] â†’ GET', requestUrl);
 
             // Front-end safety timeout.
-            const TIMEOUT_MS = 30000;
+            const TIMEOUT_MS = 75000;
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -2450,6 +2461,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
             console.log('[pick-pipeline] âœ“', { id: winner.id, name: winner.name });
 
+            rememberDiscoveredWinner(winner);
             window.__lastWinnerId = winner.id;
             persistCurrentWinner(winner);
             // PATH A never reads the URL field. PATH B may update it with
@@ -2592,6 +2604,50 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     // â”€â”€ PATH A â€” Find a Winning Product (no input required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Reads NOTHING from the URL field. Always hits the discovery
     // endpoint with the default 'trending product' seed.
+    // A stable anonymous browser identity and 30-day local history survive
+    // refreshes. Server SQLite history is shared across workers on this host.
+    const DISCOVERY_HISTORY_KEY = 'trafficlift.discovery.history.v3';
+    const DISCOVERY_CLIENT_KEY = 'trafficlift.discovery.client.v3';
+    function discoveryClientId() {
+        if (window.__discoveryClientId) return window.__discoveryClientId;
+        let id = '';
+        try { id = localStorage.getItem(DISCOVERY_CLIENT_KEY) || ''; } catch (_) {}
+        if (!/^[a-zA-Z0-9_-]{16,64}$/.test(id)) {
+            id = crypto.randomUUID().replace(/-/g, '');
+            try { localStorage.setItem(DISCOVERY_CLIENT_KEY, id); } catch (_) {}
+        }
+        window.__discoveryClientId = id;
+        return id;
+    }
+    function discoveryHistory() {
+        let items = window.__discoveryHistory || [];
+        try {
+            const stored = JSON.parse(localStorage.getItem(DISCOVERY_HISTORY_KEY) || '[]');
+            if (Array.isArray(stored)) items = stored;
+        } catch (_) {}
+        return items.filter(item => item && typeof item.id === 'string'
+            && Number.isFinite(item.at) && item.at > Date.now()-30*86400000
+            && Array.isArray(item.keys)).slice(-100);
+    }
+    function rememberDiscoveredWinner(winner) {
+        if (winner.source !== 'discovery') return;
+        const items = discoveryHistory();
+        items.push({id:winner.id, keys:(winner.identity_keys || []).filter(k => typeof k === 'string'), at:Date.now()});
+        window.__discoveryHistory = items.slice(-100);
+        try { localStorage.setItem(DISCOVERY_HISTORY_KEY, JSON.stringify(window.__discoveryHistory)); } catch (_) {}
+    }
+    function discoveryParams() {
+        const history = discoveryHistory();
+        const params = new URLSearchParams();
+        const ids = new Set(history.map(item => item.id));
+        if (window.__lastWinnerId) ids.add(window.__lastWinnerId);
+        if (ids.size) params.set('exclude', [...ids].join(','));
+        const keys = [...new Set(history.flatMap(item => item.keys))].slice(-160);
+        if (keys.length) params.set('exclude_keys', keys.join(','));
+        params.set('client_id', discoveryClientId());
+        return params;
+    }
+
     async function findWinningProduct() {
         const btn = document.getElementById('findWinningProductBtn');
 
@@ -2627,9 +2683,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // Note: we deliberately do NOT read #productUrl here.
         const isFirstRun = !window.__pickPipelineRanOnce;
         window.__pickPipelineRanOnce = true;
-        const prev = window.__lastWinnerId || '';
-        const params = new URLSearchParams();
-        if (prev) params.set('exclude', prev);
+        const params = discoveryParams();
         // PATH A calls ONLY the dedicated discovery endpoint - never
         // /find-winner, never /analyze-product-url, never a keyword path.
         const requestUrl = apiUrl(`/api/v1/discover-winner?${params.toString()}`);
@@ -2738,3 +2792,4 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     </script>
 </body>
 </html>
+

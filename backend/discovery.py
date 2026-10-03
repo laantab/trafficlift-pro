@@ -535,16 +535,17 @@ def _build_candidates_from_envelope(
         if not _has_specific_product_signal(name):
             logger.info("[discover] reject non-concrete candidate: %r", name[:80])
             continue
-        # Deduplicate by case-insensitive name prefix.
-        key = name.lower().split(" ")[0:4]
-        key = " ".join(key)
+        # Deduplicate full product identity; shared brand prefixes do not
+        # make different models the same product.
+        key = " ".join(re.findall(r"[a-z0-9]+", name.lower()))
         if key in seen_titles:
             logger.info("[discover] reject duplicate: %r", name[:80])
             continue
         seen_titles.add(key)
         product_type = _derive_product_type(name)
         category = _infer_category(name)
-        cid = f"discover-{i:02d}-{abs(hash(name)) % 10000:04d}"
+        from backend.winner_history import product_id
+        cid = product_id(name, url)
         # Count co-mentions in the other sources.
         co_mentions = 0
         title_tokens = [t for t in re.findall(r"[a-z]{4,}", name.lower())]
@@ -745,171 +746,11 @@ def _validate_and_rank(urls: list[str], name: str, category: str,
 
 # ── Main entry point ─────────────────────────────────────────────────────
 
-def discover_winner(*, exclude_ids: Optional[set[str]] = None) -> dict:
-    """Run the live discovery pipeline and return a winner payload.
-
-    Strategy:
-        1. Run live Tavily research for up to ``LIVE_PHASE_BUDGET_SECONDS``.
-        2. For each candidate, resolve a verified product image.
-        3. If the live phase produces no qualified winner, fall back to
-           the curated pool (a marketing-expert curated set of real
-           trending products from Amazon / Walmart / Temu / etc.).
-
-    Returns:
-        dict  — winner payload compatible with /find-winner response shape.
-        raises HTTPException(404) with a discovery-specific message if no
-        qualified candidate is found within the budget.
-    """
-    from fastapi import HTTPException
-    exclude_ids = set(exclude_ids or set())
-    t_start = time.monotonic()
-    logger.info("[discover] ==== START discovery ====")
-    live_deadline = t_start + LIVE_PHASE_BUDGET_SECONDS
-
-    # ── STEP 1: live research ───────────────────────────────────────────
-    all_envelopes = []
-    seen_titles: set[str] = set()
-    candidates: list[tuple[ProductCard, int, list[str]]] = []  # (card, evidence_count, tavily_image_urls)
-
-    for query in DISCOVERY_QUERIES[:MAX_DISCOVERY_RESEARCH_QUERIES]:
-        if time.monotonic() > live_deadline:
-            logger.info("[discover] live phase budget exhausted after %d queries",
-                        len(all_envelopes))
-            break
-        logger.info("[discover] research query=%r", query)
-        try:
-            env = live_research.research(query, max_results=5)
-            all_envelopes.append(env)
-            new_cards = _build_candidates_from_envelope(env, seen_titles)
-            tavily_imgs = list(env.research_image_urls or []) if hasattr(env, "research_image_urls") else []
-            for c in new_cards:
-                candidates.append((c, len(env.research_sources or []), tavily_imgs))
-                if len(candidates) >= MAX_DISCOVERY_CANDIDATES:
-                    break
-        except Exception as exc:
-            logger.info("[discover] research error for %r: %s", query, exc)
-        if len(candidates) >= MAX_DISCOVERY_CANDIDATES:
-            break
-
-    raw_results = sum(len(e.research_sources or []) for e in all_envelopes)
-    logger.info("[discover] raw_results=%d normalized_candidates=%d",
-                raw_results, len(candidates))
-
-    # ── STEP 2-4: rank, image-search, and pick the first qualified ──────
-    # Score candidates using supported signals only.
-    candidates.sort(
-        key=lambda pair: _score_candidate(pair[0], pair[1]),
-        reverse=True,
-    )
-    logger.info(
-        "[discover] sorted %d candidates; trying image search",
-        len(candidates),
-    )
-
-    # Cap live candidate attempts so the curated fallback always has
-    # time to run. The curated pool has 20+ entries; live research only
-    # needs to surface ONE qualified winner.
-    MAX_LIVE_CANDIDATE_ATTEMPTS = 1
-
-    for idx, (card, ev_count, tavily_imgs) in enumerate(candidates):
-        if card.id in exclude_ids:
-            logger.info("[discover] skip excluded live candidate id=%s name=%r", card.id, card.name[:60])
-            continue
-        if idx >= MAX_LIVE_CANDIDATE_ATTEMPTS:
-            logger.info("[discover] live candidate attempt cap reached at idx=%d", idx)
-            break
-        if time.monotonic() > live_deadline:
-            logger.info("[discover] live candidate phase time-out at idx=%d", idx)
-            break
-        # Image discovery (with Tavily pre-fetched images as fallback).
-        image_url = _find_image_for_candidate(
-            card, tavily_image_urls=tavily_imgs,
-            deadline_monotonic=live_deadline,
-        )
-        if not image_url:
-            logger.info("[discover] skip candidate=%r (no verified image)",
-                        card.name[:60])
-            continue
-        # Audit via Product Control Agent.
-        card.image_url = image_url
-        # Build the audit payload via ProductResearcher._materialize so
-        # angle / pin_title / pin_description / hashtags are populated.
-        # (Required by ProductControlAgent.evaluate.)
-        from backend.product_research import ProductResearcher
-        researcher = ProductResearcher()
-        audit_payload = researcher._materialize(card, card.category or "Trending General")
-        # Force the live-research source label.
-        audit_payload["source"] = "discovery"
-        audit_payload["image_url"] = image_url
-        report = ProductControlAgent.evaluate(audit_payload)
-        if not report.ok:
-            logger.info(
-                "[discover] skip candidate=%r reason=%s",
-                card.name[:60], report.primary_reason,
-            )
-            continue
-        winner = report.product
-        # Mark discovery provenance.
-        winner["source"] = "discovery"
-        winner["discovery"] = {
-            "research_queries": DISCOVERY_QUERIES[:MAX_DISCOVERY_RESEARCH_QUERIES],
-            "raw_results": raw_results,
-            "normalized_candidates": len(candidates),
-            "candidates_attempted": idx + 1,
-            "winner_evidence_count": ev_count,
-            "winner_source_url": card.url,
-            "elapsed_seconds": round(time.monotonic() - t_start, 3),
-        }
-        winner["selection_rationale"] = (
-            f"Live discovery surfaced {raw_results} raw research results, "
-            f"normalized {len(candidates)} qualified product candidates, "
-            f"and selected the strongest based on evidence breadth "
-            f"({ev_count} co-mentions) plus verified product photo."
-        )
-        winner["trend_signals"] = [
-            f"Surfaced by live Tavily research: {', '.join(DISCOVERY_QUERIES[:2])}...",
-            f"Co-mentioned across {ev_count} source(s) of trending-product data",
-        ]
-        # Always force image_status=verified when we made it past the
-        # audit. The audit may not set this field directly.
-        winner["image_status"] = "verified"
-        logger.info(
-            "[discover] ACCEPTED winner=%r category=%r type=%s elapsed=%.2fs",
-            card.name[:60], card.category, _derive_product_type(card.name),
-            time.monotonic() - t_start,
-        )
-        return winner
-
-    logger.info("[discover] live phase produced no qualified candidate")
-
-    # ── STEP 5: CURATED FALLBACK ──────────────────────────────────────────
-    # When live Tavily research cannot produce a qualified candidate
-    # (rate limit, all images failed, generic titles only, etc.) we
-    # fall back to a marketing-expert curated pool of real trending
-    # products. Each curated entry has been hand-verified for:
-    #   - real product (Amazon / Walmart / Temu best-seller or viral hit)
-    #   - image search queries that return real product CDN photos
-    #   - marketing-expert curated metadata (angle, pin, hashtags,
-    #     trend signals, margin estimate, evergreen score, competition)
-    # This guarantees PATH A always returns a verified winner, even
-    # when Tavily is unavailable.
-    curated = _pick_curated_winner(
-        seen_names=set(),
-        exclude_ids=exclude_ids,
-        deadline_monotonic=t_start + DISCOVERY_REQUEST_BUDGET_SECONDS,
-        t_start=t_start,
-    )
-    if curated is not None:
-        return curated
-
-    logger.info("[discover] NO curated winner either — returning 404")
-    raise HTTPException(
-        status_code=404,
-        detail=(
-            "We couldn't find a qualified product right now. "
-            "Try Find Winning Product again."
-        ),
-    )
+def discover_winner(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
+    """Fresh-only PATH A; saved pools remain available to legacy browsing."""
+    from backend.discovery_engine import discover
+    return discover(exclude_ids=exclude_ids, exclude_keys=exclude_keys,
+                    client_id=client_id, seed=seed)
 
 
 # ── Curated winners fallback (PATH A reliability layer) ─────────────────
@@ -1130,3 +971,4 @@ def _resolve_curated_image(entry: CuratedWinner,
     if verified:
         return verified[0]
     return None
+
