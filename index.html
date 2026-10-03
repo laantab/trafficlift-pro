@@ -1340,7 +1340,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('freeProductPreview').src = winner.image_url || '';
         document.getElementById('freeProductName').value = winner.name;
         document.getElementById('freeProductUrl').value = winner.url || '';
-        document.getElementById('freeProductFact').value = '';
+        document.getElementById('freeProductFact').value = winner.seller_benefit_source === winner.url ? (winner.seller_benefit || '') : '';
         document.getElementById('freeBuyerNeed').value = '';
         document.getElementById('freeBuyingDetail').value = '';
         loadFreeVideoHistory();

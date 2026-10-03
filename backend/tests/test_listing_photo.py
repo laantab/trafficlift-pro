@@ -26,3 +26,24 @@ def test_search_retailer_suffix_does_not_break_exact_model_match(monkeypatch):
     page(monkeypatch,'<script type="application/ld+json">'+json.dumps(data)+'</script>')
     assert listing_photo.listing_images('Levoit Core P350 Pet Air Purifier - Target','https://shop.example/product')==['https://shop.example/right.jpg']
     assert not listing_photo.listing_images('Levoit Core P400 Pet Air Purifier - Target','https://shop.example/product')
+
+
+def test_store_roundups_and_guides_are_not_products():
+    from backend.discovery import _looks_like_article
+    for title in ['The 10 Best Light Fixture Stores for 2026 | Free Buyers Guide',
+                  '10 Best Desk Lamps', 'Best Lighting Stores', "Lamp Buyer’s Guide", 'Where to Buy Lamps']:
+        assert _looks_like_article(title,'')
+    assert not _looks_like_article('Philips Hue White A19 LED Bulb 2-Pack','')
+    assert not _looks_like_article('10 Piece Silicone Kitchen Utensil Set','')
+
+
+def test_only_matching_product_supplies_seller_benefit(monkeypatch):
+    data={'@type':'Product','name':'Orbit Desk Lamp','description':'<p>Adjustable arm for positioning the light.</p>','image':'/lamp.jpg'}
+    page(monkeypatch,'<script type="application/ld+json">'+json.dumps(data)+'</script>')
+    details={}
+    listing_photo.listing_images('Orbit Desk Lamp','https://shop.example/product',details=details)
+    assert details['seller_benefit']=='Adjustable arm for positioning the light.'
+    assert details['seller_benefit_source']=='https://shop.example/product'
+    details={}
+    listing_photo.listing_images('Other Desk Lamp','https://shop.example/product',details=details)
+    assert details=={}

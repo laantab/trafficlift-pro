@@ -129,6 +129,12 @@ def _looks_like_article(title: str, snippet: str) -> bool:
     # Strong listicle / roundup / category-page signals.
     listicle_patterns = (
         r"\b(?:top|best)\s+\d+\b",
+        r"\b(?:the\s+)?\d+\s+(?:best|top)\b",
+        r"\b(?:buyers?|buying|shopping)\s+(?:s\s+)?guides?\b",
+        r"\b(?:buyers?[’']s|buyer[’']s)\s+guides?\b",
+        r"\b(?:best|top)\b.*\b(?:stores|shops|retailers|brands)\b",
+        r"\bwhere\s+to\s+(?:buy|shop)\b",
+        r"\b(?:comparison|round\s*up)\b",
         r"\b\d+\s+(?:trending|best|top|viral|winning)\s+products?\b",
         r"\bproducts?\s+to\s+sell\b",
         r"\btrending\s+products?\b",

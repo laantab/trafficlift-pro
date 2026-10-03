@@ -94,6 +94,9 @@ def history(request:Request):
 def create(payload:VideoRequest,request:Request):
     guard(request)
     if not payload.name.strip():raise HTTPException(400,'Product name is required.')
+    from backend.discovery import _looks_like_article
+    if _looks_like_article(payload.name, ''):
+        raise HTTPException(422,'This selection is a guide or roundup. Choose one specific product before making its video.')
     try:
         sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,payload.seconds,payload.buyer_need,payload.consideration)
     except ValueError as exc:raise HTTPException(422,str(exc))

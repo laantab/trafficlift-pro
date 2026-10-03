@@ -131,3 +131,13 @@ def test_motion_check_accepts_changing_photo():
     data=b''.join(bytes([i*10])*(96*96*3) for i in range(15))
     with patch('backend.photo_video.subprocess.check_output',return_value=data):
         assert check_motion('moving.mp4',15)['status']=='PASS'
+
+
+def test_store_guide_never_starts_video_worker(client,payload,tmp_path):
+    payload['name']='The 10 Best Light Fixture Stores for 2026 | Free Buyers Guide'
+    with patch.object(api,'dependencies') as setup,patch.object(api.threading,'Thread') as thread:
+        response=client.post('/api/v1/photo-videos',json=payload)
+        assert response.status_code==422
+        assert 'one specific product' in response.json()['detail']
+        setup.assert_not_called();thread.assert_not_called()
+    assert not list(tmp_path.iterdir())

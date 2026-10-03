@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from backend.url_resolver import _safe_get
 
-def listing_images(name, url, *, timeout=4):
+def listing_images(name, url, *, timeout=4, details=None):
     final_url, html, error = _safe_get(url, timeout=timeout)
     if error or not html:
         return []
@@ -37,6 +37,13 @@ def listing_images(name, url, *, timeout=4):
             if isinstance(types, str): types = [types]
             if 'Product' in types and matches(obj.get('name', '')):
                 add(obj.get('image'))
+                if details is not None and isinstance(obj.get('description'), str):
+                    description = BeautifulSoup(obj['description'], 'html.parser').get_text(' ', strip=True)
+                    description = ' '.join(description.split())
+                    if len(description)>160:
+                        description = description[:161].rsplit(' ',1)[0]
+                    if description and not any(char in description for char in '{}\\'):
+                        details.update(seller_benefit=description, seller_benefit_source=url)
             for key, child in obj.items():
                 if isinstance(child, (list, dict)): walk(child)
     for script in soup.select('script[type="application/ld+json"]'):

@@ -140,7 +140,8 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
         per_candidate_deadline = min(deadline, time.monotonic()+9)
         from backend.listing_photo import listing_images
         from backend.product_control_agent import _validate_image, rank_image_candidates
-        listing_urls = listing_images(card.name, card.url, timeout=min(4, max(.1, per_candidate_deadline-time.monotonic())))
+        listing_details = {}
+        listing_urls = listing_images(card.name, card.url, details=listing_details, timeout=min(4, max(.1, per_candidate_deadline-time.monotonic())))
         # Listing identity was checked before these photos were returned.
         # URL-keyword scores sort photos; they must not veto a verified photo
         # just because its seller CDN uses an opaque filename.
@@ -160,7 +161,7 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
             return None
         card.image_url = image
         payload = ProductResearcher()._materialize(card, card.category)
-        payload.update(source='discovery', image_url=image)
+        payload.update(source='discovery', image_url=image, **listing_details)
         report = ProductControlAgent.evaluate(payload)
         if not report.ok:
             rejection_log.append('product')
