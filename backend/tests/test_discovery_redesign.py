@@ -24,10 +24,19 @@ def envelope(names=('Orbit Desk Lamp', 'Atlas Travel Mug', 'Cedar Water Bottle')
 
 @pytest.fixture
 def isolated(tmp_path,monkeypatch):
+    monkeypatch.setattr('backend.listing_photo.listing_images',lambda *a,**k:[])
     monkeypatch.setenv('TRAFFICLIFT_DISCOVERY_DB', str(tmp_path/'history.sqlite3'))
     monkeypatch.setattr(engine.live_research,'research',lambda *a,**k: envelope())
     monkeypatch.setattr('backend.discovery._find_image_for_candidate',lambda *a,**k:'https://images.example/product.jpg')
     monkeypatch.setattr('backend.product_control_agent.ProductControlAgent.evaluate',lambda payload:SimpleNamespace(ok=True,product=payload))
+
+def test_listing_photo_works_when_image_search_returns_nothing(isolated,monkeypatch):
+    monkeypatch.setattr('backend.listing_photo.listing_images',lambda *a,**k:['https://seller.example/hero.jpg'])
+    monkeypatch.setattr('backend.discovery._validate_and_rank',lambda *a,**k:('https://seller.example/hero.jpg',40))
+    monkeypatch.setattr('backend.discovery._find_image_for_candidate',lambda *a,**k:pytest.fail('Image search unnecessary'))
+    winner=engine.discover(client_id='browser123456789',seed=4)
+    assert winner['image_url']=='https://seller.example/hero.jpg'
+    assert winner['image_origin']=='matched_product_listing'
 
 
 def test_identity_stable_across_processes_and_tracking_parameters():

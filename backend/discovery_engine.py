@@ -132,13 +132,24 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
         if time.monotonic() >= deadline: return None
         card = candidate['card']
         per_candidate_deadline = min(deadline, time.monotonic()+9)
-        image = _find_image_for_candidate(card, tavily_image_urls=candidate['images'], deadline_monotonic=per_candidate_deadline)
-        if not image or time.monotonic() >= deadline: return None
+        from backend.listing_photo import listing_images
+        from backend.discovery import _validate_and_rank
+        listing_urls = listing_images(card.name, card.url, timeout=min(4, max(.1, per_candidate_deadline-time.monotonic())))
+        listing_result = _validate_and_rank(listing_urls, card.name, card.category, head_timeout=1)
+        image = listing_result[0] if listing_result else None
+        if not image:
+            image = _find_image_for_candidate(card, tavily_image_urls=candidate['images'], deadline_monotonic=per_candidate_deadline)
+        if not image or time.monotonic() >= deadline:
+            logger.info('Discovery rejected photo: product=%r listing_images=%d', card.name, len(listing_urls))
+            return None
         card.image_url = image
         payload = ProductResearcher()._materialize(card, card.category)
         payload.update(source='discovery', image_url=image)
         report = ProductControlAgent.evaluate(payload)
-        if not report.ok: return None
+        if not report.ok:
+            logger.info('Discovery rejected product=%r reasons=%s', card.name, report.reasons)
+            return None
+        report.product['image_origin'] = 'matched_product_listing' if listing_result else 'image_research'
         return candidate, report.product
 
     attempts = candidates[:MAX_QUALIFICATION]
