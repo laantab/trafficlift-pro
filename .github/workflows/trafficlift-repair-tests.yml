@@ -20,8 +20,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest tree-sitter tree-sitter-javascript
+          pip install pytest tree-sitter tree-sitter-javascript numpy pillow
       - name: Run Find Winner regression suite
         run: |
           mkdir -p video
-          python -m pytest backend/tests/test_find_winner_repair.py -q
+          python -m pytest backend/tests/test_find_winner_repair.py backend/tests/test_discovery_redesign.py backend/tests/test_photo_video.py backend/tests/test_sales_script.py -q
+      - name: Check persistent discovery browser history
+        run: node backend/tests/discovery_history_ui.cjs

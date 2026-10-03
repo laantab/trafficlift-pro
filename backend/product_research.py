@@ -2366,7 +2366,7 @@ class ProductResearcher:
         pin_desc = rng.choice(card.pin_description_options)
         hook = rng.choice(card.viral_hook_options)
         # 4-6 hashtags per call
-        n_tags = rng.randint(4, min(6, len(card.hashtags_pool)))
+        n_tags = rng.randint(min(4, len(card.hashtags_pool)), min(6, len(card.hashtags_pool)))
         tags = rng.sample(card.hashtags_pool, n_tags)
 
         url = card.url
