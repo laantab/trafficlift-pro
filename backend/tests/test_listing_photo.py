@@ -19,3 +19,10 @@ def test_rejects_blocked_or_unrelated_pages(monkeypatch):
     assert not listing_photo.listing_images('Core P350 Purifier','https://shop.example/product')
     page(monkeypatch,'<title>Core P350 Purifier</title><meta property="og:image" content="/logo.png">','http_403')
     assert not listing_photo.listing_images('Core P350 Purifier','https://shop.example/product')
+
+
+def test_search_retailer_suffix_does_not_break_exact_model_match(monkeypatch):
+    data={'@type':'Product','name':'Levoit Core P350 Pet Air Purifier','image':'/right.jpg'}
+    page(monkeypatch,'<script type="application/ld+json">'+json.dumps(data)+'</script>')
+    assert listing_photo.listing_images('Levoit Core P350 Pet Air Purifier - Target','https://shop.example/product')==['https://shop.example/right.jpg']
+    assert not listing_photo.listing_images('Levoit Core P400 Pet Air Purifier - Target','https://shop.example/product')

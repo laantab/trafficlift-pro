@@ -2626,8 +2626,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const body = isWinnerStage
                 ? (isTimeout
                     ? 'The first request after a quiet period can take a moment while the server warms up. Click the button once more and the result should appear in a few seconds.'
-                    : (isNoPhotoError && backendDetail)
-                        ? backendDetail
+                    : isNoPhotoError
+                        ? 'Research completed, but no new product passed the checks. Previous products are still excluded. See the research result below.'
                         : failBody)
                 : (isTimeout
                     ? 'Pinterest generation is taking longer than usual. Click again.'

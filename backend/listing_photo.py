@@ -11,7 +11,10 @@ def listing_images(name, url, *, timeout=4):
         return []
     soup = BeautifulSoup(html, 'html.parser')
     normalize = lambda text: ' '.join(re.findall(r'[a-z0-9]+', str(text).lower()))
-    expected = normalize(name)
+    # Search engines append retailer labels that are absent from Product.name.
+    # Remove only known retailer suffixes, preserving the model and its options.
+    identity_name = re.sub(r'\s*(?:[-|–—:]\s*)(?:Target|Walmart(?:\.com)?|Amazon(?:\.com)?|Etsy|Home Depot|Lowes|Lowe\'s)\s*$', '', name, flags=re.I)
+    expected = normalize(identity_name)
     def matches(title):
         actual = normalize(title)
         return bool(expected and len(expected.split()) >= 2 and

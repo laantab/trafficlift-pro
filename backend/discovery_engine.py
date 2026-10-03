@@ -21,7 +21,7 @@ SEARCH_VARIANTS = ['popular product reviews', 'best selling products', 'new prod
 MERCHANT_FILTERS = ['site:amazon.com/dp/', 'site:walmart.com/ip/', 'site:target.com/p/', '']
 MAX_QUERIES = 3
 MAX_CANDIDATES = 12
-MAX_QUALIFICATION = 6
+MAX_QUALIFICATION = MAX_CANDIDATES
 REQUEST_SECONDS = 32
 RESEARCH_SECONDS = 11
 logger = logging.getLogger(__name__)
@@ -128,18 +128,30 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
     if not candidates:
         raise HTTPException(404, 'No new concrete product qualified in this research batch. Previous products remain excluded. Try again to research different categories.')
 
+    rejection_log = []
+
     def qualify(candidate):
         if time.monotonic() >= deadline: return None
         card = candidate['card']
         per_candidate_deadline = min(deadline, time.monotonic()+9)
         from backend.listing_photo import listing_images
-        from backend.discovery import _validate_and_rank
+        from backend.product_control_agent import _validate_image, rank_image_candidates
         listing_urls = listing_images(card.name, card.url, timeout=min(4, max(.1, per_candidate_deadline-time.monotonic())))
-        listing_result = _validate_and_rank(listing_urls, card.name, card.category, head_timeout=1)
+        # Listing identity was checked before these photos were returned.
+        # URL-keyword scores sort photos; they must not veto a verified photo
+        # just because its seller CDN uses an opaque filename.
+        ranked_listing = rank_image_candidates(listing_urls, product_name=card.name, category=card.category)
+        listing_result = None
+        for url, score in ranked_listing:
+            if time.monotonic() >= per_candidate_deadline: break
+            if _validate_image(url, head_timeout=1).ok:
+                listing_result = (url, score)
+                break
         image = listing_result[0] if listing_result else None
         if not image:
             image = _find_image_for_candidate(card, tavily_image_urls=candidate['images'], deadline_monotonic=per_candidate_deadline)
         if not image or time.monotonic() >= deadline:
+            rejection_log.append('photo')
             logger.info('Discovery rejected photo: product=%r listing_images=%d', card.name, len(listing_urls))
             return None
         card.image_url = image
@@ -147,6 +159,7 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
         payload.update(source='discovery', image_url=image)
         report = ProductControlAgent.evaluate(payload)
         if not report.ok:
+            rejection_log.append('product')
             logger.info('Discovery rejected product=%r reasons=%s', card.name, report.reasons)
             return None
         report.product['image_origin'] = 'matched_product_listing' if listing_result else 'image_research'
@@ -184,4 +197,9 @@ def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
                                  'source_recency': 'Retrieved now; publication age and actual sales not independently verified',
                                  'history_window_days': 30, 'elapsed_seconds': round(time.monotonic()-started,3)})
         return winner
-    raise HTTPException(404, 'No new product passed the photo and product checks in this research batch. Previous products remain excluded; no saved-list result was substituted.')
+    raise HTTPException(404, 'No new product passed this research batch. '
+                        f'Candidates: {len(candidates)}; checked: {len(attempts)}; '
+                        f'photo rejections: {rejection_log.count("photo")}; '
+                        f'product rejections: {rejection_log.count("product")}; '
+                        f'incomplete or timed out: {max(0,len(attempts)-len(rejection_log)-len(qualified))}. '
+                        'Previous products remain excluded; no saved-list result was substituted.')

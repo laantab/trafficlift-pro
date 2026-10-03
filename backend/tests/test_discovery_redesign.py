@@ -32,7 +32,7 @@ def isolated(tmp_path,monkeypatch):
 
 def test_listing_photo_works_when_image_search_returns_nothing(isolated,monkeypatch):
     monkeypatch.setattr('backend.listing_photo.listing_images',lambda *a,**k:['https://seller.example/hero.jpg'])
-    monkeypatch.setattr('backend.discovery._validate_and_rank',lambda *a,**k:('https://seller.example/hero.jpg',40))
+    monkeypatch.setattr('backend.product_control_agent._validate_image',lambda *a,**k:SimpleNamespace(ok=True))
     monkeypatch.setattr('backend.discovery._find_image_for_candidate',lambda *a,**k:pytest.fail('Image search unnecessary'))
     winner=engine.discover(client_id='browser123456789',seed=4)
     assert winner['image_url']=='https://seller.example/hero.jpg'
@@ -211,3 +211,27 @@ def test_deadline_does_not_wait_for_slow_background_work():
         assert results==[]
         assert time.monotonic()-started < .3
     finally:release.set()
+
+
+def test_exact_listing_photo_with_opaque_cdn_url_is_not_keyword_rejected(isolated,monkeypatch):
+    url='https://cdn.example/847234.jpg'
+    monkeypatch.setattr('backend.listing_photo.listing_images',lambda *a,**k:[url])
+    monkeypatch.setattr('backend.product_control_agent._validate_image',lambda *a,**k:SimpleNamespace(ok=True))
+    monkeypatch.setattr('backend.discovery._find_image_for_candidate',lambda *a,**k:pytest.fail('Exact listing photo must be used'))
+    winner=engine.discover(client_id='browser123456789',seed=4)
+    assert winner['image_url']==url
+    assert winner['image_origin']=='matched_product_listing'
+
+
+def test_checks_candidates_beyond_first_six(isolated,monkeypatch):
+    names=tuple(f'Brand{i} Desk Lamp' for i in range(8))
+    monkeypatch.setattr(engine.live_research,'research',lambda *a,**k:envelope(names))
+    tried=[]
+    def photo(card,**kwargs):
+        tried.append(card.name)
+        return 'https://images.example/product.jpg' if len(tried)>6 else None
+    monkeypatch.setattr('backend.discovery._find_image_for_candidate',photo)
+    winner=engine.discover(client_id='browser123456789',seed=4)
+    assert winner['discovery']['candidates_attempted']==8
+    assert len(tried)==8
+    assert winner['image_status']=='verified'
