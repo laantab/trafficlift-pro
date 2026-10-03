@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from backend.photo_video import dependencies, render
+from backend.sales_script import build_sales_plan
 from local_video.trafficlift_video_bridge import _download_product_image, _validate_public_https_url
 
 router=APIRouter()
@@ -27,9 +28,11 @@ class VideoRequest(BaseModel):
     image_url:str=Field(max_length=2048)
     product_url:str=Field(max_length=2048)
     benefit:str=Field(default='',max_length=160)
+    buyer_need:str=Field(default='',max_length=100)
+    consideration:str=Field(default='',max_length=120)
     seconds:Literal[15,30,60]=15
     style:Literal['warm','clean','bold']='warm'
-    @field_validator('name','benefit')
+    @field_validator('name','benefit','buyer_need','consideration')
     @classmethod
     def plain_text(cls,value):
         value=' '.join(value.split())
@@ -64,7 +67,7 @@ def worker(record,payload,directory):
     try:
         update('Getting photo')
         image=_download_product_image(payload.image_url,directory)
-        out=render(image,directory,payload.name,payload.benefit,payload.product_url,payload.seconds,payload.style,update)
+        out=render(image,directory,payload.name,payload.benefit,payload.product_url,payload.seconds,payload.style,update,sales_plan=record['sales_plan'])
         record.update(status='succeeded',message='Video checked and ready',video_url=f"/api/v1/photo-videos/{record['id']}/video")
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
@@ -91,6 +94,9 @@ def history(request:Request):
 def create(payload:VideoRequest,request:Request):
     guard(request)
     if not payload.name.strip():raise HTTPException(400,'Product name is required.')
+    try:
+        sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,payload.seconds,payload.buyer_need,payload.consideration)
+    except ValueError as exc:raise HTTPException(422,str(exc))
     try:dependencies()
     except ValueError as exc:raise HTTPException(503,str(exc))
     root=storage();root.mkdir(parents=True,exist_ok=True)
@@ -100,7 +106,7 @@ def create(payload:VideoRequest,request:Request):
     if not lock.acquire(blocking=False):raise HTTPException(409,'A video is already running. Wait for it to finish.')
     try:
         job_id=uuid.uuid4().hex;directory=root/job_id;directory.mkdir()
-        record={'id':job_id,'name':payload.name,'created_at':time.time(),'seconds':payload.seconds,'status':'queued','message':'Getting photo','video_url':None,'product_url':payload.product_url}
+        record={'id':job_id,'name':payload.name,'created_at':time.time(),'seconds':payload.seconds,'status':'queued','message':'Getting photo','video_url':None,'product_url':payload.product_url,'sales_plan':sales_plan}
         save(record,directory)
         threading.Thread(target=worker,args=(record,payload,directory),daemon=True).start()
     except Exception:
@@ -119,3 +125,4 @@ def download(job_id:str,request:Request):
     if not path.is_file():raise HTTPException(404,'Saved video file is missing.')
     slug=re.sub(r'[^a-zA-Z0-9_-]+','-',record['name']).strip('-')[:60] or 'product'
     return FileResponse(path,media_type='video/mp4',filename=f"{slug}-{job_id[:8]}.mp4")
+

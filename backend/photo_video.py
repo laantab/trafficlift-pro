@@ -1,6 +1,7 @@
 """Owned CPU photo-ad compositor. No provider calls; dependencies load on demand."""
 from pathlib import Path
 import json, os, shutil, subprocess
+from backend.sales_script import build_sales_plan
 
 
 def dependencies():
@@ -13,7 +14,10 @@ def dependencies():
     return model, voices
 
 
-def render(image_path, directory, name, benefit, destination, seconds, style, progress):
+def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None):
+    sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
+    if sales_plan["review"]["status"] != "PASS":
+        raise ValueError("The sales script has not passed editorial review.")
     from PIL import Image, ImageDraw, ImageFont, ImageOps
     import numpy as np
     import soundfile as sf
@@ -41,7 +45,8 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     if len(title_lines)>3: raise ValueError('Product name is too long. Shorten it before rendering.')
     options=ort.SessionOptions();options.intra_op_num_threads=4;options.inter_op_num_threads=1
     engine=Kokoro.from_session(ort.InferenceSession(str(model),sess_options=options,providers=['CPUExecutionProvider']),str(voices))
-    phrases=[f'Meet {name}.', benefit or 'Take a closer look at the design and product details.', 'Love the look? Tap the product link, check the details, and make it yours.']
+    phrases=sales_plan['phrases']
+    (root/'sales_script.json').write_text(json.dumps(sales_plan,indent=2),encoding='utf-8')
     progress('Making video — recording narration')
     clips=[];rate=24000
     for phrase in phrases:
@@ -100,8 +105,10 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         y=510+(888-moving.height)//2
         im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
-        labels=['Take a closer look','See the details','Love the look?'][scene]
-        text(d,(96,1430),labels,42)
+        labels=sales_plan['captions'][scene]
+        label_lines=wrap(labels,36)
+        if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
+        for row,line in enumerate(label_lines):text(d,(96,1410+row*45),line,36)
         if scene==2:
             d.rounded_rectangle((96,1510,760,1610),radius=30,fill=accent)
             text(d,(130,1530),'View product details',40,bg)
@@ -124,7 +131,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
-    quality.update(script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims='Optional seller fact supplied by user; no generated promises')
+    quality.update(script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims='Seller text supplied by user; not independently verified',sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
@@ -152,3 +159,4 @@ def check_motion(path,seconds):
     moving=int(np.count_nonzero(differences>.25))
     if moving<max(2,int(len(differences)*.6)):raise ValueError('The product picture is staying still. Motion check failed.')
     return {'status':'PASS','changed_photo_intervals':moving,'sampled_intervals':len(differences)}
+

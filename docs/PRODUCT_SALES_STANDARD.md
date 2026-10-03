@@ -1,14 +1,33 @@
-# TrafficLift product-video standard — approved 2026-10-02
+# TrafficLift product-video sales standard — v2.0
 
-Every future product video should persuade through a relevant buyer need, supported product value, and one clear next action.
+The free studio now runs local evidence-led buyer research, hook selection,
+visual planning, and editorial checks before accepting a render. These are
+rule-based stages, not live language-model agents or independent seller
+verification. No paid API calls were added.
 
-1. Read the actual product listing and preserve source URL and retrieved facts. Separate verified facts from claims requiring confirmation. Do not infer leak resistance, insulation, dimensions, safety, price, discounts, or sustainability from a photo.
-2. Choose the strongest buyer-relevant reason to care. Write an opening hook that connects to that reason. If only appearance is supported, use an honest style-based pitch and mark the script as needing stronger product evidence.
-3. Use three scenes: Hook -> Product value -> Call to action. Scene visuals should support the words. Do not imply a feature demonstration with unrelated stock footage.
-4. Close with one action matching the real destination, such as View product details or Shop this product. Attach the actual product or affiliate link when published. Never invent availability, urgency, reviews, savings, or a checkout button.
-5. Produce an editable script before narration. Match duration to natural speech; offer 15/30/60 seconds. If the script does not fit, shorten it or select a longer format rather than rushing or cutting the voice.
-6. Keep captions readable, within checked safe margins, and timed to the spoken segment. Retain the full script and timing record. Summary captions must not be labelled a verbatim transcript.
-7. Make the music quieter under narration. Check the full MP4 decode, duration, shape, audio presence, scene timing and text bounds. Release Play and Download only on a passing result; human phone review and upload testing remain separate acceptance checks.
-8. Preserve product name, date, photo, listing evidence, script, voice selection, timing, export and quality report in video history.
+A practical benefit copied from the exact seller listing is required. An
+optional buyer need provides a situation-specific opening; an optional
+supported buying detail addresses size, care or included accessories. Existing
+generated pin copy is not proof. The planner retains three hook candidates,
+selects the benefit-led hook, and builds hook → benefit/detail → one CTA.
+The closing directs viewers to current price and product details rather than
+inventing price or availability.
 
-Current sample status: the rules are recorded and applied to a standalone demonstration. They are not yet installed as automated rules in the TrafficLift application.
+Reject blank benefits, formatting injection, unsupported proof/guarantee/urgency
+phrases, quoted prices without dated evidence, and scripts too long for natural
+speech. Actual narration durations are also checked before composition. The
+photo-only compositor uses photo motion, never fake performance tests. Every
+phrase has scene instructions and a concise caption. Longer scripts need 30
+or 60 seconds; the renderer must not truncate narration.
+
+Persist sales_plan in the job record, sales_script.json beside the video,
+and the editorial review in quality.json. Preserve supplied claims, source
+URL, hook candidates, selected hook, narration and scene directions.
+User-entered facts remain labelled user-supplied and not independently verified.
+Rule checks cannot prove arbitrary seller claims. Automatic listing extraction,
+language-model rewriting, dated price verification and real demonstration
+footage are not implemented by this patch.
+
+Video format, full decode, audio, motion, captions and safe margins still run
+before Play/Download becomes available. Put the actual shopping link into the
+published post; a button drawn in an MP4 is not clickable.
