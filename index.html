@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>TrafficLift Pro v2.1 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v3.0.1 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -74,7 +74,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v2.0 Â· AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v3.0.1 · AI Traffic Engine</span>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -310,7 +310,7 @@
 
                 <!-- Footer -->
                 <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
-                    <span>TrafficLift Pro v2.0</span>
+                    <span>TrafficLift Pro v3.0.1</span>
                     <span id="statusMessage">Ready</span>
                 </div>
             </div>
@@ -412,36 +412,22 @@
     // 4. ''  (same-origin)                              (when served from /api on the same host)
     // 5. 'http://localhost:8000'                        (last-resort dev fallback)
     function resolveApiBase() {
+        const location = window.location;
+        if (['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname)
+                && location.pathname === '/studio') return location.origin;
         const fromMeta = (document.querySelector('meta[name="api-base"]')?.content || '').trim();
-        const fromLs   = (localStorage.getItem('tlp_api_base') || '').trim();
-        const fromUrl  = new URLSearchParams(window.location.search).get('api')?.trim() || '';
-
-        // if user passed ?api=, persist it and strip the query for cleanliness
+        let fromLs = '';
+        try { fromLs = (localStorage.getItem('tlp_api_base') || '').trim(); } catch (_) {}
+        const fromUrl = new URLSearchParams(location.search).get('api')?.trim() || '';
         if (fromUrl) {
-            localStorage.setItem('tlp_api_base', fromUrl);
-            const u = new URL(window.location.href);
-            u.searchParams.delete('api');
-            window.history.replaceState({}, '', u.toString());
+            try { localStorage.setItem('tlp_api_base', fromUrl); } catch (_) {}
         }
-
-        const finalUrl = fromMeta || fromLs || fromUrl || '';
-        return finalUrl.replace(/\/+$/, ''); // strip trailing slash
+        return (fromUrl || fromLs || fromMeta || '').replace(/\/+$/, '');
     }
     let API_BASE = resolveApiBase();
-
-    // Helper: full URL for a given path. Strategy:
-    //   1. Use the smartly-resolved API_BASE (meta tag > localStorage > ?api=).
-    //   2. If API_BASE is empty, fall back to the Render production backend so
-    //      GitHub-Pages-style deployments still work out of the box.
-    //   3. localhost / file:// / 127.0.0.1 callers will get '' from resolveApiBase()
-    //      and we substitute 'http://localhost:8000' for them.
     function apiUrl(path) {
-        let base = (typeof API_BASE !== 'undefined' && API_BASE) || '';
-        if (!base) {
-            const host = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
-            const isLocal = !host || host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1';
-            base = isLocal ? 'http://localhost:8000' : 'https://trafficlift-pro.onrender.com';
-        }
+        const base = API_BASE || (['127.0.0.1', 'localhost', '[::1]', '::1'].includes(window.location.hostname)
+            ? window.location.origin : 'https://trafficlift-pro.onrender.com');
         return base + (path.startsWith('/') ? path : '/' + path);
     }
 
@@ -612,7 +598,7 @@
             'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80=150';
         document.getElementById('resMode').textContent = data.mode === 'organic' ? 'Organic' : 'Paid Ads';
         document.getElementById('resChannels').textContent = data.input_url;
-        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms Â· ${data.meta.ai_mode}`;
+        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms · ${data.meta.ai_mode}`;
 
         const out = document.getElementById('assetOutput');
         out.innerHTML = '';
@@ -624,7 +610,7 @@
                 makeRow('Board Title', pp.board_title),
                 makeRow('Pin Title', pp.pin_title),
                 makeTextarea('Description', pp.optimized_description),
-                makeRow('Keywords', pp.recommended_keywords?.join(' Â· ')),
+                makeRow('Keywords', pp.recommended_keywords?.join(' · ')),
                 makeRow('Suggested Boards', pp.suggested_board_names?.join(' | ')),
                 makeRow('Dimensions', pp.optimal_pin_dimensions),
                 makeRow('CTA', pp.pin_cta_suggestion),
@@ -654,7 +640,7 @@
                 makeTextarea('Body Script', yt.body_segment),
                 makeRow('Call to Action', yt.call_to_action),
                 makeTextarea('Description', yt.description_template),
-                makeRow('Title Tags', yt.title_tags?.join(' Â· ')),
+                makeRow('Title Tags', yt.title_tags?.join(' · ')),
                 makeRow('Shorts Hashtags', yt.shorts_hashtags?.map(t => '#' + t.replace('#','')).join(' ')),
                 makeRow('Duration', yt.estimated_duration),
                 makeTextarea('SEO Tips', yt.seo_tips?.join('\n')),
@@ -955,7 +941,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="text-xs text-slate-600">${formatDate(c.created_at)} Â· ${c.ai_mode}</div>
+                <div class="text-xs text-slate-600">${formatDate(c.created_at)} · ${c.ai_mode}</div>
             </div>
         `).join('');
         lucide.createIcons();
@@ -1186,8 +1172,8 @@
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Model</label>
                         <select id="videoModel" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
-                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality Â· native audio)</option>
-                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast Â· native audio)</option>
+                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality · native audio)</option>
+                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast · native audio)</option>
                         </select>
                     </div>
                     <div>
@@ -1281,7 +1267,7 @@
         if (ok) {
             pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
             dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5';
-            lbl.textContent = d?.ai_backend_active ? 'Online Â· ' + d.ai_backend_active : 'Online';
+            lbl.textContent = d?.ai_backend_active ? 'Online · ' + d.ai_backend_active : 'Online';
         } else {
             pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20';
             dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5';
@@ -1610,7 +1596,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
             const taskId = data.task.task_id;
             statusEl.innerHTML =
-                `<span class="text-slate-300">Task submitted Â· id <code class="text-brand-400">${taskId}</code></span><br>` +
+                `<span class="text-slate-300">Task submitted · id <code class="text-brand-400">${taskId}</code></span><br>` +
                 '<span class="text-slate-500">Polling status every 15 seconds â€” H3 typically takes 15â€“30 minutes.</span>';
 
             await pollVideoUntilDone(taskId, model, statusEl, resultEl);
@@ -1636,7 +1622,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const elapsed = Math.round((i + 1) * intervalMs / 1000);
                 statusEl.innerHTML =
                     `<span class="text-slate-300">Status: <code class="text-brand-400">${t.status}</code></span>` +
-                    `<br><span class="text-slate-500">elapsed ${elapsed}s Â· task ${taskId}</span>`;
+                    `<br><span class="text-slate-500">elapsed ${elapsed}s · task ${taskId}</span>`;
                 if (t.status === 'succeeded' || t.status === 'Success') {
                     renderVideoResult(t, resultEl, statusEl);
                     showToast('Video ready', `${model} finished in ${elapsed}s`, 'success');
@@ -1664,7 +1650,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         statusEl.innerHTML =
             '<span class="text-emerald-400 font-medium">âœ… Render complete</span><br>' +
-            `<span class="text-slate-500">${task.model} Â· ${task.duration_seconds}s Â· ${task.ratio} Â· ${task.resolution}</span>`;
+            `<span class="text-slate-500">${task.model} · ${task.duration_seconds}s · ${task.ratio} · ${task.resolution}</span>`;
         resultEl.classList.remove('hidden');
         resultEl.innerHTML = `
             <div class="rounded-xl overflow-hidden border border-slate-700 bg-black">
@@ -2501,17 +2487,6 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
         let success = false;
         try {
-            if (!readUrlField) {
-                if (winner.source !== 'discovery' || winner.discovery?.version !== '3.0') {
-                    throw new Error('The server has not returned a fresh research result. Update the discovery backend; saved-list products are not accepted here.');
-                }
-                const seen = discoveryHistory();
-                const keys = winner.identity_keys || [];
-                if (seen.some(item => item.id === winner.id || item.keys.some(key => keys.includes(key)))) {
-                    throw new Error('This product was already shown. Try again to research another category.');
-                }
-            }
-
             console.log('[pick-pipeline] â†’ GET', requestUrl);
 
             // Front-end safety timeout.
@@ -2555,6 +2530,17 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!winner.image_url) {
                 throw new Error('Winner has no usable product image. Please try again.');
             }
+            if (!readUrlField) {
+                if (winner.source !== 'discovery' || winner.discovery?.version !== '3.0') {
+                    throw new Error('The server has not returned a fresh research result. Update the discovery backend; saved-list products are not accepted here.');
+                }
+                const seen = discoveryHistory();
+                const keys = winner.identity_keys || [];
+                if (seen.some(item => item.id === winner.id || item.keys.some(key => keys.includes(key)))) {
+                    throw new Error('This product was already shown. Try again to research another category.');
+                }
+            }
+
             console.log('[pick-pipeline] âœ“', { id: winner.id, name: winner.name });
 
             rememberDiscoveredWinner(winner);
@@ -2637,7 +2623,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     : 'Pinterest generation failed');
             const backendDetail = (msg.match(/HTTP 404\s*—\s*(.+)$/)
                 || msg.match(/No product candidate in our pool[^"]*/)
-                || msg.match(/We found matching products[^"]*/))[0] || '';
+                || msg.match(/We found matching products[^"]*/))?.[0] || '';
             const body = isWinnerStage
                 ? (isTimeout
                     ? 'The first request after a quiet period can take a moment while the server warms up. Click the button once more and the result should appear in a few seconds.'
