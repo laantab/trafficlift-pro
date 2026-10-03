@@ -1115,7 +1115,7 @@
                     </select>
                 </div>
                 <div id="freeVideoOptions" class="space-y-3">
-                    <img id="freeProductPreview" alt="Selected product photo" class="w-full max-h-64 object-contain rounded-xl bg-slate-950">
+                    <img id="freeProductPreview" alt="Selected product photo" class="w-full h-64 object-contain rounded-xl bg-slate-950 p-3" style="height:256px;object-fit:contain;object-position:center">
                     <p class="text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
                     <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
@@ -1736,7 +1736,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     <div class="space-y-3">
                         <div class="relative">
                             <img src="${escapeHtml(data.image_url)}" alt="${escapeHtml(data.name)}"
-                                 class="w-full h-48 object-cover rounded-xl border border-slate-700 shadow-md bg-slate-800"
+                                 class="w-full h-64 object-contain p-3 rounded-xl border border-slate-700 shadow-md bg-slate-800" style="height:256px;object-fit:contain;object-position:center"
                                  onerror="this.onerror=null;this.style.display='none'">
                             ${data.image_status === 'verified' ? `
                                 <span title="Real product photo verified by Product Control Agent"
@@ -2874,4 +2874,3 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     </script>
 </body>
 </html>
-
