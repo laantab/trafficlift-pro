@@ -14,3 +14,6 @@ Base main: ed1f46805e018aa9addcf0dee343542af8d82762.
 - Longer 30/60-second selections preserve duration using longer holds rather than generating extra claims. Default 15-second sample is the accepted pacing reference; longer ad pacing needs human review.
 
 No main merge or production deployment is included in this work.
+
+## October 2 motion correction
+The original photo panel was stationary. The renderer now uses bounded zoom-in/zoom-out movement and short scene fades, preserving the entire photo and product proportions. A new gate compares the encoded photo panel at one-second intervals, excluding title/caption areas. The real 15-second acceptance render changed in 14/14 sampled intervals; full decode and length checks passed. Static-picture rejection and moving-picture acceptance tests added: focused suite now 23 passed. Windows application of this patch remains to be confirmed by the user.

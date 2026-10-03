@@ -89,3 +89,15 @@ def test_dashboard_local_api_and_preview(client):
     assert '<meta name="api-base" content="">' in html
     assert 'id="freeProductPreview"' in html
     assert 'id="freeVideoHistory"' in html
+
+
+def test_motion_check_rejects_static_photo():
+    from backend.photo_video import check_motion
+    with patch('backend.photo_video.subprocess.check_output',return_value=bytes(96*96*3*15)):
+        with pytest.raises(ValueError,match='staying still'):check_motion('static.mp4',15)
+
+def test_motion_check_accepts_changing_photo():
+    from backend.photo_video import check_motion
+    data=b''.join(bytes([i*10])*(96*96*3) for i in range(15))
+    with patch('backend.photo_video.subprocess.check_output',return_value=data):
+        assert check_motion('moving.mp4',15)['status']=='PASS'

@@ -85,18 +85,30 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         box=d.textbbox(xy,value,font=font(size))
         if not (90<=box[0] and box[2]<=990 and 120<=box[1] and box[3]<=1635):raise ValueError('Text failed the safe-margin check.')
         d.text(xy,value,font=font(size),fill=color)
+    boundaries=[0, starts[1]-.05, starts[2]-.05, seconds]
     def frame(t):
-        scene=0 if t<starts[1]-.05 else 1 if t<starts[2]-.05 else 2
+        scene=0 if t<boundaries[1] else 1 if t<boundaries[2] else 2
+        local=(t-boundaries[scene])/(boundaries[scene+1]-boundaries[scene])
         im=Image.new('RGB',(1080,1920),bg);d=ImageDraw.Draw(im)
         text(d,(96,145),'TRAFFICLIFT / PRODUCT STORIES',25)
         for i,line in enumerate(title_lines):text(d,(96,245+i*68),line,52)
-        im.paste(fitted,((1080-fitted.width)//2,510+(888-fitted.height)//2))
+        # Camera movement keeps the entire real photo inside the panel.
+        # Linear zoom stays visible even in a long closing scene.
+        zoom=(.91+.08*local) if scene!=1 else (.99-.08*local)
+        moving=fitted.resize((max(1,round(fitted.width*zoom)),max(1,round(fitted.height*zoom))),Image.Resampling.LANCZOS)
+        x=(1080-moving.width)//2+round((local-.5)*12)
+        y=510+(888-moving.height)//2
+        im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
         labels=['Take a closer look','See the details','Love the look?'][scene]
         text(d,(96,1430),labels,42)
         if scene==2:
             d.rounded_rectangle((96,1510,760,1610),radius=30,fill=accent)
             text(d,(130,1530),'View product details',40,bg)
+        # Brief fade-in at each cut, without changing the product itself.
+        elapsed=t-boundaries[scene]
+        if elapsed<.22:
+            im=Image.blend(Image.new('RGB',im.size,bg),im,max(0,min(1,elapsed/.22)))
         return im
     progress('Making video — composing scenes')
     base=root/'base.mp4';process=subprocess.Popen(['ffmpeg','-y','-v','error','-f','rawvideo','-pix_fmt','rgb24','-s','1080x1920','-r','30','-i','pipe:0','-c:v','libx264','-preset','fast','-crf','20','-pix_fmt','yuv420p',str(base)],stdin=subprocess.PIPE)
@@ -111,6 +123,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     subprocess.run(['ffmpeg','-y','-v','error','-i','base.mp4','-i','voice.wav','-i','music.wav','-filter_complex',filters,'-map','[v]','-map','[a]','-c:v','libx264','-preset','fast','-crf','20','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t',str(seconds),'-movflags','+faststart','video.mp4'],cwd=root,check=True,timeout=600)
     progress('Checking video')
     quality=check_video(out,seconds)
+    quality['motion']=check_motion(out,seconds)
     quality.update(script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims='Optional seller fact supplied by user; no generated promises')
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
@@ -126,3 +139,16 @@ def check_video(path,seconds):
     if not audio or audio['codec_name']!='aac':raise ValueError('Audio check failed.')
     subprocess.run(['ffmpeg','-v','error','-xerror','-i',str(path),'-f','null','-'],check=True,timeout=300)
     return {'status':'PASS','duration':seconds,'dimensions':[1080,1920],'decode':'PASS','text_bounds':'PASS every composed frame','social_upload':'Not tested'}
+
+
+def check_motion(path,seconds):
+    """Compare only the photo panel, so captions cannot fake motion PASS."""
+    import numpy as np
+    raw=subprocess.check_output(['ffmpeg','-v','error','-i',str(path),'-vf','fps=1,crop=888:888:96:510,scale=96:96','-t',str(seconds),'-f','rawvideo','-pix_fmt','rgb24','pipe:1'],timeout=180)
+    frame_bytes=96*96*3
+    if len(raw)<frame_bytes*3 or len(raw)%frame_bytes:raise ValueError('Video motion check could not read enough frames.')
+    frames=np.frombuffer(raw,dtype=np.uint8).reshape(-1,96,96,3).astype(np.float32)
+    differences=np.abs(frames[1:]-frames[:-1]).mean(axis=(1,2,3))
+    moving=int(np.count_nonzero(differences>.25))
+    if moving<max(2,int(len(differences)*.6)):raise ValueError('The product picture is staying still. Motion check failed.')
+    return {'status':'PASS','changed_photo_intervals':moving,'sampled_intervals':len(differences)}
