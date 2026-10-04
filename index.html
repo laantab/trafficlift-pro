@@ -1136,7 +1136,7 @@
                     <p class="text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
                     <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
-                    <label class="block text-xs text-slate-400">Seller benefit (optional — improves the sales script)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Add a supported benefit, or leave blank for a narrated photo preview." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
+                    <label class="block text-xs text-slate-400">Product benefit (automatically researched; optional override)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Leave blank to retrieve product facts automatically." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
                     <label class="block text-xs text-slate-400">Buyer need (optional)<input id="freeBuyerNeed" maxlength="100" placeholder="For example: Easier sipping at your desk" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Buying detail (optional; copy from the same listing)<input id="freeBuyingDetail" maxlength="120" placeholder="Supported size, care or included accessories" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <p class="text-xs text-slate-400">Use facts for this exact product. Scripts are checked before rendering. Photos highlight features; they do not prove performance.</p>
@@ -1426,7 +1426,23 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const destination = document.createElement('a');
         destination.href = job.product_url; destination.target = '_blank'; destination.rel = 'noopener noreferrer';
         destination.textContent = 'Product destination for your post'; destination.className = 'block mt-2 text-brand-400';
-        resultEl.append(video, download, destination); resultEl.classList.remove('hidden');
+        const script = document.createElement('details');
+        const scriptTitle = document.createElement('summary');
+        scriptTitle.textContent = 'Narration and product sources';
+        script.append(scriptTitle);
+        const scriptText = document.createElement('p');
+        scriptText.textContent = (job.sales_plan?.phrases || []).join(' ');
+        script.append(scriptText);
+        const note = document.createElement('p');
+        note.textContent = job.sales_plan?.review?.evidence_status || '';
+        script.append(note);
+        for (const source of [...new Set((job.sales_plan?.evidence || []).flatMap(f => [f.source_url, ...(f.supporting_sources || [])]).filter(Boolean))]) {
+            const link = document.createElement('a');
+            link.href = source; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            link.textContent = 'Product information source'; link.className = 'block text-brand-400';
+            script.append(link);
+        }
+        resultEl.append(video, download, destination, script); resultEl.classList.remove('hidden');
     }
     async function loadFreeVideoHistory() {
         const list = document.getElementById('freeVideoHistory');
@@ -1460,7 +1476,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             seconds: Number(document.getElementById('freeVideoLength').value),
             style: document.getElementById('freeVideoStyle').value
         };
-        statusEl.textContent = payload.benefit ? 'Checking sales script' : 'Preparing narrated photo preview';
+        statusEl.textContent = 'Preparing product facts and sales script';
         const data = await freeVideoRequest('/api/v1/photo-videos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const id = data.video.id;
         // A timeout does not cancel the worker or start another render.

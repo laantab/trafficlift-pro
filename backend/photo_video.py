@@ -41,7 +41,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             if font(size).getlength(candidate)>width: lines.append(word)
             else: lines[-1]=candidate
         return lines
-    title_lines=wrap(name,52)
+    title_lines=wrap(sales_plan['product'],52)
     if len(title_lines)>3: raise ValueError('Product name is too long. Shorten it before rendering.')
     options=ort.SessionOptions();options.intra_op_num_threads=4;options.inter_op_num_threads=1
     engine=Kokoro.from_session(ort.InferenceSession(str(model),sess_options=options,providers=['CPUExecutionProvider']),str(voices))
@@ -54,10 +54,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     lengths=[len(a)/rate for a in clips]
     # A long script fails instead of clipping narration or silently changing length.
     if sum(lengths)+1.6>seconds: raise ValueError('Script is too long for this length. Shorten the product fact or choose a longer video.')
-    spare=seconds-sum(lengths)-.6
-    gaps=[.15,.15,max(.7,spare-.3)]
-    starts=[];t=.2
-    for a,gap in zip(clips,gaps): starts.append(t);t+=len(a)/rate+gap
+    starts=narration_starts(lengths, seconds)
     voice=np.zeros(rate*seconds,dtype=np.float32)
     for a,t in zip(clips,starts): voice[round(t*rate):round(t*rate)+len(a)]=a
     sf.write(root/'voice.wav',voice,rate)
@@ -131,7 +128,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
-    quality.update(script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims='Seller text supplied by user; not independently verified',sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
@@ -160,3 +157,14 @@ def check_motion(path,seconds):
     if moving<max(2,int(len(differences)*.6)):raise ValueError('The product picture is staying still. Motion check failed.')
     return {'status':'PASS','changed_photo_intervals':moving,'sampled_intervals':len(differences)}
 
+
+
+def narration_starts(lengths, seconds):
+    """Keep closing CTA at the end; distribute pauses across reveal and benefit."""
+    spare = seconds - sum(lengths) - .2
+    if spare < 1.4:
+        raise ValueError('Script is too long for this length. Choose a longer video.')
+    final_hold = min(1.2, spare / 3)
+    pause = (spare - final_hold) / 2
+    return [.2, .2 + lengths[0] + pause,
+            .2 + lengths[0] + pause + lengths[1] + pause]

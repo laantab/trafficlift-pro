@@ -28,12 +28,13 @@ def review(plan, seconds):
     return {'status': 'FAIL' if errors else 'PASS', 'errors': errors,
             'evidence_status': ('No seller benefit supplied; photo preview makes no benefit claims'
                                 if plan.get('mode') == 'photo_preview' else
-                                'Seller text supplied by user; not independently verified'),
+                                plan.get('evidence_status', 'Seller text supplied by user; not independently verified')),
             'visual_mode': 'Real product photo and close-up framing; no performance demonstration'}
 
 
-def build_sales_plan(name, benefit, destination, seconds, buyer_need='', consideration=''):
-    name = clean(name, 90)
+def build_sales_plan(name, benefit, destination, seconds, buyer_need='', consideration='', *, evidence_source=None, evidence_origin='user_supplied_seller_text', evidence_checked=None, supporting_sources=None):
+    from backend.listing_photo import product_name
+    name = clean(product_name(name), 90)
     benefit = clean(benefit)
     need = clean(buyer_need, 100)
     consideration = clean(consideration, 120)
@@ -57,29 +58,33 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
         if plan['review']['errors']:
             raise ValueError(' '.join(plan['review']['errors']))
         return plan
-    # Buyer research: preserve the source and exact supplied fact rather than
-    # treating generated Pinterest copy as factual evidence.
-    evidence = [{'text': benefit, 'source_url': destination, 'origin': 'user_supplied_seller_text'}] if benefit else []
+    source = evidence_source or destination
+    evidence = [{'text': benefit, 'source_url': source, 'origin': evidence_origin}]
     if consideration:
-        evidence.append({'text': consideration, 'source_url': destination, 'origin': 'user_supplied_seller_text'})
-    # Conversion copy: three candidates grounded in this product and need.
-    hooks = ([f'{need}? Take a closer look at {name}.',
-              f'Looking for {need.lower()}? Meet {name}.',
-              f'Meet {name}. A closer look for your everyday routine.'] if need else
-             [f'{name}: {benefit}.', f'Considering {name}? Here is a reason to look closer.',
-              f'Meet {name}. See how it could fit your routine.'])
-    chosen = 0
-    phrases = [hooks[chosen], benefit if need else f'Take a closer look at {name}.',
-               'Tap the product link to check the current price and product details.']
+        evidence.append({'text': consideration, 'source_url': source, 'origin': evidence_origin,
+                         'supporting_sources': supporting_sources or []})
+    # Hook asks a relevant buyer question. The body explains the actual fact.
+    hooks = ([f'{need}?', f'Considering {name}?', f'Could {name} fit your routine?'] if need else
+             [f'Considering {name}? Here is what to know.',
+              f'Could {name} fit your routine?', f'A closer look at {name}.'])
+    body = f'{name}: {benefit}.' if need else benefit + '.'
     if consideration:
-        phrases[1] += ' ' + consideration + '.'
-    captions = [need or 'A reason to look closer', 'Product details', 'Check details and price']
-    plan = {'version': '2.0', 'product': name, 'buyer_need': need,
-            'hook_candidates': hooks, 'selected_hook': chosen, 'phrases': phrases,
-            'captions': captions, 'destination': destination, 'evidence': evidence,
+        body += ' ' + consideration + '.'
+    phrases = [hooks[0], body, 'Tap the product link to check the current price and choose your options.']
+    status = {'matched_seller_page': 'Facts retrieved from the identity-matched seller page; seller claims are not independently tested',
+              'reviewed_manufacturer_packet': f'Manufacturer information editorially checked {evidence_checked}; not a live lookup'}.get(
+                  evidence_origin, 'Seller text supplied by user; not independently verified')
+    caption = benefit if len(benefit) <= 65 else 'Features for your daily routine'
+    if 'sleep' in benefit.lower() and 'activity' in benefit.lower():
+        caption = 'Sleep and activity insights'
+    plan = {'version': '2.2', 'mode': 'benefit_led', 'product': name, 'buyer_need': need,
+            'hook_candidates': hooks, 'selected_hook': 0, 'phrases': phrases,
+            'captions': [need or 'What fits your routine?', caption, 'Check price and options'],
+            'destination': destination, 'evidence': evidence, 'evidence_status': status,
             'scenes': [{'stage': stage, 'narration': phrase, 'visual': visual}
                        for stage, phrase, visual in zip(['hook', 'benefit', 'cta'], phrases,
-                       ['Show the actual product photo', 'Gently move across the actual product photo; do not imply a performance test',
+                       ['Show the actual product photo',
+                        'Gently move across the actual product photo; do not imply a performance test',
                         'Keep the product visible with one destination CTA'])],
             'workflow': ['buyer_research', 'conversion_copy', 'visual_direction', 'editorial_review'],
             'engine': 'local evidence-led rules; no language-model calls'}

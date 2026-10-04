@@ -12,7 +12,7 @@ def plan(**changes):
 def test_script_uses_product_fact_source_and_one_cta():
     result=plan(buyer_need='Easier sipping at your desk', consideration='Includes a straw')
     assert result['review']['status']=='PASS'
-    assert result['phrases'][0].startswith('Easier sipping at your desk?')
+    assert result['phrases'][0]=='Easier sipping at your desk?'
     assert 'Handle and straw' in result['phrases'][1]
     assert 'Includes a straw' in result['phrases'][1]
     assert sum('Tap the product link' in x for x in result['phrases'])==1
@@ -47,7 +47,7 @@ def test_rejects_unsubstantiated_sales_or_price_language(benefit):
 def test_duration_review_does_not_truncate_the_fact():
     fact=' '.join(['fact']*22)
     with pytest.raises(ValueError,match='longer video'):plan(benefit=fact,seconds=15)
-    assert fact in plan(benefit=fact,seconds=60)['phrases'][0]
+    assert fact in plan(benefit=fact,seconds=60)['phrases'][1]
 
 
 def test_fact_is_not_replaced_by_invented_performance():

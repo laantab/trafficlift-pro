@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from backend.photo_video import dependencies, render
 from backend.sales_script import build_sales_plan
+from backend.product_facts import resolve_video_facts
 from local_video.trafficlift_video_bridge import _download_product_image, _validate_public_https_url
 
 router=APIRouter()
@@ -65,10 +66,27 @@ def worker(record,payload,directory):
     def update(message):
         record.update(status='running',message=message);save(record,directory)
     try:
+        if not payload.benefit:
+            update('Reading product facts and writing sales script')
+            facts = resolve_video_facts(payload.name, payload.product_url)
+            if facts:
+                benefit = facts.pop('benefit')
+                for duration in [n for n in (15, 30, 60) if n >= payload.seconds]:
+                    try:
+                        record['sales_plan'] = build_sales_plan(payload.name, benefit, payload.product_url,
+                                                               duration, **facts)
+                        record['seconds'] = duration
+                        break
+                    except ValueError as exc:
+                        if 'longer video' not in str(exc):
+                            raise
+                else:
+                    raise ValueError('Product facts could not fit a 60-second script.')
+                save(record, directory)
         update('Getting photo')
         image=_download_product_image(payload.image_url,directory)
-        out=render(image,directory,payload.name,payload.benefit,payload.product_url,payload.seconds,payload.style,update,sales_plan=record['sales_plan'])
-        record.update(status='succeeded',message='Video checked and ready',video_url=f"/api/v1/photo-videos/{record['id']}/video")
+        out=render(image,directory,payload.name,payload.benefit,payload.product_url,record['seconds'],payload.style,update,sales_plan=record['sales_plan'])
+        record.update(status='succeeded',message=('Benefit-led video checked and ready' if record['sales_plan'].get('mode') == 'benefit_led' else 'Photo preview ready — product facts could not be retrieved'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
     finally:
