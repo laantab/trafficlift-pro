@@ -46,7 +46,7 @@ def test_blank_benefit_starts_preview_job(client,payload,tmp_path):
             assert response.status_code==202
             job=response.json()['video']
             saved=json.loads((tmp_path/job['id']/'job.json').read_text())
-            assert saved['sales_plan']['mode']=='photo_preview'
+            assert saved['sales_plan']['mode']=='product_overview'
             assert saved['sales_plan']['review']['status']=='PASS'
             assert saved['sales_plan']['evidence']==[]
             thread.return_value.start.assert_called_once()

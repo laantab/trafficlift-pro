@@ -67,3 +67,36 @@ def test_worker_rehydrates_history_product_and_extends_short_runtime(tmp_path):
     assert render.call_args.kwargs['sales_plan']['phrases'][1].count('Oura Ring 4') >= 1
     assert json.loads((tmp_path/'job.json').read_text())['sales_plan']['evidence']
     lock.release.assert_called_once()
+
+
+def test_missing_seller_details_completes_five_scene_overview(tmp_path):
+    payload=VideoRequest.model_construct(name='Orbit Desk Lamp',image_url='https://example.com/lamp.jpg',
+                         product_url='https://seller.example/products/lamp')
+    record={'id':'d'*32,'status':'queued'}
+    with patch('backend.photo_video_api.resolve_video_facts',return_value={}), \
+         patch('backend.photo_video_api._download_product_image',return_value=tmp_path/'photo.jpg'), \
+         patch('backend.photo_video_api.render') as render, patch('backend.photo_video_api.lock') as lock:
+        worker(record,payload,tmp_path)
+    assert record['status']=='succeeded'
+    assert record['sales_plan']['mode']=='product_overview'
+    assert len(record['sales_plan']['phrases'])==5
+    assert record['sales_plan']['evidence']==[]
+    assert 'benefit details unavailable' in record['message']
+    render.assert_called_once()
+    lock.release.assert_called_once()
+
+
+def test_exact_listing_bullets_are_used_without_manual_benefit(tmp_path):
+    payload=VideoRequest.model_construct(name='Orbit Desk Lamp',image_url='https://example.com/lamp.jpg',
+                         product_url='https://seller.example/products/lamp',fact_sources=[
+                         {'title':'Orbit Desk Lamp','url':'https://seller.example/products/lamp',
+                          'snippet':'Adjustable arm for positioning the light.\nIncludes a weighted base.'}])
+    record={'id':'e'*32,'status':'queued'}
+    with patch('backend.photo_video_api.resolve_video_facts') as lookup, \
+         patch('backend.photo_video_api._download_product_image',return_value=tmp_path/'photo.jpg'), \
+         patch('backend.photo_video_api.render'), patch('backend.photo_video_api.lock'):
+        worker(record,payload,tmp_path)
+    lookup.assert_not_called()
+    assert record['status']=='succeeded'
+    assert record['sales_plan']['mode']=='benefit_led'
+    assert 'weighted base' in record['sales_plan']['phrases'][2]

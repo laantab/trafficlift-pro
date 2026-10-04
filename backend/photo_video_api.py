@@ -80,10 +80,8 @@ def worker(record,payload,directory):
             facts.update(benefit=payload.benefit)
         if payload.buyer_need: facts['buyer_need']=payload.buyer_need
         if payload.consideration: facts['consideration']=payload.consideration
-        if not facts.get('benefit'):
-            raise ValueError('The seller/research source did not supply model-specific benefits. Add a supported product benefit; a generic photo preview will not be substituted for a sales video.')
-        benefit=facts.pop('benefit')
-        record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,60,**facts)
+        benefit=facts.pop('benefit','')
+        record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,120,**facts)
         record['sales_plan']['requested_seconds']=payload.seconds
         record['seconds']=60
         save(record,directory)
@@ -98,7 +96,7 @@ def worker(record,payload,directory):
             except Exception:pass
         out=render(image,directory,payload.name,payload.benefit,payload.product_url,record['seconds'],payload.style,update,sales_plan=record['sales_plan'],extra_images=extra_photos)
         record['seconds']=json.loads((directory/'quality.json').read_text())['duration'] if (directory/'quality.json').is_file() else record['seconds']
-        record.update(status='succeeded',message=('Benefit-led video checked and ready' if record['sales_plan'].get('mode') == 'benefit_led' else 'Photo preview ready — product facts could not be retrieved'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
+        record.update(status='succeeded',message=('Benefit-led video checked and ready' if record['sales_plan'].get('mode') == 'benefit_led' else 'Product overview checked and ready — benefit details unavailable'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
     finally:
@@ -128,7 +126,7 @@ def create(payload:VideoRequest,request:Request):
     if _looks_like_article(payload.name, ''):
         raise HTTPException(422,'This selection is a guide or roundup. Choose one specific product before making its video.')
     try:
-        sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,60,payload.buyer_need,payload.consideration)
+        sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,120,payload.buyer_need,payload.consideration)
     except ValueError as exc:raise HTTPException(422,str(exc))
     try:dependencies()
     except ValueError as exc:raise HTTPException(503,str(exc))

@@ -512,7 +512,12 @@ async def generate_traffic(request: GenerateRequest) -> JSONResponse:
             budget=request.daily_budget,
             product_title=product.title,
             product_image=product.primary_image,
-            assets=compiled,
+            assets={**compiled, '_product_source': {'scraped_product': product.to_dict(),
+                    'video_facts': {key: request.product_payload.get(key) for key in
+                        ('seller_benefit','seller_benefit_source','seller_facts','research_sources','evidence_origin')
+                        if request.product_payload and request.product_payload.get(key)},
+                    **({'video_facts': {'research_sources': [{'title': product.title, 'url': product.url,
+                         'snippet': product.description}]}} if source_kind == 'scrape' and product.description else {})}},
             ai_mode=ai_mode,
         )
         campaign_id = record.id
@@ -713,7 +718,9 @@ async def get_campaign(campaign_id: str) -> JSONResponse:
     record["compiled_package"] = record.pop("assets")
     # History must share the live response shape expected by the dashboard.
     record['campaign_id'] = record['id']
-    record['scraped_product'] = {
+    source_packet = record['compiled_package'].pop('_product_source', {})
+    record['video_facts'] = source_packet.get('video_facts', {})
+    record['scraped_product'] = source_packet.get('scraped_product') or {
         'title': record.get('product_title') or record.get('input_url', ''),
         'primary_image': record.get('product_image'),
         'description': '',

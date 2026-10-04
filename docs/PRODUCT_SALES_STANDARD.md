@@ -1,4 +1,4 @@
-# TrafficLift product-video sales standard — v3.0
+# TrafficLift product-video sales standard — v3.1
 
 Build five stages: buyer need, exact product benefit, daily use or additional
 features, buying details, and one closing CTA. The free compositor uses local
@@ -13,8 +13,8 @@ personal experience. One connected search can retrieve missing exact-listing
 facts; that search uses the connected provider's account credits.
 
 The worker enriches an existing single benefit with the fuller available brief,
-including history items reopened without facts. It fails clearly if no supported
-benefit is available instead of silently delivering a three-line photo preview.
+including history items reopened without facts. If seller facts are unavailable, it delivers a labeled five-stage product
+overview with buying questions and a CTA, without performance or feature claims.
 Every narration phrase is synthesized and retained. Measured speech determines
 finished duration, with short pauses and a closing hold; it never cuts the script
 to match a duration selector. Captions follow measured phrase lengths, with

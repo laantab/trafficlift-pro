@@ -968,10 +968,11 @@
                 checkbox.checked = (data.channels || []).includes(checkbox.value);
             }
             const product = data.scraped_product || {};
-            const winner = {id: data.campaign_id || id, name: product.title || data.product_title,
+            const winner = {...(data.video_facts || {}), id: data.campaign_id || id, name: product.title || data.product_title,
                 image_url: product.primary_image || data.product_image || '', url: data.input_url || '',
                 category: 'Saved product', source: 'saved_campaign', hashtags: [],
-                pin_description: data.compiled_package?.pinterest_seo_engine?.optimized_description || ''};
+                pin_description: data.compiled_package?.pinterest_seo_engine?.optimized_description || '',
+                research_sources: data.video_facts?.research_sources || []};
             persistCurrentWinner(winner);
             if (document.getElementById('executionOutput')) displayWinnerCard(winner);
             if (data.compiled_package?.pinterest_seo_engine) renderPinterestResult(data, winner);
@@ -1145,7 +1146,7 @@
                         <label class="text-xs text-slate-400">Narration length<select id="freeVideoLength" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="30" selected>Automatic — complete script</option></select></label>
                         <label class="text-xs text-slate-400">Scene style<select id="freeVideoStyle" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="warm">Warm studio</option><option value="clean">Clean studio</option><option value="bold">Bold studio</option></select></label>
                     </div>
-                    <p class="text-xs text-slate-500">Five scenes: buyer need → product benefit → daily use → buying details → call to action. The full narration determines the finished length. Captions and voice included. The destination link is provided separately for your post.</p>
+                    <p class="text-xs text-slate-500">Five scenes: buyer need → product → daily use → buying details → call to action. Available seller facts are included automatically; otherwise the video is labeled a product overview. The full narration determines the finished length. Captions and voice included. The destination link is provided separately for your post.</p>
                     <details><summary class="text-sm cursor-pointer">Past videos</summary><div id="freeVideoHistory" class="mt-2 space-y-2 text-sm"></div></details>
                 </div>
                 <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
@@ -1501,7 +1502,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             image_url: winner.image_url,
             product_url: document.getElementById('freeProductUrl').value.trim(),
             benefit: document.getElementById('freeProductFact').value.trim(),
-            fact_sources: (winner.research_sources || []).slice(0,4),
+            fact_sources: [...(winner.seller_benefit_source && winner.seller_facts?.length ? [{title:winner.name,url:winner.seller_benefit_source,snippet:winner.seller_facts.join('\n')}] : []), ...(winner.research_sources || [])].slice(0,4),
             buyer_need: document.getElementById('freeBuyerNeed').value.trim(),
             consideration: document.getElementById('freeBuyingDetail').value.trim(),
             seconds: Number(document.getElementById('freeVideoLength').value),

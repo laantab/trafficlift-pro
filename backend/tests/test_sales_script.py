@@ -24,13 +24,14 @@ def test_script_uses_product_fact_source_and_one_cta():
 
 def test_missing_benefit_produces_honest_preview_with_cta():
     result=plan(benefit='',buyer_need='Guaranteed weight loss',consideration='Includes a straw',seconds=15)
-    assert result['mode']=='photo_preview'
+    assert result['mode']=='product_overview'
     assert result['review']['status']=='PASS'
     assert result['evidence']==[]
     script=' '.join(result['phrases'])
     assert 'Guaranteed' not in script and 'straw' not in script
-    assert 'current pricing and specifications' in script
-    assert 'no benefit claims' in result['review']['evidence_status']
+    assert 'current price and options' in script
+    assert len(result['phrases'])==5
+    assert 'benefit details unavailable' in result['review']['evidence_status']
 
 
 def test_preview_fits_fifteen_seconds_with_long_product_name():

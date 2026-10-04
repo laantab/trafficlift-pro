@@ -28,7 +28,7 @@ def resolve_video_facts(name, url):
         from backend import live_research
         if live_research._is_tavily_configured():
             envelope = live_research.research(f'"{title}" product features specifications', max_results=4)
-            found = facts_from_sources(name, url, envelope.research_sources)
+            found = facts_from_sources(name, url, getattr(envelope,'research_sources',[]) or [])
             if found: return found
         return {}
     return dict(benefit=details['seller_benefit'], buyer_need='', consideration='',
@@ -44,12 +44,20 @@ def canonical(url):
 def facts_from_sources(name, destination, sources):
     """Only text attached to this exact listing; never a generic article."""
     expected=canonical(destination)
+    facts=[];images=[]
+    identity=' '.join(re.findall(r'[a-z0-9]+',product_name(name).lower()))
     for source in sources or []:
         if canonical(source.get('url','')) != expected:
             continue
-        facts=usable_facts(source.get('content') or source.get('snippet') or '')
-        if facts:
-            return dict(benefit=facts[0],feature_details=facts[1:3],buyer_need='',consideration='',
-                        evidence_source=destination,evidence_origin='indexed_seller_description',
-                        product_images=source.get('image_urls',[])[:3])
+        title=' '.join(re.findall(r'[a-z0-9]+',product_name(source.get('title','')).lower()))
+        if title and f' {identity} ' not in f' {title} ':
+            continue
+        for fact in usable_facts(source.get('content') or source.get('snippet') or ''):
+            if fact not in facts: facts.append(fact)
+        for image in source.get('image_urls',[]) or []:
+            if isinstance(image,str) and image not in images:images.append(image)
+    if facts:
+        return dict(benefit=facts[0],feature_details=facts[1:3],buyer_need='',consideration='',
+                    evidence_source=destination,evidence_origin='indexed_seller_description',
+                    product_images=images[:3])
     return {}

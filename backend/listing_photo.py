@@ -11,15 +11,21 @@ def product_name(name):
 
 def usable_facts(value):
     """Keep complete factual sentences; never cut a qualification in half."""
-    text = BeautifulSoup(str(value or ''), 'html.parser').get_text(' ', strip=True)
-    text = ' '.join(text.split())
+    soup = BeautifulSoup(str(value or ''), 'html.parser')
+    # Separate actual block/bullet boundaries, never inline emphasis that
+    # could detach a qualification such as 'except narrow holders'.
+    for block in soup.find_all(['p','li','div','br']):
+        block.insert_before('\n')
+    text = soup.get_text(' ', strip=False)
+    text = '\n'.join(' '.join(line.split()) for line in text.splitlines())
     facts = []
     for sentence in re.split(r'(?<=[.!?])\s+|[•\n]', text):
+        sentence = sentence.strip()
         if not 15 <= len(sentence) <= 160 or any(c in sentence for c in '{}\\'):
             continue
         if re.search(r"\b(shop|buy now|free shipping|guaranteed|best ever|selling out|hurry|limited time|customers|reviews)\b|[$£€]|\d+\s*%\s*off", sentence, re.I):
             continue
-        if not re.search(r'\b(for|with|includes?|tracks?|adjustable|removable|designed|features?|supports?|provides?|helps?|allows?|made|fits?)\b', sentence, re.I):
+        if not re.search(r'\b(for|with|includes?|tracks?|adjustable|removable|designed|features?|supports?|provides?|helps?|allows?|made|fits?|waterproof|rechargeable|wireless|stainless steel|wide feed chute|reverse function|easy to clean|dishwasher safe)\b', sentence, re.I):
             continue
         if sentence not in facts:
             facts.append(sentence)

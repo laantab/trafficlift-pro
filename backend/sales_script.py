@@ -15,7 +15,7 @@ def clean(value, limit=160):
 
 def review(plan, seconds):
     errors = []
-    if not plan['evidence'] and plan.get('mode') != 'photo_preview':
+    if not plan['evidence'] and plan.get('mode') not in {'photo_preview','product_overview'}:
         errors.append('A benefit-led script needs seller information.')
     script = ' '.join(plan['phrases'])
     # Honest photo-only output cannot prove performance or a real demonstration.
@@ -23,7 +23,7 @@ def review(plan, seconds):
         errors.append('Remove unsupported proof, popularity, guarantees or urgency.')
     if re.search(r'[$£€]|\b\d+\s*%\s*off\b', script):
         errors.append('Use the link for current pricing; a dated price source is required before quoting prices.')
-    if len(script.split()) > int((seconds - 1.6) * 2.25):
+    if plan.get('mode') != 'product_overview' and len(script.split()) > int((seconds - 1.6) * 2.25):
         errors.append('The script needs a longer video. Choose 30 or 60 seconds, or shorten the seller benefit.')
     return {'status': 'FAIL' if errors else 'PASS', 'errors': errors,
             'evidence_status': ('No seller benefit supplied; photo preview makes no benefit claims'
@@ -41,21 +41,23 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     routine = clean(routine, 160)
     details = [clean(fact,160) for fact in (feature_details or [])[:2]]
     if not benefit:
-        # Discovery hands over a photo and identity, not a verified benefit.
-        # Render an explicit photo preview instead of inventing a fact or
-        # requiring the user to research and fill a field before every video.
-        spoken_name = ' '.join(name.split()[:8])
-        phrases = [f'Take a closer look at {spoken_name}.',
-                   'Explore the product photos.',
-                   'Tap the product link for current pricing and specifications.']
-        plan = {'version': '2.1', 'mode': 'photo_preview', 'product': name,
+        # Missing seller text must not turn a valid photo render into a dead end.
+        # Offer a complete, explicitly labeled buying overview without claims.
+        phrases = [f'Considering {name}?',
+                   f'Here is a closer look at {name}.',
+                   'Picture where you would use it in your daily routine, and what you need from it.',
+                   'Check the seller listing for dimensions, included items, and care details before deciding.',
+                   'Tap the product link to compare the current price and options, then choose what fits your needs.']
+        plan = {'version': '3.1', 'mode': 'product_overview', 'product': name,
                 'buyer_need': '', 'hook_candidates': [phrases[0]], 'selected_hook': 0,
-                'phrases': phrases, 'captions': ['A closer look', 'Product photo', 'Check details and price'],
+                'phrases': phrases,
+                'captions': ['Could this fit your routine?', 'The actual product', 'Plan your daily use', 'Check size and included items', 'Check price and options'],
                 'destination': destination, 'evidence': [],
-                'scenes': [{'stage': stage, 'narration': phrase, 'visual': 'Show the actual product photo; no performance demonstration'}
-                           for stage, phrase in zip(['hook', 'photo', 'cta'], phrases)],
+                'evidence_status': 'Product identity and photo only; benefit details unavailable. No performance or feature claims added',
+                'scenes': [{'stage': stage, 'narration': phrase, 'visual': 'Move across the actual product photo; no performance demonstration'}
+                           for stage, phrase in zip(['hook', 'product', 'routine', 'buying_details', 'cta'], phrases)],
                 'workflow': ['conversion_copy', 'visual_direction', 'editorial_review'],
-                'engine': 'local photo-preview rules; no language-model calls'}
+                'engine': 'local product-overview rules; no language-model calls'}
         plan['review'] = review(plan, seconds)
         if plan['review']['errors']:
             raise ValueError(' '.join(plan['review']['errors']))
