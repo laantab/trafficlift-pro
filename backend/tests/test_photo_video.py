@@ -141,3 +141,26 @@ def test_store_guide_never_starts_video_worker(client,payload,tmp_path):
         assert 'one specific product' in response.json()['detail']
         setup.assert_not_called();thread.assert_not_called()
     assert not list(tmp_path.iterdir())
+
+
+def test_status_save_retries_windows_file_lock(tmp_path):
+    original=Path.replace
+    attempts=[]
+    def replace(path,target):
+        attempts.append(path)
+        if len(attempts)<3:raise PermissionError(5,'Access is denied')
+        return original(path,target)
+    with patch.object(Path,'replace',replace),patch.object(api.time,'sleep'):
+        api.save({'id':'a','status':'running'},tmp_path)
+    assert len(attempts)==3
+    assert json.loads((tmp_path/'job.json').read_text())['status']=='running'
+    assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_old_video_history_and_download_remain_available(client,tmp_path,monkeypatch):
+    legacy=tmp_path/'legacy';legacy.mkdir()
+    job=completed(legacy)
+    monkeypatch.setenv('TRAFFICLIFT_LEGACY_VIDEO_DIR',str(legacy))
+    monkeypatch.setenv('TRAFFICLIFT_VIDEO_DIR',str(tmp_path/'new'))
+    assert client.get('/api/v1/photo-videos').json()['videos'][0]['id']==job
+    assert client.get(f'/api/v1/photo-videos/{job}/video').status_code==200

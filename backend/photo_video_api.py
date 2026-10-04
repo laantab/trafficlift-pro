@@ -48,7 +48,11 @@ class VideoRequest(BaseModel):
 
 def record_path(job_id):
     if not re.fullmatch(r'[0-9a-f]{32}',job_id):raise HTTPException(404,'Video not found.')
-    return storage()/job_id/'job.json'
+    current=storage()/job_id/'job.json'
+    if current.is_file():return current
+    legacy=os.environ.get('TRAFFICLIFT_LEGACY_VIDEO_DIR')
+    old=Path(legacy)/job_id/'job.json' if legacy else None
+    return old if old and old.is_file() else current
 
 def read_record(job_id):
     path=record_path(job_id)
@@ -61,7 +65,19 @@ def read_record(job_id):
     return data
 
 def save(record,directory):
-    tmp=directory/'job.tmp';tmp.write_text(json.dumps(record,indent=2));tmp.replace(directory/'job.json')
+    tmp=directory/('job-'+uuid.uuid4().hex+'.tmp')
+    try:
+        tmp.write_text(json.dumps(record,indent=2),encoding='utf-8')
+        for attempt in range(8):
+            try:
+                tmp.replace(directory/'job.json')
+                return
+            except PermissionError:
+                if attempt==7:raise
+                time.sleep(min(.8,.05*2**attempt))
+    finally:
+        try:tmp.unlink(missing_ok=True)
+        except OSError:pass
 
 def worker(record,payload,directory):
     def update(message):
@@ -114,7 +130,13 @@ def studio(request:Request):
 def history(request:Request):
     guard(request)
     records=[]
-    for path in sorted(storage().glob('*/job.json'),key=lambda p:p.stat().st_mtime,reverse=True)[:100]:
+    paths=list(storage().glob('*/job.json'))
+    legacy=os.environ.get('TRAFFICLIFT_LEGACY_VIDEO_DIR')
+    if legacy:paths+=list(Path(legacy).glob('*/job.json'))
+    seen=set()
+    for path in sorted(paths,key=lambda p:p.stat().st_mtime,reverse=True)[:100]:
+        if path.parent.name in seen:continue
+        seen.add(path.parent.name)
         records.append(read_record(path.parent.name))
     return {'videos':records}
 

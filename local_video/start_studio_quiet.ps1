@@ -41,7 +41,8 @@ try {
         $env:TRAFFICLIFT_FREE_VIDEO = '1'
         $env:TRAFFICLIFT_VOICE_MODEL = $model
         $env:TRAFFICLIFT_VOICES = $voices
-        $env:TRAFFICLIFT_VIDEO_DIR = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'TrafficLift-Free-Videos'
+        $env:TRAFFICLIFT_LEGACY_VIDEO_DIR = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'TrafficLift-Free-Videos'
+        $env:TRAFFICLIFT_VIDEO_DIR = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'TrafficLift\Videos'
         $env:RELOAD = 'false'
         $logs = Join-Path $repo 'logs'
         New-Item -ItemType Directory -Force $logs | Out-Null
