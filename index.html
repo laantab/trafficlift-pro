@@ -931,6 +931,8 @@
                         ${(c.channels || []).map(ch => `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${chLabel(ch)}</span>`).join('')}
                     </div>
                     <div class="flex items-center gap-1">
+                        <button onclick="event.stopPropagation(); loadCampaign('${c.id}')"
+                                class="px-2 py-1 rounded bg-brand-500/15 text-brand-400 text-xs" title="Reopen saved assets without generating again">Open &amp; Reuse</button>
                         <button onclick="event.stopPropagation(); deleteCampaign('${c.id}')"
                                 class="p-1 rounded hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition" title="Delete">
                             <i data-lucide="trash-2" class="w-3 h-3"></i>
@@ -958,7 +960,22 @@
             const data = await r.json();
             currentResults = data;
             renderResults(data);
-            toggleHistory();
+            document.getElementById('productUrl').value = data.input_url || '';
+            setMode(data.mode === 'paid' ? 'paid' : 'organic');
+            if (Number.isFinite(data.budget)) document.getElementById('dailyBudget').value = data.budget;
+            for (const checkbox of document.querySelectorAll('#channelGrid input[type="checkbox"]')) {
+                checkbox.checked = (data.channels || []).includes(checkbox.value);
+            }
+            const product = data.scraped_product || {};
+            const winner = {id: data.campaign_id || id, name: product.title || data.product_title,
+                image_url: product.primary_image || data.product_image || '', url: data.input_url || '',
+                category: 'Saved product', source: 'saved_campaign', hashtags: [],
+                pin_description: data.compiled_package?.pinterest_seo_engine?.optimized_description || ''};
+            persistCurrentWinner(winner);
+            if (document.getElementById('executionOutput')) displayWinnerCard(winner);
+            if (data.compiled_package?.pinterest_seo_engine) renderPinterestResult(data, winner);
+            document.getElementById('statusMessage').textContent = 'Saved campaign reopened — no new generation';
+            if (historyOpen) toggleHistory();
             document.getElementById('campaignIdTag').textContent = 'ID: ' + id;
             document.getElementById('campaignIdTag').classList.remove('hidden');
             showToast('Campaign loaded', data.scraped_product?.title || id, 'success');

@@ -708,6 +708,15 @@ async def get_campaign(campaign_id: str) -> JSONResponse:
         )
     # Rename 'assets' → 'compiled_package' for frontend compatibility
     record["compiled_package"] = record.pop("assets")
+    # History must share the live response shape expected by the dashboard.
+    record['campaign_id'] = record['id']
+    record['scraped_product'] = {
+        'title': record.get('product_title') or record.get('input_url', ''),
+        'primary_image': record.get('product_image'),
+        'description': '',
+    }
+    record['meta'] = {'ai_mode': record.get('ai_mode', 'saved'), 'processing_time_ms': 0,
+                      'restored_from_history': True}
     return JSONResponse(record)
 
 
@@ -773,3 +782,4 @@ if __name__ == "__main__":
         reload=reload,
         log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
+

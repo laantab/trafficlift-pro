@@ -43,5 +43,21 @@ const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',i
  await b.context.submitFreeVideo({textContent:''},{});
  assert(submitted,'Blank benefit must reach the video API');assert.equal(submitted.benefit,'');
  assert.equal(submitted.image_url,winner.image_url);assert.equal(submitted.seconds,15);
+ // A saved campaign reopens through one GET, restoring its product and settings.
+ b=browser({ok:true,json:async()=>winner});
+ const saved={campaign_id:'saved-one',input_url:'https://example.com/lamp',mode:'paid',budget:40,channels:['meta_ads'],scraped_product:{title:'Saved Lamp',primary_image:'https://example.com/lamp.jpg'},compiled_package:{},meta:{processing_time_ms:0,ai_mode:'template_fallback'}};
+ const reuseRequests=[];
+ b.context.fetch=async(url,options)=>{reuseRequests.push({url,options});return {ok:true,json:async()=>saved}};
+ const checkboxes=[{value:'meta_ads',checked:false},{value:'tiktok_ads',checked:true}];
+ b.context.document.querySelectorAll=selector=>selector.startsWith('#channelGrid')?checkboxes:[];
+ await b.context.loadCampaign('saved-one');
+ assert.equal(reuseRequests.length,1);assert(reuseRequests[0].url.endsWith('/campaigns/saved-one'));
+ assert.equal(b.nodes.get('resTitle').textContent,'Saved Lamp');
+ assert.equal(b.nodes.get('productUrl').value,saved.input_url);
+ assert.equal(b.nodes.get('dailyBudget').value,40);
+ assert.equal(b.context.window.__currentWinner.name,'Saved Lamp');
+ assert.equal(b.context.window.__currentWinner.image_url,saved.scraped_product.primary_image);
+ assert(checkboxes[0].checked && !checkboxes[1].checked);
+ assert(b.nodes.get('statusMessage').textContent.includes('no new generation'));
  console.log('PASS: actual button request, same origin, Pinterest continuation, visible failures, curated rejection');
 })().catch(e=>{console.error(e);process.exitCode=1});
