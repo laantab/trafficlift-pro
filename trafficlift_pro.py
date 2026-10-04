@@ -38,7 +38,9 @@ from dotenv import load_dotenv
 # Load .env (if present) BEFORE importing anything that reads os.getenv.
 # On Render / production, env vars come from the platform and .env is absent
 # — load_dotenv() is a no-op in that case, so this is safe everywhere.
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), encoding='utf-8-sig')
+from backend.research_config import load_research_config, research_status
+load_research_config()
 
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -414,6 +416,7 @@ async def health_check():
         "service": APP_NAME,
         "version": APP_VERSION,
         "ai_backend_active": _get_ai_mode(),
+        "research_connection": research_status(),
         "ai_backends": {
             "openai":  ai_modes["openai"],
             "minimax": ai_modes["minimax"],

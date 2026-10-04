@@ -137,6 +137,7 @@
                         <i data-lucide="zap" class="w-4 h-4"></i>
                         <span class="findWinningProductLabel">Find Winning Product</span>
                     </button>
+                    <button type="button" onclick="openResearchConnection()" class="mt-2 text-xs text-slate-400 underline">Research connection</button>
                 </div>
 
                 <!-- PATH B — Analyze an existing product URL -->
@@ -1408,6 +1409,35 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free');
     }
 
+    function openResearchConnection() {
+        let panel = document.getElementById('researchConnectionPanel');
+        if (panel) { panel.classList.remove('hidden'); return; }
+        panel = document.createElement('div'); panel.id = 'researchConnectionPanel';
+        panel.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6';
+        panel.innerHTML = '<div class="max-w-md w-full bg-slate-900 rounded-2xl p-6 space-y-4">' +
+            '<h3 class="text-xl text-white">Connect product research</h3>' +
+            '<p class="text-sm text-slate-300">Paste your Tavily free-plan key. It stays on this computer. Keep paid billing disabled.</p>' +
+            '<input id="researchConnectionKey" type="password" autocomplete="off" spellcheck="false" placeholder="Tavily API key" class="w-full rounded-lg bg-slate-950 p-3 text-white">' +
+            '<p id="researchConnectionStatus" class="text-sm text-slate-300"></p>' +
+            '<button id="researchConnectionSave" class="rounded-lg bg-indigo-600 p-3 text-white">Save and find a product</button>' +
+            '<button id="researchConnectionCancel" class="ml-3 text-slate-300">Close</button></div>';
+        document.body.appendChild(panel);
+        document.getElementById('researchConnectionCancel').onclick = () => panel.classList.add('hidden');
+        document.getElementById('researchConnectionSave').onclick = async () => {
+            const input = document.getElementById('researchConnectionKey');
+            const button = document.getElementById('researchConnectionSave');
+            const status = document.getElementById('researchConnectionStatus');
+            button.disabled = true;
+            try {
+                status.textContent = 'Saving research connection…';
+                await freeVideoRequest('/api/v1/research-connection', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({api_key:input.value.trim()})});
+                input.value = ''; panel.classList.add('hidden');
+                await fetchTrendingProduct();
+            } catch (error) { status.textContent = error.message; }
+            finally { button.disabled = false; }
+        };
+    }
+
     async function freeVideoRequest(path, options = {}) {
         const response = await fetch(apiUrl(path), {...options, signal: AbortSignal.timeout(30000)});
         const data = await response.json().catch(() => ({}));
@@ -2548,6 +2578,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     const errBody = await resp.json();
                     detail = errBody?.detail || errBody?.message || '';
                 } catch (_) { /* not JSON */ }
+                if (detail.includes('RESEARCH_CONNECTION_MISSING') && ['127.0.0.1','localhost'].includes(window.location.hostname)) {
+                    openResearchConnection(); return;
+                }
                 throw new Error('HTTP ' + resp.status
                     + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
             }

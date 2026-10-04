@@ -135,7 +135,8 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
             timeout=DEFAULT_TIMEOUT,
         )
         if resp.status_code != 200:
-            logger.warning("Tavily HTTP %s: %s", resp.status_code, resp.text[:200])
+            logger.warning("Tavily HTTP %s", resp.status_code)
+            _problem(f"Tavily HTTP {resp.status_code}")
             return [], []
         data = resp.json()
         results = data.get("results") or []
@@ -167,7 +168,8 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
                 images.append(u)
         return out, images
     except Exception as exc:
-        logger.warning("Tavily request failed: %s", exc)
+        logger.warning("Tavily request failed (%s)", type(exc).__name__)
+        _problem("Tavily request failed: " + type(exc).__name__)
         return [], []
 
 
@@ -464,7 +466,13 @@ def research(
                 research_query=q,
                 research_image_urls=tav_images,
             )
-        logger.info("Tavily returned no hits, falling back to DuckDuckGo")
+        # A configured provider failure must not be hidden by public scraping.
+        errors = list(_DIAGNOSTICS.errors)
+        if not errors: errors.append('Tavily returned no usable results')
+        return ResearchEnvelope(research_status='fallback', research_timestamp=_now_iso(),
+            research_provider='tavily', research_sources=[], research_image_urls=[],
+            research_summary='Configured research provider did not return usable evidence.',
+            research_query=q, research_errors=errors)
 
     # Prefer the public provider that actually returns constrained listing
     # results. DDG often serves a 202 challenge and Bing RSS can lose intent.

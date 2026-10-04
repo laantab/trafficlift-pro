@@ -4,7 +4,7 @@ import json, os, re, threading, time, uuid
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
 from backend.photo_video import dependencies, render
 from backend.sales_script import build_sales_plan
@@ -147,3 +147,26 @@ def download(job_id:str,request:Request):
     slug=re.sub(r'[^a-zA-Z0-9_-]+','-',record['name']).strip('-')[:60] or 'product'
     return FileResponse(path,media_type='video/mp4',filename=f"{slug}-{job_id[:8]}.mp4")
 
+
+
+class ResearchKeyRequest(BaseModel):
+    api_key: SecretStr
+
+
+@router.get('/api/v1/research-connection')
+def get_research_connection(request: Request):
+    guard(request)
+    from backend.research_config import research_status
+    return research_status()
+
+
+@router.post('/api/v1/research-connection')
+def set_research_connection(payload: ResearchKeyRequest, request: Request):
+    guard(request)
+    from backend.research_config import save_research_key
+    try:
+        return save_research_key(payload.api_key.get_secret_value())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    except OSError:
+        raise HTTPException(503, 'Could not save the research connection. Check that TrafficLift can write to its own folder.')

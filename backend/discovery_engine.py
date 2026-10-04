@@ -90,6 +90,9 @@ def market_signals(sources):
 
 def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
     """One click continues through empty free-research batches, within 60s."""
+    import os
+    if os.environ.get('TRAFFICLIFT_FREE_VIDEO') == '1' and not live_research._is_tavily_configured():
+        raise HTTPException(503, 'RESEARCH_CONNECTION_MISSING: This running studio has no Tavily key loaded. Connect research in TrafficLift; restarting or repeating this search will not help.')
     started = time.monotonic()
     deadline = started + 60
     # Never multiply paid-provider calls through automatic retries.
