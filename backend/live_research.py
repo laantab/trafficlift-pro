@@ -236,6 +236,46 @@ def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource
         return [], []
 
 
+def _query_brave(query, max_results):
+    """Public web results with observed title/snippet selectors; no paid API."""
+    try:
+        response = requests.get('https://search.brave.com/search',
+                                params={'q': query, 'source': 'web'},
+                                headers={'User-Agent': 'Mozilla/5.0'}, timeout=9)
+        if response.status_code != 200 or len(response.content) > 2_000_000:
+            _problem(f'Brave HTTP {response.status_code}')
+            return [], []
+        from bs4 import BeautifulSoup
+        from urllib.parse import urlsplit
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = []
+        seen = set()
+        for card in soup.select('.result-content'):
+            title = card.select_one('.search-snippet-title')
+            link = card.select_one('a[href]')
+            if not title or not link:
+                continue
+            url = link.get('href','')
+            parsed = urlsplit(url)
+            if parsed.scheme not in {'http','https'} or not parsed.hostname or url in seen:
+                continue
+            if parsed.hostname in {'search.brave.com','brave.com'}:
+                continue
+            description = card.select_one('.generic-snippet')
+            results.append(ResearchSource(title=(title.get('title') or title.get_text(' ',strip=True))[:200],
+                snippet=description.get_text(' ',strip=True)[:500] if description else '',
+                url=url, provider='brave_web'))
+            seen.add(url)
+            if len(results) >= max_results:
+                break
+        if not results:
+            _problem('Brave returned no parsed web result cards')
+        return results, []
+    except Exception as exc:
+        _problem('Brave request failed: ' + type(exc).__name__)
+        return [], []
+
+
 def _query_bing_html(query, max_results):
     """Use actual web result cards when the RSS feed loses query restrictions."""
     try:
@@ -425,6 +465,17 @@ def research(
                 research_image_urls=tav_images,
             )
         logger.info("Tavily returned no hits, falling back to DuckDuckGo")
+
+    # Prefer the public provider that actually returns constrained listing
+    # results. DDG often serves a 202 challenge and Bing RSS can lose intent.
+    brave_hits, brave_images = _query_brave(q, max_results)
+    brave_hits = _filter_search_hits(q, brave_hits)
+    if brave_hits:
+        return ResearchEnvelope(research_status='live' if len(brave_hits)>=3 else 'partial',
+            research_timestamp=_now_iso(), research_provider='brave_web',
+            research_sources=[asdict(source) for source in brave_hits],
+            research_summary=_summarize_sources(q,brave_hits), research_query=q,
+            research_image_urls=brave_images, research_errors=list(_DIAGNOSTICS.errors))
 
     # 2. DuckDuckGo fallback
     ddg_hits, ddg_images = _query_duckduckgo(q, max_results)

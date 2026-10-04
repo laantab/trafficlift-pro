@@ -1,5 +1,10 @@
+import pytest
 from types import SimpleNamespace
 from backend import live_research as research
+
+@pytest.fixture(autouse=True)
+def no_brave_network(monkeypatch):
+    monkeypatch.setattr(research,'_query_brave',lambda *a:([],[]))
 
 def response(body,status=200):
     return SimpleNamespace(status_code=status,content=body.encode(),text=body)

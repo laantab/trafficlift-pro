@@ -186,6 +186,13 @@ def _normalize_title(raw_title: str, snippet: str = "") -> Optional[str]:
     t = re.sub(r"^Amazon\.com\s*:\s*", "", t, flags=re.IGNORECASE)
     # Strip Amazon suffix
     t = re.sub(r"\s*[\|:]\s*Amazon\.com.*$", "", t, flags=re.IGNORECASE)
+    # Keep a contiguous seller title prefix rather than inventing a
+    # product name from an arbitrary surrounding snippet.
+    t = t.split(' | ')[0]
+    t = re.sub(r"\s*:\s*(?:Home & Kitchen|Office Products|Tools & Home Improvement|Sports & Outdoors|Pet Supplies).*$", '', t, flags=re.I)
+    if len(t) > 90:
+        prefix = t.split(',')[0]
+        t = prefix if len(prefix) <= 90 else prefix[:91].rsplit(' ',1)[0]
     # Strip trailing '... Review' / '... in 2026' style suffixes
     t = re.sub(r"\s*[\.…]+\s*\d{4}.*$", "", t)
     t = re.sub(r"\s*[\|]\s*review.*$", "", t, flags=re.IGNORECASE)
@@ -199,10 +206,6 @@ def _normalize_title(raw_title: str, snippet: str = "") -> Optional[str]:
     # like "products" / "items") AND a snippet is available, try to
     # extract a real product phrase from the snippet.
     if not _has_specific_product_signal(t):
-        if snippet:
-            extracted = _extract_product_phrase_from_snippet(snippet)
-            if extracted and len(extracted) >= 6 and len(extracted) <= 120:
-                return extracted
         # A generic article/listicle title is research evidence, not a product.
         return None
     return t

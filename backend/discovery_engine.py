@@ -22,7 +22,7 @@ PRODUCT_QUERIES = ['drawer organizer', 'vegetable chopper', 'pet water fountain'
                    'adjustable desk lamp', 'garden pruning shears', 'hanging toiletry bag',
                    'resistance band set', 'motion sensor night light', 'rotary paper trimmer',
                    'cordless handheld vacuum', 'camera tripod', 'insulated travel tumbler']
-SEARCH_VARIANTS = ['reviews', 'ratings', '']
+SEARCH_VARIANTS = ['']
 MERCHANT_FILTERS = ['site:amazon.com/dp/', 'site:walmart.com/ip/', 'site:target.com/p/']
 MAX_QUERIES = 3
 MAX_CANDIDATES = 12

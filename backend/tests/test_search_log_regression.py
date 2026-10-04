@@ -37,9 +37,30 @@ def test_reviews_only_in_listing_are_available_to_qualification(monkeypatch):
 
 def test_blocked_search_and_offsite_feed_are_unavailable(monkeypatch):
     monkeypatch.delenv('TAVILY_API_KEY',raising=False)
+    monkeypatch.setattr(live_research,'_query_brave',lambda *a:([],[]))
     monkeypatch.setattr(live_research,'_query_duckduckgo',lambda *a:([],[]))
     monkeypatch.setattr(live_research,'_query_bing_html',lambda *a:([],[]))
     monkeypatch.setattr(live_research,'_query_bing_rss',lambda *a:([live_research.ResearchSource('Petco','reviews','https://petco.com','bing_rss')],[]))
     env=live_research.research('pet water fountain site:target.com/p/')
     assert env.research_status=='fallback'
     assert not env.research_sources
+
+
+def test_brave_primary_uses_actual_titles_and_skips_blocked_fallbacks(monkeypatch):
+    monkeypatch.delenv('TAVILY_API_KEY',raising=False)
+    html='<div class="result-content"><a href="https://www.target.com/p/orbit-lamp/-/A-123"><div class="search-snippet-title" title="Orbit Adjustable Desk Lamp : Target">Orbit</div></a><div class="generic-snippet">Read reviews and buy the Orbit lamp.</div></div>'
+    monkeypatch.setattr(live_research.requests,'get',lambda *a,**k:response(html))
+    monkeypatch.setattr(live_research,'_query_duckduckgo',lambda *a:(_ for _ in ()).throw(AssertionError('No need for DDG')))
+    env=live_research.research('desk lamp site:target.com/p/')
+    assert env.research_provider=='brave_web'
+    assert env.research_sources[0]['title']=='Orbit Adjustable Desk Lamp : Target'
+    assert env.research_sources[0]['snippet']=='Read reviews and buy the Orbit lamp.'
+    assert env.research_image_urls==[]
+
+
+def test_long_seller_title_keeps_product_prefix_and_never_uses_snippet_fragment():
+    title='Amazon.com: Simple Houseware 4-Pack Drawer Organizer Set for Underwear/Socks/Bra, Gray | Closet Dividers for Underwear, Socks, Bras, Scarves, Ties - Foldable Non-Woven Storage Boxes : Home & Kitchen'
+    name=discovery._normalize_title(title)
+    assert name=='Simple Houseware 4-Pack Drawer Organizer Set for Underwear/Socks/Bra, Gray'
+    assert len(name)<=90
+    assert discovery._normalize_title('Walmart', 'Perfect for placing next to table or bed') is None
