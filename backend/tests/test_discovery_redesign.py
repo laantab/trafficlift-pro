@@ -158,8 +158,10 @@ def test_price_or_product_presence_alone_is_not_market_signal(isolated,monkeypat
     env=envelope()
     for source in env.research_sources:source['snippet']=source['title']+' comes in blue'
     monkeypatch.setattr(engine.live_research,'research',lambda *a,**kw:env)
-    with pytest.raises(HTTPException) as exc:engine.discover(client_id='browser123456789')
-    assert exc.value.status_code==404
+    winner=engine.discover(client_id='browser123456789')
+    assert winner['demand_evidence_status']=='not_verified'
+    assert any('not a proven seller' in signal for signal in winner['trend_signals'])
+
 
 
 def test_route_forwards_history_and_rejects_invalid_browser_id(monkeypatch):

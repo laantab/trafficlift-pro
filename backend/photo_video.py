@@ -1,6 +1,6 @@
 """Owned CPU photo-ad compositor. No provider calls; dependencies load on demand."""
 from pathlib import Path
-import json, os, shutil, subprocess
+import json, os, shutil, subprocess, math, bisect
 from backend.sales_script import build_sales_plan
 
 
@@ -14,7 +14,7 @@ def dependencies():
     return model, voices
 
 
-def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None):
+def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
     if sales_plan["review"]["status"] != "PASS":
         raise ValueError("The sales script has not passed editorial review.")
@@ -52,8 +52,10 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     for phrase in phrases:
         audio,rate=engine.create(phrase,voice='af_heart',speed=1.08,lang='en-us');clips.append(audio)
     lengths=[len(a)/rate for a in clips]
-    # A long script fails instead of clipping narration or silently changing length.
-    if sum(lengths)+1.6>seconds: raise ValueError('Script is too long for this length. Shorten the product fact or choose a longer video.')
+    # Use every recorded phrase. Natural length replaces long silent holds
+    # and can extend the requested target instead of cutting the sales script.
+    seconds=max(15,math.ceil(sum(lengths)+.22*(len(lengths)-1)+1.6))
+    if seconds>120:raise ValueError('The script exceeds two minutes. Shorten the product facts.')
     starts=narration_starts(lengths, seconds)
     voice=np.zeros(rate*seconds,dtype=np.float32)
     for a,t in zip(clips,starts): voice[round(t*rate):round(t*rate)+len(a)]=a
@@ -78,35 +80,40 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             ass+=f'Dialogue: 0,{stamp(t+offset)},{stamp(t+offset+chunk_duration)},Default,,0,0,0,,'+safe+'\n'
             offset+=chunk_duration
     (root/'captions.ass').write_text(ass,encoding='utf-8')
-    with Image.open(image_path) as source:
-        if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
-        photo=ImageOps.exif_transpose(source).convert('RGB')
-        if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
-        fitted=ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS)
+    fitted_photos=[]
+    for path in [image_path]+list(extra_images or [])[:3]:
+        try:
+            with Image.open(path) as source:
+                if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
+                photo=ImageOps.exif_transpose(source).convert('RGB')
+                if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
+                fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
+        except (ValueError,OSError):
+            if path==image_path:raise
+    if not fitted_photos:raise ValueError('A real product photo is required.')
     def text(d,xy,value,size=44,color=ink):
         box=d.textbbox(xy,value,font=font(size))
         if not (90<=box[0] and box[2]<=990 and 120<=box[1] and box[3]<=1635):raise ValueError('Text failed the safe-margin check.')
         d.text(xy,value,font=font(size),fill=color)
-    boundaries=[0, starts[1]-.05, starts[2]-.05, seconds]
+    boundaries=[0]+[start-.05 for start in starts[1:]]+[seconds]
     def frame(t):
-        scene=0 if t<boundaries[1] else 1 if t<boundaries[2] else 2
+        scene=min(len(phrases)-1,max(0,bisect.bisect_right(boundaries,t)-1))
         local=(t-boundaries[scene])/(boundaries[scene+1]-boundaries[scene])
         im=Image.new('RGB',(1080,1920),bg);d=ImageDraw.Draw(im)
         text(d,(96,145),'TRAFFICLIFT / PRODUCT STORIES',25)
         for i,line in enumerate(title_lines):text(d,(96,245+i*68),line,52)
-        # Camera movement keeps the entire real photo inside the panel.
-        # Linear zoom stays visible even in a long closing scene.
-        zoom=(.91+.08*local) if scene!=1 else (.99-.08*local)
-        moving=fitted.resize((max(1,round(fitted.width*zoom)),max(1,round(fitted.height*zoom))),Image.Resampling.LANCZOS)
-        x=(1080-moving.width)//2+round((local-.5)*12)
-        y=510+(888-moving.height)//2
+        # A sizeable, alternating push/pull across real listing photos.
+        # The whole product stays within the panel at every frame.
+        fitted=fitted_photos[scene % len(fitted_photos)]
+        width,height,x,y=scene_geometry(fitted.size,scene,local)
+        moving=fitted.resize((width,height),Image.Resampling.LANCZOS)
         im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
         labels=sales_plan['captions'][scene]
         label_lines=wrap(labels,36)
         if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
         for row,line in enumerate(label_lines):text(d,(96,1410+row*45),line,36)
-        if scene==2:
+        if scene==len(phrases)-1:
             d.rounded_rectangle((96,1510,760,1610),radius=30,fill=accent)
             text(d,(130,1530),'View product details',40,bg)
         # Brief fade-in at each cut, without changing the product itself.
@@ -128,7 +135,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
-    quality.update(script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
@@ -162,9 +169,20 @@ def check_motion(path,seconds):
 def narration_starts(lengths, seconds):
     """Keep closing CTA at the end; distribute pauses across reveal and benefit."""
     spare = seconds - sum(lengths) - .2
-    if spare < 1.4:
+    if spare < .6:
         raise ValueError('Script is too long for this length. Choose a longer video.')
     final_hold = min(1.2, spare / 3)
-    pause = (spare - final_hold) / 2
-    return [.2, .2 + lengths[0] + pause,
-            .2 + lengths[0] + pause + lengths[1] + pause]
+    pause = (spare - final_hold) / max(1,len(lengths)-1)
+    starts=[];clock=.2
+    for length in lengths:
+        starts.append(clock);clock+=length+pause
+    return starts
+
+
+def scene_geometry(size,scene,phase):
+    phase=max(0,min(1,phase))
+    zoom=(.73+.27*phase) if scene%2==0 else (1-.27*phase)
+    width=max(1,round(size[0]*zoom));height=max(1,round(size[1]*zoom))
+    dx=round((phase-.5)*min(70,(888-width)/2))
+    dy=round((.5-phase)*min(36,(888-height)/2))
+    return width,height,(1080-width)//2+dx,510+(888-height)//2+dy

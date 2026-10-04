@@ -724,9 +724,9 @@ def test_path_a_can_extract_one_concrete_product_from_research_snippet():
     title = "Trending products to sell online"
     snippet = "One breakout item is the rechargeable spin scrubber for bathroom cleaning."
     name = discovery_mod._normalize_title(title, snippet)
-    assert name
-    assert discovery_mod._has_specific_product_signal(name)
-    assert "scrubber" in name.lower()
+    # A roundup title cannot establish which exact model a seller image belongs to.
+    assert name is None
+
 
 
 def test_pin_preview_target_is_visible_in_winner_panel_once():
@@ -4039,12 +4039,9 @@ def test_normalize_extracts_product_from_snippet_when_title_generic():
         "Cleansing Brush, Mini Air Purifier, and Smart Desk Lamp."
     )
     name = _normalize_title("Trending Products", snippet)
-    assert name and "Ultrasonic" in name, (
-        f"expected extracted product name with 'Ultrasonic'; got {name!r}"
-    )
-    assert "Cleansing" in name or "Brush" in name, (
-        f"expected the brush phrase; got {name!r}"
-    )
+    # Generic multi-product articles are no longer eligible seller listings.
+    assert name is None
+
 
 
 def test_normalize_keeps_good_title_unchanged():

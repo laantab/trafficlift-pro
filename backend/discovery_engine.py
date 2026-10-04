@@ -187,13 +187,25 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
                 candidate['market_signals'] = [signal]
                 candidate['score'] += 2
             else:
-                rejection_log.append('evidence')
-                logger.info('Discovery rejected evidence: product=%r url=%s',card.name,card.url)
-                return None
+                # Missing review metadata is uncertainty, not evidence that a
+                # real product is unsuitable. Keep it explicit in the result.
+                candidate['demand_evidence_status'] = 'not_verified'
+        candidate.setdefault('demand_evidence_status', 'source_mentions' if candidate['market_signals'] else 'not_verified')
+        # Preserve exact-listing text surfaced by the research API when the
+        # seller blocks direct HTML access. Never use another product's text.
+        if not listing_details.get('seller_benefit'):
+            from backend.product_facts import facts_from_sources
+            indexed = facts_from_sources(card.name, card.url, candidate['sources'])
+            if indexed:
+                listing_details.update(seller_benefit=indexed['benefit'], seller_facts=[indexed['benefit']]+indexed.get('feature_details',[]),
+                                       seller_benefit_source=indexed['evidence_source'], evidence_origin=indexed['evidence_origin'])
         # Listing identity was checked before these photos were returned.
         # URL-keyword scores sort photos; they must not veto a verified photo
         # just because its seller CDN uses an opaque filename.
-        ranked_listing = rank_image_candidates(listing_urls, product_name=card.name, category=card.category)
+        from backend.product_facts import canonical
+        indexed_urls = [image for source in candidate['sources'] if canonical(source.get('url','')) == canonical(card.url) for image in source.get('image_urls',[]) if isinstance(image,str)]
+        matched_urls = list(dict.fromkeys(listing_urls + indexed_urls))
+        ranked_listing = rank_image_candidates(matched_urls, product_name=card.name, category=card.category)
         listing_result = None
         for url, score in ranked_listing:
             if time.monotonic() >= per_candidate_deadline: break
@@ -215,7 +227,7 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
             rejection_log.append('product')
             logger.info('Discovery rejected product=%r reasons=%s', card.name, report.reasons)
             return None
-        report.product['image_origin'] = 'matched_product_listing' if listing_result else 'image_research'
+        report.product['image_origin'] = ('matched_product_listing' if listing_result[0] in listing_urls else 'image_attached_to_exact_listing') if listing_result else 'image_research'
         return candidate, report.product
 
     attempts = candidates[:MAX_QUALIFICATION]
@@ -225,7 +237,7 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
         if history and not history.claim(candidate['keys']): continue
         winner.update(id=candidate['card'].id, name=candidate['card'].name,
                       url=candidate['card'].url, source='discovery', image_status='verified',
-                      identity_keys=candidate['keys'], research_status='live',
+                      identity_keys=candidate['keys'], demand_evidence_status=candidate['demand_evidence_status'], research_status='live',
                       research_timestamp=datetime.now(timezone.utc).isoformat(),
                       research_provider=', '.join(sorted({getattr(e, 'research_provider', 'unknown') for e in available})),
                       research_sources=candidate['sources'],
@@ -233,7 +245,7 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
                       competition='Not established', evergreen_score=None,
                       competition_reasons=['This research does not establish competition or profit.'],
                       trend_signals=[f'Exact product name found in {len(candidate["sources"])} source(s) across {candidate["domains"]} domain(s).',
-                                     f'{len(candidate["market_signals"])} source(s) mention review, popularity or sales terms; actual sales volume is not verified.'],
+                                     (f'{len(candidate["market_signals"])} source(s) mention review, popularity or sales terms; actual sales volume is not verified.' if candidate['market_signals'] else 'Demand evidence is unavailable; this is a product to evaluate, not a proven seller.')],
                       selection_rationale='Selected by product-specific source breadth among new products with qualified photos. This is a researched opportunity, not a guarantee of sales.',
                       viral_hook=f'Take a closer look at {candidate["card"].name}.',
                       angle=f'Explore {candidate["card"].name} and its product details.',
@@ -247,6 +259,7 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
                                  'winner_source_url': candidate['card'].url, 'fallback_used': None,
                                  'score_kind': 'source breadth; not a demand or profit prediction',
                                  'market_signal_sources': candidate['market_signals'],
+                                 'demand_evidence_status': candidate['demand_evidence_status'],
                                  'source_recency': 'Retrieved now; publication age and actual sales not independently verified',
                                  'history_window_days': 30, 'elapsed_seconds': round(time.monotonic()-started,3)})
         return winner

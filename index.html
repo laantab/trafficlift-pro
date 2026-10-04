@@ -1142,10 +1142,10 @@
                     <label class="block text-xs text-slate-400">Buying detail (optional; copy from the same listing)<input id="freeBuyingDetail" maxlength="120" placeholder="Supported size, care or included accessories" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <p class="text-xs text-slate-400">Use facts for this exact product. Scripts are checked before rendering. Photos highlight features; they do not prove performance.</p>
                     <div class="grid grid-cols-2 gap-3">
-                        <label class="text-xs text-slate-400">Length<select id="freeVideoLength" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="15">15 seconds</option><option value="30" selected>30 seconds</option><option value="60">60 seconds</option></select></label>
+                        <label class="text-xs text-slate-400">Narration length<select id="freeVideoLength" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="30" selected>Automatic — complete script</option></select></label>
                         <label class="text-xs text-slate-400">Scene style<select id="freeVideoStyle" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="warm">Warm studio</option><option value="clean">Clean studio</option><option value="bold">Bold studio</option></select></label>
                     </div>
-                    <p class="text-xs text-slate-500">Three scenes: product reveal → closer look → call to action. Captions and voice included. The destination link is provided separately for your post.</p>
+                    <p class="text-xs text-slate-500">Five scenes: buyer need → product benefit → daily use → buying details → call to action. The full narration determines the finished length. Captions and voice included. The destination link is provided separately for your post.</p>
                     <details><summary class="text-sm cursor-pointer">Past videos</summary><div id="freeVideoHistory" class="mt-2 space-y-2 text-sm"></div></details>
                 </div>
                 <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
@@ -1432,7 +1432,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 status.textContent = 'Saving research connection…';
                 await freeVideoRequest('/api/v1/research-connection', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({api_key:input.value.trim()})});
                 input.value = ''; panel.classList.add('hidden');
-                await fetchTrendingProduct();
+                await findWinningProduct();
             } catch (error) { status.textContent = error.message; }
             finally { button.disabled = false; }
         };
@@ -1501,6 +1501,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             image_url: winner.image_url,
             product_url: document.getElementById('freeProductUrl').value.trim(),
             benefit: document.getElementById('freeProductFact').value.trim(),
+            fact_sources: (winner.research_sources || []).slice(0,4),
             buyer_need: document.getElementById('freeBuyerNeed').value.trim(),
             consideration: document.getElementById('freeBuyingDetail').value.trim(),
             seconds: Number(document.getElementById('freeVideoLength').value),

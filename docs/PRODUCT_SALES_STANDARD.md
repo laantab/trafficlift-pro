@@ -1,33 +1,31 @@
-# TrafficLift product-video sales standard — v2.0
+# TrafficLift product-video sales standard — v3.0
 
-The free studio now runs local evidence-led buyer research, hook selection,
-visual planning, and editorial checks before accepting a render. These are
-rule-based stages, not live language-model agents or independent seller
-verification. No paid API calls were added.
+Build five stages: buyer need, exact product benefit, daily use or additional
+features, buying details, and one closing CTA. The free compositor uses local
+rules and the local Kokoro voice engine; it does not claim language-model
+agents or a product performance demonstration.
 
-A practical benefit copied from the exact seller listing is required. An
-optional buyer need provides a situation-specific opening; an optional
-supported buying detail addresses size, care or included accessories. Existing
-generated pin copy is not proof. The planner retains three hook candidates,
-selects the benefit-led hook, and builds hook → benefit/detail → one CTA.
-The closing directs viewers to current price and product details rather than
-inventing price or availability.
+Facts come from an identity-matched seller page, research text attached to the
+exact seller URL, user-supplied seller text, or an explicitly dated exact-model
+manufacturer brief. Preserve qualifications and source URLs. Never transfer
+facts or photos from another model or invent reviews, scarcity, prices or
+personal experience. One connected search can retrieve missing exact-listing
+facts; that search uses the connected provider's account credits.
 
-Reject blank benefits, formatting injection, unsupported proof/guarantee/urgency
-phrases, quoted prices without dated evidence, and scripts too long for natural
-speech. Actual narration durations are also checked before composition. The
-photo-only compositor uses photo motion, never fake performance tests. Every
-phrase has scene instructions and a concise caption. Longer scripts need 30
-or 60 seconds; the renderer must not truncate narration.
+The worker enriches an existing single benefit with the fuller available brief,
+including history items reopened without facts. It fails clearly if no supported
+benefit is available instead of silently delivering a three-line photo preview.
+Every narration phrase is synthesized and retained. Measured speech determines
+finished duration, with short pauses and a closing hold; it never cuts the script
+to match a duration selector. Captions follow measured phrase lengths, with
+approximate chunk timing rather than word-level alignment.
 
-Persist sales_plan in the job record, sales_script.json beside the video,
-and the editorial review in quality.json. Preserve supplied claims, source
-URL, hook candidates, selected hook, narration and scene directions.
-User-entered facts remain labelled user-supplied and not independently verified.
-Rule checks cannot prove arbitrary seller claims. Automatic listing extraction,
-language-model rewriting, dated price verification and real demonstration
-footage are not implemented by this patch.
+Camera movement alternates substantial push/pull and gentle pan within the
+photo panel, preserving the whole product. Additional photos come only from the
+same seller listing. This visually highlights the product; a photo animation
+cannot demonstrate how the actual product operates.
 
-Video format, full decode, audio, motion, captions and safe margins still run
-before Play/Download becomes available. Put the actual shopping link into the
-published post; a button drawn in an MP4 is not clickable.
+Before download, verify H.264/AAC, 1080x1920, complete decode, text safe margins,
+and motion measured in the photo panel. Save the complete script and review in
+the job record, sales_script.json and quality.json. Current price and options are
+checked through the shopping link supplied for the post, not an invented price.

@@ -18,7 +18,7 @@ def test_oura_full_script_has_reason_to_buy_and_purchase_details():
     assert 'sleep and daily activity?' in plan['phrases'][0]
     assert 'sleep and activity' in plan['phrases'][1].lower()
     assert 'Oura Membership' in plan['phrases'][1]
-    assert 'sizing kit' in plan['phrases'][1]
+    assert 'sizing kit' in plan['phrases'][3]
     assert ': Target' not in ' '.join(plan['phrases'])
     assert plan['evidence'][0]['source_url'].startswith('https://ouraring.com/')
     assert 'not a live lookup' in plan['review']['evidence_status']

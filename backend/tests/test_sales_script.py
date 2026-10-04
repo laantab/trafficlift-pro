@@ -14,7 +14,7 @@ def test_script_uses_product_fact_source_and_one_cta():
     assert result['review']['status']=='PASS'
     assert result['phrases'][0]=='Easier sipping at your desk?'
     assert 'Handle and straw' in result['phrases'][1]
-    assert 'Includes a straw' in result['phrases'][1]
+    assert 'Includes a straw' in result['phrases'][3]
     assert sum('Tap the product link' in x for x in result['phrases'])==1
     assert len(result['hook_candidates'])==3
     assert result['evidence'][0]['source_url']=='https://example.com/exact-model'

@@ -75,6 +75,7 @@ class ResearchSource:
     snippet: str
     url: str
     provider: str  # "tavily" | "duckduckgo"
+    image_urls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -129,7 +130,8 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
                 "max_results": max_results,
                 "search_depth": "basic",
                 "include_answer": False,
-                "include_images": True,   # surface image URLs for candidate enrichment
+                "include_images": True,
+                "include_image_descriptions": True,
                 "topic": "general",
             },
             timeout=DEFAULT_TIMEOUT,
@@ -145,9 +147,10 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
             out.append(
                 ResearchSource(
                     title=(r.get("title") or "").strip()[:200],
-                    snippet=(r.get("content") or "").strip()[:500],
+                    snippet=(r.get("content") or "").strip()[:3000],
                     url=(r.get("url") or "").strip(),
                     provider="tavily",
+                    image_urls=[(image if isinstance(image,str) else image.get("url", "")) for image in (r.get("images") or []) if isinstance(image,(str,dict))],
                 )
             )
         # Extract the dedicated `images` field. Tavily returns it as a

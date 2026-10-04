@@ -1,9 +1,10 @@
 """Automatic seller facts plus dated, model-specific editorial source packets.
-No paid API calls. A reviewed packet is never represented as a live lookup.
+At most one connected search when exact seller HTML has no facts. A reviewed packet is never represented as a live lookup.
 """
 import re
 from datetime import date
-from backend.listing_photo import listing_images, product_name
+from backend.listing_photo import listing_images, product_name, usable_facts
+from urllib.parse import urlsplit
 
 
 def resolve_video_facts(name, url):
@@ -14,13 +15,41 @@ def resolve_video_facts(name, url):
             benefit='Sleep and activity tracking with personalized insights in the Oura app through Oura Membership',
             buyer_need='Want a clearer picture of your sleep and daily activity',
             consideration='Use the Oura Ring 4 sizing kit. Full app features require Oura Membership',
+            routine='See your sleep and activity patterns together in the app, so you have information to reflect on your daily routine',
             evidence_source='https://ouraring.com/store/rings/oura-ring-4/silver',
             evidence_origin='reviewed_manufacturer_packet',
             evidence_checked='2026-10-04',
             supporting_sources=['https://support.ouraring.com/hc/en-us/articles/360025590653-How-to-Choose-the-Right-Oura-Ring-Size'])
     details = {}
-    listing_images(name, url, timeout=4, details=details)
+    photos = listing_images(name, url, timeout=4, details=details)
     if not details.get('seller_benefit'):
+        # One bounded basic research request, only through the connected
+        # provider; no repeated search or paid text generation.
+        from backend import live_research
+        if live_research._is_tavily_configured():
+            envelope = live_research.research(f'"{title}" product features specifications', max_results=4)
+            found = facts_from_sources(name, url, envelope.research_sources)
+            if found: return found
         return {}
     return dict(benefit=details['seller_benefit'], buyer_need='', consideration='',
-                evidence_source=details['seller_benefit_source'], evidence_origin='matched_seller_page')
+                evidence_source=details['seller_benefit_source'], evidence_origin='matched_seller_page',
+                feature_details=details.get('seller_facts',[])[1:3], product_images=photos)
+
+
+def canonical(url):
+    p=urlsplit(url)
+    return ((p.hostname or '').lower().removeprefix('www.'),p.path.rstrip('/'))
+
+
+def facts_from_sources(name, destination, sources):
+    """Only text attached to this exact listing; never a generic article."""
+    expected=canonical(destination)
+    for source in sources or []:
+        if canonical(source.get('url','')) != expected:
+            continue
+        facts=usable_facts(source.get('content') or source.get('snippet') or '')
+        if facts:
+            return dict(benefit=facts[0],feature_details=facts[1:3],buyer_need='',consideration='',
+                        evidence_source=destination,evidence_origin='indexed_seller_description',
+                        product_images=source.get('image_urls',[])[:3])
+    return {}

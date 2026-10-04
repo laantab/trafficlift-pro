@@ -93,7 +93,7 @@ def test_missing_file_cannot_download(client,tmp_path):
 def test_worker_failure_records_and_releases_lock(client,tmp_path,payload):
     request=api.VideoRequest(**payload);job='b'*32;directory=tmp_path/job;directory.mkdir()
     record={'id':job,'status':'queued'}
-    with patch.object(api,'_download_product_image',side_effect=ValueError('Bad photo')),patch.object(api,'lock') as lock:
+    with patch.object(api,'resolve_video_facts',return_value={}), patch.object(api,'_download_product_image',side_effect=ValueError('Bad photo')),patch.object(api,'lock') as lock:
         api.worker(record,request,directory)
         assert record['status']=='failed';assert record['video_url'] is None;lock.release.assert_called_once()
         assert json.loads((directory/'job.json').read_text())['message']=='Bad photo'

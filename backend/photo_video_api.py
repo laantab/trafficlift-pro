@@ -29,6 +29,7 @@ class VideoRequest(BaseModel):
     image_url:str=Field(max_length=2048)
     product_url:str=Field(max_length=2048)
     benefit:str=Field(default='',max_length=160)
+    fact_sources:list[dict]=Field(default_factory=list,max_length=4)
     buyer_need:str=Field(default='',max_length=100)
     consideration:str=Field(default='',max_length=120)
     seconds:Literal[15,30,60]=15
@@ -66,26 +67,37 @@ def worker(record,payload,directory):
     def update(message):
         record.update(status='running',message=message);save(record,directory)
     try:
-        if not payload.benefit:
-            update('Reading product facts and writing sales script')
-            facts = resolve_video_facts(payload.name, payload.product_url)
-            if facts:
-                benefit = facts.pop('benefit')
-                for duration in [n for n in (15, 30, 60) if n >= payload.seconds]:
-                    try:
-                        record['sales_plan'] = build_sales_plan(payload.name, benefit, payload.product_url,
-                                                               duration, **facts)
-                        record['seconds'] = duration
-                        break
-                    except ValueError as exc:
-                        if 'longer video' not in str(exc):
-                            raise
-                else:
-                    raise ValueError('Product facts could not fit a 60-second script.')
-                save(record, directory)
+        update('Reading product facts and writing the complete sales script')
+        from backend.product_facts import facts_from_sources
+        facts = facts_from_sources(payload.name, payload.product_url, payload.fact_sources)
+        # Named manufacturer briefs include routine and sizing information,
+        # even when a single benefit was supplied in the input field.
+        if not facts or 'oura ring 4' in payload.name.lower():
+            fetched = resolve_video_facts(payload.name, payload.product_url)
+            if fetched: facts = fetched
+        photos = facts.pop('product_images',[]) if facts else []
+        if payload.benefit:
+            facts.update(benefit=payload.benefit)
+        if payload.buyer_need: facts['buyer_need']=payload.buyer_need
+        if payload.consideration: facts['consideration']=payload.consideration
+        if not facts.get('benefit'):
+            raise ValueError('The seller/research source did not supply model-specific benefits. Add a supported product benefit; a generic photo preview will not be substituted for a sales video.')
+        benefit=facts.pop('benefit')
+        record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,60,**facts)
+        record['sales_plan']['requested_seconds']=payload.seconds
+        record['seconds']=60
+        save(record,directory)
         update('Getting photo')
         image=_download_product_image(payload.image_url,directory)
-        out=render(image,directory,payload.name,payload.benefit,payload.product_url,record['seconds'],payload.style,update,sales_plan=record['sales_plan'])
+        extra_photos=[]
+        for photo_url in photos[:3]:
+            if photo_url == payload.image_url:continue
+            try:
+                photo_dir=directory/('photo-'+str(len(extra_photos)));photo_dir.mkdir(exist_ok=True)
+                extra_photos.append(_download_product_image(photo_url,photo_dir))
+            except Exception:pass
+        out=render(image,directory,payload.name,payload.benefit,payload.product_url,record['seconds'],payload.style,update,sales_plan=record['sales_plan'],extra_images=extra_photos)
+        record['seconds']=json.loads((directory/'quality.json').read_text())['duration'] if (directory/'quality.json').is_file() else record['seconds']
         record.update(status='succeeded',message=('Benefit-led video checked and ready' if record['sales_plan'].get('mode') == 'benefit_led' else 'Photo preview ready — product facts could not be retrieved'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
@@ -116,7 +128,7 @@ def create(payload:VideoRequest,request:Request):
     if _looks_like_article(payload.name, ''):
         raise HTTPException(422,'This selection is a guide or roundup. Choose one specific product before making its video.')
     try:
-        sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,payload.seconds,payload.buyer_need,payload.consideration)
+        sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,60,payload.buyer_need,payload.consideration)
     except ValueError as exc:raise HTTPException(422,str(exc))
     try:dependencies()
     except ValueError as exc:raise HTTPException(503,str(exc))
