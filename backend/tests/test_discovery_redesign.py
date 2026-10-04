@@ -235,3 +235,49 @@ def test_checks_candidates_beyond_first_six(isolated,monkeypatch):
     assert winner['discovery']['candidates_attempted']==8
     assert len(tried)==8
     assert winner['image_status']=='verified'
+
+
+def test_one_click_continues_to_next_empty_free_batch(monkeypatch):
+    monkeypatch.setattr(engine.live_research,'_is_tavily_configured',lambda:False)
+    attempts=[]
+    def batch(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts)<3: raise HTTPException(404,'No concrete product')
+        return {'id':'winner','discovery':{}}
+    monkeypatch.setattr(engine,'_discover_batch',batch)
+    winner=engine.discover(client_id='browser123456789',exclude_ids=['old'])
+    assert winner['discovery']['research_batches']==3
+    assert len({attempt['request_deadline'] for attempt in attempts})==1
+    assert all(attempt['exclude_ids']==['old'] for attempt in attempts)
+
+
+def test_auto_batches_do_not_multiply_paid_calls(monkeypatch):
+    monkeypatch.setattr(engine.live_research,'_is_tavily_configured',lambda:True)
+    attempts=[]
+    def batch(**kwargs):
+        attempts.append(kwargs);raise HTTPException(404,'No concrete product')
+    monkeypatch.setattr(engine,'_discover_batch',batch)
+    with pytest.raises(HTTPException):engine.discover()
+    assert len(attempts)==1
+
+
+def test_auto_batches_stop_on_provider_failure(monkeypatch):
+    monkeypatch.setattr(engine.live_research,'_is_tavily_configured',lambda:False)
+    attempts=[]
+    def batch(**kwargs):
+        attempts.append(kwargs);raise HTTPException(503,'Provider unavailable')
+    monkeypatch.setattr(engine,'_discover_batch',batch)
+    with pytest.raises(HTTPException) as error:engine.discover()
+    assert error.value.status_code==503
+    assert len(attempts)==1
+
+
+def test_auto_batches_respect_shared_time_limit(monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(engine.live_research,'_is_tavily_configured',lambda:False)
+    monkeypatch.setattr(engine.time,'monotonic',Mock(side_effect=[0,0,61]))
+    batch=Mock(side_effect=HTTPException(404,'No concrete product'))
+    monkeypatch.setattr(engine,'_discover_batch',batch)
+    with pytest.raises(HTTPException) as error:engine.discover()
+    assert batch.call_count==1
+    assert 'after 1 research batch' in error.value.detail

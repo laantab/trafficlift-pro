@@ -84,18 +84,44 @@ def market_signals(sources):
 
 
 def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
+    """One click continues through empty free-research batches, within 60s."""
+    started = time.monotonic()
+    deadline = started + 60
+    # Never multiply paid-provider calls through automatic retries.
+    batches = 1 if live_research._is_tavily_configured() else 3
+    last_error = None
+    completed_batches = 0
+    for attempt in range(batches):
+        if time.monotonic() >= deadline: break
+        completed_batches += 1
+        try:
+            winner = _discover_batch(exclude_ids=exclude_ids, exclude_keys=exclude_keys,
+                                     client_id=client_id, seed=seed, request_deadline=deadline)
+            winner.setdefault('discovery', {}).update(research_batches=attempt+1,
+                elapsed_seconds=round(time.monotonic()-started,3))
+            return winner
+        except HTTPException as exc:
+            if exc.status_code != 404: raise
+            last_error = exc
+            logger.info('Empty discovery batch %d/%d; continuing free research', attempt+1,batches)
+    detail = last_error.detail if last_error else 'Research time limit reached.'
+    raise HTTPException(404, f'No qualified new product after {completed_batches} research batch(es). '
+                        'Previous products remain excluded. ' + str(detail))
+
+
+def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None, request_deadline=None):
     # Imports deferred to avoid the existing product_research/discovery cycle.
     from backend.discovery import _build_candidates_from_envelope, _find_image_for_candidate
     from backend.product_research import ProductResearcher
     from backend.product_control_agent import ProductControlAgent
     started = time.monotonic()
-    deadline = started + REQUEST_SECONDS
+    deadline = min(started + REQUEST_SECONDS, request_deadline or float("inf"))
     history = WinnerHistory(client_id) if client_id else None
     seen = set(exclude_keys or []) | (history.seen() if history else set())
     excluded = set(exclude_ids or [])
     cursor = history.next_cursor() if history else random.SystemRandom().randrange(len(CATEGORIES))
     queries = query_plan(cursor, seed)
-    envelopes = bounded_map(lambda q: live_research.research(q, max_results=6), queries, RESEARCH_SECONDS)
+    envelopes = bounded_map(lambda q: live_research.research(q, max_results=6), queries, min(RESEARCH_SECONDS, max(0,deadline-time.monotonic())))
     available = [e for e in envelopes if e.research_status in {'live','partial'} and e.research_sources]
     if not available:
         errors = sorted({message for env in envelopes if env is not None
