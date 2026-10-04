@@ -236,6 +236,71 @@ def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource
         return [], []
 
 
+def _query_bing_html(query, max_results):
+    """Use actual web result cards when the RSS feed loses query restrictions."""
+    try:
+        response = requests.get('https://www.bing.com/search', params={'q': query},
+                                headers={'User-Agent': DEFAULT_USER_AGENT}, timeout=4)
+        if response.status_code != 200 or len(response.content) > 2_000_000:
+            _problem(f'Bing web HTTP {response.status_code}')
+            return [], []
+        from bs4 import BeautifulSoup
+        from urllib.parse import urlsplit, parse_qs
+        import base64
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = []
+        for card in soup.select('li.b_algo'):
+            link = card.select_one('h2 a[href]')
+            if not link:
+                continue
+            url = link.get('href', '')
+            parsed = urlsplit(url)
+            # Bing's click wrapper stores the destination as URL-safe base64.
+            if parsed.hostname in {'bing.com', 'www.bing.com'} and parsed.path == '/ck/a':
+                encoded = parse_qs(parsed.query).get('u', [''])[0]
+                if not encoded.startswith('a1'):
+                    continue
+                encoded = encoded[2:]
+                try:
+                    url = base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)).decode('utf-8')
+                except (ValueError, UnicodeError):
+                    continue
+            if urlsplit(url).scheme not in {'http','https'}:
+                continue
+            snippet = card.select_one('.b_caption p') or card.select_one('p')
+            results.append(ResearchSource(title=link.get_text(' ',strip=True)[:200],url=url,
+                                          snippet=snippet.get_text(' ',strip=True)[:500] if snippet else '',
+                                          provider='bing_web'))
+            if len(results) >= max_results:
+                break
+        if not results:
+            _problem('Bing web returned no parsed result cards')
+        return results, _collect_image_urls_from_sources(results)
+    except Exception as exc:
+        _problem('Bing web request failed: ' + type(exc).__name__)
+        return [], []
+
+
+def _filter_search_hits(query, hits):
+    """Never label off-site RSS results as matches to a merchant query."""
+    from urllib.parse import urlsplit
+    constraints = re.findall(r'\bsite:([^\s]+)', query, re.I)
+    if not constraints:
+        return hits
+    filtered = []
+    for hit in hits:
+        parsed = urlsplit(hit.url)
+        for constraint in constraints:
+            domain, _, path = constraint.partition('/')
+            host = (parsed.hostname or '').lower()
+            if (host == domain.lower() or host.endswith('.'+domain.lower())) and (not path or parsed.path.startswith('/'+path)):
+                filtered.append(hit)
+                break
+    if len(filtered) < len(hits):
+        _problem(f'Excluded {len(hits)-len(filtered)} results outside requested seller listing paths')
+    return filtered
+
+
 def _query_bing_rss(query: str, max_results: int):
     """Independent zero-key RSS fallback. Empty/error feeds are not evidence."""
     try:
@@ -338,6 +403,7 @@ def research(
     # 1. Tavily
     if _is_tavily_configured():
         tav_hits, tav_images = _query_tavily(q, max_results)
+        tav_hits = _filter_search_hits(q, tav_hits)
         # Accept the Tavily response when EITHER results OR images are
         # non-empty. Some Tavily responses return images without text
         # results (or vice versa) and we still want the data we got.
@@ -362,6 +428,7 @@ def research(
 
     # 2. DuckDuckGo fallback
     ddg_hits, ddg_images = _query_duckduckgo(q, max_results)
+    ddg_hits = _filter_search_hits(q, ddg_hits)
     if ddg_hits:
         return ResearchEnvelope(
             research_status="live" if len(ddg_hits) >= 3 else "partial",
@@ -373,8 +440,19 @@ def research(
             research_image_urls=ddg_images,
         )
 
+    # Prefer full web results; RSS sometimes drops site/path constraints.
+    web_hits, web_images = _query_bing_html(q, max_results)
+    web_hits = _filter_search_hits(q, web_hits)
+    if web_hits:
+        return ResearchEnvelope(research_status='live' if len(web_hits)>=3 else 'partial',
+            research_timestamp=_now_iso(), research_provider='bing_web',
+            research_sources=[asdict(source) for source in web_hits],
+            research_summary=_summarize_sources(q,web_hits), research_query=q,
+            research_image_urls=web_images, research_errors=list(_DIAGNOSTICS.errors))
+
     # 3. An independent public feed; no API key or paid calls.
     bing_hits, bing_images = _query_bing_rss(q, max_results)
+    bing_hits = _filter_search_hits(q, bing_hits)
     if bing_hits:
         return ResearchEnvelope(research_status='live' if len(bing_hits)>=3 else 'partial',
             research_timestamp=_now_iso(), research_provider='bing_rss',

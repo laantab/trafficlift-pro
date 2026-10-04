@@ -58,6 +58,16 @@ def listing_images(name, url, *, timeout=4, details=None):
             if isinstance(types, str): types = [types]
             if 'Product' in types and matches(obj.get('name', '')):
                 add(obj.get('image'))
+                rating = obj.get('aggregateRating')
+                if details is not None and isinstance(rating, dict):
+                    try:
+                        count = int(rating.get('reviewCount') or rating.get('ratingCount') or 0)
+                        value = float(rating.get('ratingValue'))
+                        best = float(rating.get('bestRating', 5))
+                        if count > 0 and 0 < value <= best <= 100:
+                            details['seller_rating'] = dict(count=count, value=value, best=best)
+                    except (ValueError, TypeError):
+                        pass
                 if details is not None and isinstance(obj.get('description'), str):
                     facts = usable_facts(obj['description'])
                     if facts:

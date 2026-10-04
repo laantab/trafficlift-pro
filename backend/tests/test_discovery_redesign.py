@@ -62,10 +62,10 @@ def test_concurrent_claims_cannot_return_same_product(tmp_path):
     assert results.count(True)==1
 
 
-def test_rotation_covers_all_categories_and_uses_current_date():
+def test_rotation_covers_concrete_product_types():
     plans=[engine.query_plan(i,seed=7) for i in range(4)]
     assert len({q for batch in plans for q in batch})==12
-    for category in engine.CATEGORIES:
+    for category in engine.PRODUCT_QUERIES:
         assert any(q.startswith(category+' ') for batch in plans for q in batch)
     assert engine.query_plan(0,seed=7)==engine.query_plan(0,seed=7)
 

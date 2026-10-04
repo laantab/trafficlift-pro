@@ -17,8 +17,13 @@ CATEGORIES = ['home organization', 'kitchen tools', 'pet care', 'desk accessorie
               'gardening tools', 'travel accessories', 'fitness accessories',
               'lighting and home decor', 'craft supplies', 'cleaning tools',
               'photography accessories', 'personal accessories']
-SEARCH_VARIANTS = ['popular product reviews', 'best selling products', 'new product releases']
-MERCHANT_FILTERS = ['site:amazon.com/dp/', 'site:walmart.com/ip/', 'site:target.com/p/', '']
+# Search concrete product types, not monthly trend articles or store directories.
+PRODUCT_QUERIES = ['drawer organizer', 'vegetable chopper', 'pet water fountain',
+                   'adjustable desk lamp', 'garden pruning shears', 'hanging toiletry bag',
+                   'resistance band set', 'motion sensor night light', 'rotary paper trimmer',
+                   'cordless handheld vacuum', 'camera tripod', 'insulated travel tumbler']
+SEARCH_VARIANTS = ['reviews', 'ratings', '']
+MERCHANT_FILTERS = ['site:amazon.com/dp/', 'site:walmart.com/ip/', 'site:target.com/p/']
 MAX_QUERIES = 3
 MAX_CANDIDATES = 12
 MAX_QUALIFICATION = MAX_CANDIDATES
@@ -30,11 +35,11 @@ _POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix='discovery')
 
 def query_plan(cursor, seed=None):
     rng = random.Random(seed) if seed is not None else random.SystemRandom()
-    now = datetime.now(timezone.utc)
-    # Deterministic category rotation guarantees coverage; phrasing varies.
-    return [f'{CATEGORIES[(cursor*MAX_QUERIES+i)%len(CATEGORIES)]} '
-            f'{rng.choice(SEARCH_VARIANTS)} {now.strftime("%B %Y")} '
-            f'{MERCHANT_FILTERS[(cursor+i)%len(MERCHANT_FILTERS)]}'.strip() for i in range(MAX_QUERIES)]
+    return [f'{PRODUCT_QUERIES[(cursor*MAX_QUERIES+i)%len(PRODUCT_QUERIES)]} '
+            f'{rng.choice(SEARCH_VARIANTS)} '
+            f'{MERCHANT_FILTERS[(cursor+i)%len(MERCHANT_FILTERS)]}'.strip()
+            for i in range(MAX_QUERIES)]
+
 
 
 def bounded_map(function, values, seconds):
@@ -141,7 +146,6 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
             sources = matching_sources(card.name, available)
             if not sources: continue
             signals = market_signals(sources)
-            if not signals: continue
             domains = {urlsplit(s['url']).hostname.removeprefix('www.') for s in sources}
             # Evidence breadth is a transparent research signal, not sales,
             # profitability, or a fabricated trend percentage.
@@ -168,6 +172,21 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
         from backend.product_control_agent import _validate_image, rank_image_candidates
         listing_details = {}
         listing_urls = listing_images(card.name, card.url, details=listing_details, timeout=min(4, max(.1, per_candidate_deadline-time.monotonic())))
+        # Rating evidence may be absent from search snippets but present on
+        # the exact seller's Product metadata. Do not discard it before lookup.
+        if not candidate['market_signals']:
+            rating = listing_details.get('seller_rating')
+            if rating:
+                signal = dict(url=card.url, title=card.name,
+                              snippet=f"Seller reports {rating['count']} ratings/reviews; rating {rating['value']} out of {rating['best']}",
+                              provider='matched_seller_page')
+                candidate['sources'].append(signal)
+                candidate['market_signals'] = [signal]
+                candidate['score'] += 2
+            else:
+                rejection_log.append('evidence')
+                logger.info('Discovery rejected evidence: product=%r url=%s',card.name,card.url)
+                return None
         # Listing identity was checked before these photos were returned.
         # URL-keyword scores sort photos; they must not veto a verified photo
         # just because its seller CDN uses an opaque filename.
@@ -232,5 +251,6 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
                         f'Candidates: {len(candidates)}; checked: {len(attempts)}; '
                         f'photo rejections: {rejection_log.count("photo")}; '
                         f'product rejections: {rejection_log.count("product")}; '
+                        f'missing demand evidence: {rejection_log.count("evidence")}; '
                         f'incomplete or timed out: {max(0,len(attempts)-len(rejection_log)-len(qualified))}. '
                         'Previous products remain excluded; no saved-list result was substituted.')

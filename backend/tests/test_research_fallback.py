@@ -12,7 +12,7 @@ def test_ddg_202_uses_independent_rss_source(monkeypatch):
     assert envelope.research_status=='partial'
     assert envelope.research_provider=='bing_rss'
     assert envelope.research_sources[0]['title']=='Orbit Desk Lamp'
-    assert envelope.research_errors==['DuckDuckGo HTTP 202']
+    assert envelope.research_errors==['DuckDuckGo HTTP 202','Bing web returned no parsed result cards']
 
 def test_empty_feed_does_not_create_product_and_explains_providers(monkeypatch):
     monkeypatch.delenv('TAVILY_API_KEY',raising=False)
@@ -20,7 +20,7 @@ def test_empty_feed_does_not_create_product_and_explains_providers(monkeypatch):
     monkeypatch.setattr(research.requests,'get',lambda *a,**k:response('<rss><channel/></rss>'))
     envelope=research.research('products')
     assert envelope.research_status=='fallback' and envelope.research_sources==[]
-    assert envelope.research_errors==['DuckDuckGo HTTP 202','Bing RSS returned no results']
+    assert envelope.research_errors==['DuckDuckGo HTTP 202','Bing web returned no parsed result cards','Bing RSS returned no results']
 
 def test_non_feed_and_invalid_links_are_not_research(monkeypatch):
     monkeypatch.setattr(research.requests,'get',lambda *a,**k:response('<html>Access denied</html>'))

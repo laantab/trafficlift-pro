@@ -507,6 +507,18 @@ def _score_candidate(card: ProductCard, evidence_count: int) -> int:
 
 # ── Candidate building from Tavily results ──────────────────────────────
 
+def _is_listing_url(url):
+    from urllib.parse import urlsplit
+    parsed = urlsplit(url)
+    host = (parsed.hostname or '').lower().removeprefix('www.')
+    path = parsed.path.lower()
+    if host in {'amazon.com','walmart.com','target.com','etsy.com'}:
+        routes = {'amazon.com': r'/(?:dp|gp/product)/[a-z0-9]{9,10}(?:/|$)',
+                  'walmart.com': r'/ip/.+', 'target.com': r'/p/.+', 'etsy.com': r'/listing/\d+'}
+        return bool(re.search(routes[host],path))
+    return not re.search(r'/(?:blog|blogs|news|articles|category|categories|search)(?:/|$)',path)
+
+
 def _build_candidates_from_envelope(
     envelope, seen_titles: set
 ) -> list[ProductCard]:
@@ -528,7 +540,10 @@ def _build_candidates_from_envelope(
         snippet = (src.get("snippet") or src.get("content") or "").strip()
         if not raw_title or not url:
             continue
-        if _looks_like_article(raw_title, snippet):
+        if not _is_listing_url(url):
+            logger.info('[discover] reject non-listing URL: %s', url)
+            continue
+        if re.search(r"\b(every new|announced|pipeline 20\d\d|product roundup|reserve a table|store for|pet store in)\b",raw_title,re.I) or _looks_like_article(raw_title, snippet):
             logger.info("[discover] reject article/blog: %r", raw_title[:80])
             continue
         name = _normalize_title(raw_title, snippet)
