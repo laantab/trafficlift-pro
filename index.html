@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>TrafficLift Pro v2.1 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v3.0.1 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -14,7 +14,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
-    <meta name="app-version" content="2.1-discover-fix-2026-09-28">
+    <meta name="app-version" content="3.0-fresh-discovery-2026-10-02">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -74,7 +74,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v2.0 Â· AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v3.0.1 · AI Traffic Engine</span>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -94,7 +94,7 @@
                     <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
                     <span class="hidden sm:inline text-slate-300">API</span>
                 </button>
-                <button onclick="openVideoModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition" title="Render Short Video (MiniMax)">
+                <button onclick="openVideoModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-sm transition" title="Create Product Video">
                     <i data-lucide="video" class="w-4 h-4 text-slate-400"></i>
                     <span class="hidden sm:inline text-slate-300">Video</span>
                 </button>
@@ -137,6 +137,7 @@
                         <i data-lucide="zap" class="w-4 h-4"></i>
                         <span class="findWinningProductLabel">Find Winning Product</span>
                     </button>
+                    <button type="button" onclick="openResearchConnection()" class="mt-2 text-xs text-slate-400 underline">Research connection</button>
                 </div>
 
                 <!-- PATH B — Analyze an existing product URL -->
@@ -310,7 +311,7 @@
 
                 <!-- Footer -->
                 <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
-                    <span>TrafficLift Pro v2.0</span>
+                    <span>TrafficLift Pro v3.0.1</span>
                     <span id="statusMessage">Ready</span>
                 </div>
             </div>
@@ -412,36 +413,22 @@
     // 4. ''  (same-origin)                              (when served from /api on the same host)
     // 5. 'http://localhost:8000'                        (last-resort dev fallback)
     function resolveApiBase() {
+        const location = window.location;
+        if (['127.0.0.1', 'localhost', '[::1]', '::1'].includes(location.hostname)
+                && location.pathname === '/studio') return location.origin;
         const fromMeta = (document.querySelector('meta[name="api-base"]')?.content || '').trim();
-        const fromLs   = (localStorage.getItem('tlp_api_base') || '').trim();
-        const fromUrl  = new URLSearchParams(window.location.search).get('api')?.trim() || '';
-
-        // if user passed ?api=, persist it and strip the query for cleanliness
+        let fromLs = '';
+        try { fromLs = (localStorage.getItem('tlp_api_base') || '').trim(); } catch (_) {}
+        const fromUrl = new URLSearchParams(location.search).get('api')?.trim() || '';
         if (fromUrl) {
-            localStorage.setItem('tlp_api_base', fromUrl);
-            const u = new URL(window.location.href);
-            u.searchParams.delete('api');
-            window.history.replaceState({}, '', u.toString());
+            try { localStorage.setItem('tlp_api_base', fromUrl); } catch (_) {}
         }
-
-        const finalUrl = fromMeta || fromLs || fromUrl || '';
-        return finalUrl.replace(/\/+$/, ''); // strip trailing slash
+        return (fromUrl || fromLs || fromMeta || '').replace(/\/+$/, '');
     }
     let API_BASE = resolveApiBase();
-
-    // Helper: full URL for a given path. Strategy:
-    //   1. Use the smartly-resolved API_BASE (meta tag > localStorage > ?api=).
-    //   2. If API_BASE is empty, fall back to the Render production backend so
-    //      GitHub-Pages-style deployments still work out of the box.
-    //   3. localhost / file:// / 127.0.0.1 callers will get '' from resolveApiBase()
-    //      and we substitute 'http://localhost:8000' for them.
     function apiUrl(path) {
-        let base = (typeof API_BASE !== 'undefined' && API_BASE) || '';
-        if (!base) {
-            const host = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
-            const isLocal = !host || host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1';
-            base = isLocal ? 'http://localhost:8000' : 'https://trafficlift-pro.onrender.com';
-        }
+        const base = API_BASE || (['127.0.0.1', 'localhost', '[::1]', '::1'].includes(window.location.hostname)
+            ? window.location.origin : 'https://trafficlift-pro.onrender.com');
         return base + (path.startsWith('/') ? path : '/' + path);
     }
 
@@ -612,7 +599,7 @@
             'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80=150';
         document.getElementById('resMode').textContent = data.mode === 'organic' ? 'Organic' : 'Paid Ads';
         document.getElementById('resChannels').textContent = data.input_url;
-        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms Â· ${data.meta.ai_mode}`;
+        document.getElementById('statusMessage').textContent = `Generated in ${data.meta.processing_time_ms}ms · ${data.meta.ai_mode}`;
 
         const out = document.getElementById('assetOutput');
         out.innerHTML = '';
@@ -624,7 +611,7 @@
                 makeRow('Board Title', pp.board_title),
                 makeRow('Pin Title', pp.pin_title),
                 makeTextarea('Description', pp.optimized_description),
-                makeRow('Keywords', pp.recommended_keywords?.join(' Â· ')),
+                makeRow('Keywords', pp.recommended_keywords?.join(' · ')),
                 makeRow('Suggested Boards', pp.suggested_board_names?.join(' | ')),
                 makeRow('Dimensions', pp.optimal_pin_dimensions),
                 makeRow('CTA', pp.pin_cta_suggestion),
@@ -654,7 +641,7 @@
                 makeTextarea('Body Script', yt.body_segment),
                 makeRow('Call to Action', yt.call_to_action),
                 makeTextarea('Description', yt.description_template),
-                makeRow('Title Tags', yt.title_tags?.join(' Â· ')),
+                makeRow('Title Tags', yt.title_tags?.join(' · ')),
                 makeRow('Shorts Hashtags', yt.shorts_hashtags?.map(t => '#' + t.replace('#','')).join(' ')),
                 makeRow('Duration', yt.estimated_duration),
                 makeTextarea('SEO Tips', yt.seo_tips?.join('\n')),
@@ -945,6 +932,8 @@
                         ${(c.channels || []).map(ch => `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${chLabel(ch)}</span>`).join('')}
                     </div>
                     <div class="flex items-center gap-1">
+                        <button onclick="event.stopPropagation(); loadCampaign('${c.id}')"
+                                class="px-2 py-1 rounded bg-brand-500/15 text-brand-400 text-xs" title="Reopen saved assets without generating again">Open &amp; Reuse</button>
                         <button onclick="event.stopPropagation(); deleteCampaign('${c.id}')"
                                 class="p-1 rounded hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition" title="Delete">
                             <i data-lucide="trash-2" class="w-3 h-3"></i>
@@ -955,7 +944,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="text-xs text-slate-600">${formatDate(c.created_at)} Â· ${c.ai_mode}</div>
+                <div class="text-xs text-slate-600">${formatDate(c.created_at)} · ${c.ai_mode}</div>
             </div>
         `).join('');
         lucide.createIcons();
@@ -972,7 +961,22 @@
             const data = await r.json();
             currentResults = data;
             renderResults(data);
-            toggleHistory();
+            document.getElementById('productUrl').value = data.input_url || '';
+            setMode(data.mode === 'paid' ? 'paid' : 'organic');
+            if (Number.isFinite(data.budget)) document.getElementById('dailyBudget').value = data.budget;
+            for (const checkbox of document.querySelectorAll('#channelGrid input[type="checkbox"]')) {
+                checkbox.checked = (data.channels || []).includes(checkbox.value);
+            }
+            const product = data.scraped_product || {};
+            const winner = {id: data.campaign_id || id, name: product.title || data.product_title,
+                image_url: product.primary_image || data.product_image || '', url: data.input_url || '',
+                category: 'Saved product', source: 'saved_campaign', hashtags: [],
+                pin_description: data.compiled_package?.pinterest_seo_engine?.optimized_description || ''};
+            persistCurrentWinner(winner);
+            if (document.getElementById('executionOutput')) displayWinnerCard(winner);
+            if (data.compiled_package?.pinterest_seo_engine) renderPinterestResult(data, winner);
+            document.getElementById('statusMessage').textContent = 'Saved campaign reopened — no new generation';
+            if (historyOpen) toggleHistory();
             document.getElementById('campaignIdTag').textContent = 'ID: ' + id;
             document.getElementById('campaignIdTag').classList.remove('hidden');
             showToast('Campaign loaded', data.scraped_product?.title || id, 'success');
@@ -1110,7 +1114,7 @@
             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
                 <h3 class="font-semibold flex items-center gap-2">
                     <i data-lucide="video" class="w-4 h-4 text-brand-400"></i>
-                    Render Short Video (MiniMax)
+                    Create Product Video
                 </h3>
                 <button onclick="closeVideoModal()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
                     <i data-lucide="x" class="w-4 h-4"></i>
@@ -1118,14 +1122,31 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs text-slate-400 leading-relaxed">
-                    Render a product promo from the selected winner image. Local RTX runs on your Windows PC and creates silent video; MiniMax is an optional cloud service.
+                    Make a narrated product video with your real photo, captions, and a clear closing action. Free Studio runs on this computer.
                 </p>
                 <div>
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
-                        <option value="local" selected>Local RTX 3060 (this PC)</option>
+                        <option value="free" selected>Free narrated photo video</option>
+                        <option value="local">Local RTX 3060 (this PC)</option>
                         <option value="minimax">MiniMax cloud</option>
                     </select>
+                </div>
+                <div id="freeVideoOptions" class="space-y-3">
+                    <img id="freeProductPreview" alt="Selected product photo" class="w-full h-64 object-contain rounded-xl bg-slate-950 p-3" style="height:256px;object-fit:contain;object-position:center">
+                    <p class="text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
+                    <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <label class="block text-xs text-slate-400">Product benefit (automatically researched; optional override)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Leave blank to retrieve product facts automatically." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
+                    <label class="block text-xs text-slate-400">Buyer need (optional)<input id="freeBuyerNeed" maxlength="100" placeholder="For example: Easier sipping at your desk" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <label class="block text-xs text-slate-400">Buying detail (optional; copy from the same listing)<input id="freeBuyingDetail" maxlength="120" placeholder="Supported size, care or included accessories" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <p class="text-xs text-slate-400">Use facts for this exact product. Scripts are checked before rendering. Photos highlight features; they do not prove performance.</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="text-xs text-slate-400">Length<select id="freeVideoLength" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="15">15 seconds</option><option value="30" selected>30 seconds</option><option value="60">60 seconds</option></select></label>
+                        <label class="text-xs text-slate-400">Scene style<select id="freeVideoStyle" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="warm">Warm studio</option><option value="clean">Clean studio</option><option value="bold">Bold studio</option></select></label>
+                    </div>
+                    <p class="text-xs text-slate-500">Three scenes: product reveal → closer look → call to action. Captions and voice included. The destination link is provided separately for your post.</p>
+                    <details><summary class="text-sm cursor-pointer">Past videos</summary><div id="freeVideoHistory" class="mt-2 space-y-2 text-sm"></div></details>
                 </div>
                 <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
                     <p class="text-xs text-slate-400">Start <code>Start_Local_Video_Bridge.bat</code> on your PC, leave its window open, then enter the pairing code shown there.</p>
@@ -1154,7 +1175,7 @@
                     </div>
                 </div>
 
-                <div>
+                <div id="videoPromptOptions">
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Prompt</label>
                     <textarea id="videoPrompt" rows="6" maxlength="7000"
                         placeholder="Describe the vertical 9:16 short you want â€” visual style, scene sequence, voiceover dialogue, audio cues."
@@ -1169,8 +1190,8 @@
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Model</label>
                         <select id="videoModel" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
-                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality Â· native audio)</option>
-                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast Â· native audio)</option>
+                            <option value="MiniMax-H3" selected>MiniMax-H3 (quality · native audio)</option>
+                            <option value="MiniMax-H3-Max">MiniMax-H3-Max (fast · native audio)</option>
                         </select>
                     </div>
                     <div>
@@ -1264,7 +1285,7 @@
         if (ok) {
             pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
             dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5';
-            lbl.textContent = d?.ai_backend_active ? 'Online Â· ' + d.ai_backend_active : 'Online';
+            lbl.textContent = d?.ai_backend_active ? 'Online · ' + d.ai_backend_active : 'Online';
         } else {
             pill.className = 'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20';
             dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5';
@@ -1333,7 +1354,14 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'local';
+        document.getElementById('videoProvider').value = 'free';
+        document.getElementById('freeProductPreview').src = winner.image_url || '';
+        document.getElementById('freeProductName').value = winner.name;
+        document.getElementById('freeProductUrl').value = winner.url || '';
+        document.getElementById('freeProductFact').value = winner.seller_benefit_source === winner.url ? (winner.seller_benefit || '') : '';
+        document.getElementById('freeBuyerNeed').value = '';
+        document.getElementById('freeBuyingDetail').value = '';
+        loadFreeVideoHistory();
         document.getElementById('localVideoToken').value = '';
         document.getElementById('localVideoConnection').textContent = '';
         syncVideoProviderOptions();
@@ -1374,9 +1402,123 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     });
 
     function syncVideoProviderOptions() {
-        const local = document.getElementById('videoProvider').value === 'local';
-        document.getElementById('localVideoOptions').classList.toggle('hidden', !local);
-        document.getElementById('minimaxVideoOptions').classList.toggle('hidden', local);
+        const provider = document.getElementById('videoProvider').value;
+        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free');
+        document.getElementById('localVideoOptions').classList.toggle('hidden', provider !== 'local');
+        document.getElementById('minimaxVideoOptions').classList.toggle('hidden', provider !== 'minimax');
+        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free');
+    }
+
+    function openResearchConnection() {
+        let panel = document.getElementById('researchConnectionPanel');
+        if (panel) { panel.classList.remove('hidden'); return; }
+        panel = document.createElement('div'); panel.id = 'researchConnectionPanel';
+        panel.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6';
+        panel.innerHTML = '<div class="max-w-md w-full bg-slate-900 rounded-2xl p-6 space-y-4">' +
+            '<h3 class="text-xl text-white">Connect product research</h3>' +
+            '<p class="text-sm text-slate-300">Paste your Tavily free-plan key. It stays on this computer. Keep paid billing disabled.</p>' +
+            '<input id="researchConnectionKey" type="password" autocomplete="off" spellcheck="false" placeholder="Tavily API key" class="w-full rounded-lg bg-slate-950 p-3 text-white">' +
+            '<p id="researchConnectionStatus" class="text-sm text-slate-300"></p>' +
+            '<button id="researchConnectionSave" class="rounded-lg bg-indigo-600 p-3 text-white">Save and find a product</button>' +
+            '<button id="researchConnectionCancel" class="ml-3 text-slate-300">Close</button></div>';
+        document.body.appendChild(panel);
+        document.getElementById('researchConnectionCancel').onclick = () => panel.classList.add('hidden');
+        document.getElementById('researchConnectionSave').onclick = async () => {
+            const input = document.getElementById('researchConnectionKey');
+            const button = document.getElementById('researchConnectionSave');
+            const status = document.getElementById('researchConnectionStatus');
+            button.disabled = true;
+            try {
+                status.textContent = 'Saving research connection…';
+                await freeVideoRequest('/api/v1/research-connection', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({api_key:input.value.trim()})});
+                input.value = ''; panel.classList.add('hidden');
+                await fetchTrendingProduct();
+            } catch (error) { status.textContent = error.message; }
+            finally { button.disabled = false; }
+        };
+    }
+
+    async function freeVideoRequest(path, options = {}) {
+        const response = await fetch(apiUrl(path), {...options, signal: AbortSignal.timeout(30000)});
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Check the product fields and try again.');
+        return data;
+    }
+    function showFreeVideo(job, resultEl) {
+        if (job.status !== 'succeeded' || !job.video_url) return;
+        resultEl.replaceChildren();
+        const video = document.createElement('video');
+        video.controls = true; video.playsInline = true; video.preload = 'metadata';
+        video.src = apiUrl(job.video_url); video.className = 'w-full max-h-[60vh]';
+        const download = document.createElement('a');
+        download.href = apiUrl(job.video_url); download.textContent = 'Download checked MP4';
+        download.className = 'block mt-3 text-brand-400';
+        const destination = document.createElement('a');
+        destination.href = job.product_url; destination.target = '_blank'; destination.rel = 'noopener noreferrer';
+        destination.textContent = 'Product destination for your post'; destination.className = 'block mt-2 text-brand-400';
+        const script = document.createElement('details');
+        const scriptTitle = document.createElement('summary');
+        scriptTitle.textContent = 'Narration and product sources';
+        script.append(scriptTitle);
+        const scriptText = document.createElement('p');
+        scriptText.textContent = (job.sales_plan?.phrases || []).join(' ');
+        script.append(scriptText);
+        const note = document.createElement('p');
+        note.textContent = job.sales_plan?.review?.evidence_status || '';
+        script.append(note);
+        for (const source of [...new Set((job.sales_plan?.evidence || []).flatMap(f => [f.source_url, ...(f.supporting_sources || [])]).filter(Boolean))]) {
+            const link = document.createElement('a');
+            link.href = source; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            link.textContent = 'Product information source'; link.className = 'block text-brand-400';
+            script.append(link);
+        }
+        resultEl.append(video, download, destination, script); resultEl.classList.remove('hidden');
+    }
+    async function loadFreeVideoHistory() {
+        const list = document.getElementById('freeVideoHistory');
+        list.textContent = 'Loading…';
+        try {
+            const data = await freeVideoRequest('/api/v1/photo-videos'); list.replaceChildren();
+            for (const job of data.videos || []) {
+                const row = document.createElement('div');
+                const label = document.createElement('span');
+                label.textContent = job.name + ' · ' + new Date(job.created_at * 1000).toLocaleDateString() + ' · ' + job.status;
+                row.append(label);
+                if (job.status === 'succeeded') {
+                    const button = document.createElement('button'); button.textContent = ' Open'; button.className = 'text-brand-400';
+                    button.onclick = () => showFreeVideo(job, document.getElementById('videoResult')); row.append(button);
+                }
+                list.append(row);
+            }
+            if (!list.childNodes.length) list.textContent = 'Your finished videos will appear here.';
+        } catch (error) { list.textContent = error.message; }
+    }
+    async function submitFreeVideo(statusEl, resultEl) {
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.image_url) throw new Error('Choose a product with a real photo first.');
+        const payload = {
+            name: document.getElementById('freeProductName').value.trim(),
+            image_url: winner.image_url,
+            product_url: document.getElementById('freeProductUrl').value.trim(),
+            benefit: document.getElementById('freeProductFact').value.trim(),
+            buyer_need: document.getElementById('freeBuyerNeed').value.trim(),
+            consideration: document.getElementById('freeBuyingDetail').value.trim(),
+            seconds: Number(document.getElementById('freeVideoLength').value),
+            style: document.getElementById('freeVideoStyle').value
+        };
+        statusEl.textContent = 'Preparing product facts and sales script';
+        const data = await freeVideoRequest('/api/v1/photo-videos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const id = data.video.id;
+        // A timeout does not cancel the worker or start another render.
+        const until = Date.now() + 20 * 60 * 1000;
+        while (Date.now() < until) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const current = await freeVideoRequest('/api/v1/photo-videos/' + encodeURIComponent(id));
+            const job = current.video; statusEl.textContent = job.message;
+            if (job.status === 'failed') throw new Error(job.message);
+            if (job.status === 'succeeded') { showFreeVideo(job,resultEl); await loadFreeVideoHistory(); return; }
+        }
+        throw new Error('This video is still running. Check Past videos before starting another.');
     }
 
     function getLocalVideoBridge() {
@@ -1474,7 +1616,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const resultEl   = document.getElementById('videoResult');
         const submitBtn  = document.getElementById('videoSubmitBtn');
 
-        if (!prompt) {
+        if (provider !== 'free' && !prompt) {
             statusEl.innerHTML = '<span class="text-red-400">Prompt is required.</span>';
             return;
         }
@@ -1491,6 +1633,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         statusEl.textContent = provider === 'local' ? 'Connecting to local RTX bridge…' : 'Submitting to MiniMax…';
 
         try {
+            if (provider === 'free') {
+                await submitFreeVideo(statusEl, resultEl);
+                return;
+            }
             if (provider === 'local') {
                 await submitLocalVideoRender(prompt, statusEl, resultEl);
                 return;
@@ -1512,14 +1658,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
             const taskId = data.task.task_id;
             statusEl.innerHTML =
-                `<span class="text-slate-300">Task submitted Â· id <code class="text-brand-400">${taskId}</code></span><br>` +
+                `<span class="text-slate-300">Task submitted · id <code class="text-brand-400">${taskId}</code></span><br>` +
                 '<span class="text-slate-500">Polling status every 15 seconds â€” H3 typically takes 15â€“30 minutes.</span>';
 
             await pollVideoUntilDone(taskId, model, statusEl, resultEl);
         } catch (e) {
-            statusEl.innerHTML =
-                '<span class="text-red-400">Submission failed:</span> <span class="text-slate-400">' +
-                (e.message || String(e)) + '</span>';
+            statusEl.textContent = 'Video could not finish: ' + (e.message || String(e));
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Render Video</span>';
@@ -1540,7 +1684,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const elapsed = Math.round((i + 1) * intervalMs / 1000);
                 statusEl.innerHTML =
                     `<span class="text-slate-300">Status: <code class="text-brand-400">${t.status}</code></span>` +
-                    `<br><span class="text-slate-500">elapsed ${elapsed}s Â· task ${taskId}</span>`;
+                    `<br><span class="text-slate-500">elapsed ${elapsed}s · task ${taskId}</span>`;
                 if (t.status === 'succeeded' || t.status === 'Success') {
                     renderVideoResult(t, resultEl, statusEl);
                     showToast('Video ready', `${model} finished in ${elapsed}s`, 'success');
@@ -1568,7 +1712,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         statusEl.innerHTML =
             '<span class="text-emerald-400 font-medium">âœ… Render complete</span><br>' +
-            `<span class="text-slate-500">${task.model} Â· ${task.duration_seconds}s Â· ${task.ratio} Â· ${task.resolution}</span>`;
+            `<span class="text-slate-500">${task.model} · ${task.duration_seconds}s · ${task.ratio} · ${task.resolution}</span>`;
         resultEl.classList.remove('hidden');
         resultEl.innerHTML = `
             <div class="rounded-xl overflow-hidden border border-slate-700 bg-black">
@@ -1654,7 +1798,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     <div class="space-y-3">
                         <div class="relative">
                             <img src="${escapeHtml(data.image_url)}" alt="${escapeHtml(data.name)}"
-                                 class="w-full h-48 object-cover rounded-xl border border-slate-700 shadow-md bg-slate-800"
+                                 class="w-full h-64 object-contain p-3 rounded-xl border border-slate-700 shadow-md bg-slate-800" style="height:256px;object-fit:contain;object-position:center"
                                  onerror="this.onerror=null;this.style.display='none'">
                             ${data.image_status === 'verified' ? `
                                 <span title="Real product photo verified by Product Control Agent"
@@ -1694,7 +1838,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     <div class="flex flex-wrap items-center gap-2">
                         ${trendScore !== null ? `
                             <span class="text-xs font-bold px-2.5 py-1 rounded-lg border ${scoreBg} ${scoreColor}">
-                                Trend score: ${trendScore}/100
+                                ${data.discovery?.version === '3.0' ? 'Research evidence' : 'Trend score'}: ${trendScore}/${data.discovery?.version === '3.0' ? '60' : '100'}
                             </span>` : ''}
                         ${margin ? `<span class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">Margin: ${escapeHtml(margin)}</span>` : ''}
                         ${evergreen !== null ? `<span class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">Evergreen: ${(evergreen * 100).toFixed(0)}%</span>` : ''}
@@ -2408,7 +2552,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             console.log('[pick-pipeline] â†’ GET', requestUrl);
 
             // Front-end safety timeout.
-            const TIMEOUT_MS = 30000;
+            const TIMEOUT_MS = 75000;
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -2434,6 +2578,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     const errBody = await resp.json();
                     detail = errBody?.detail || errBody?.message || '';
                 } catch (_) { /* not JSON */ }
+                if (detail.includes('RESEARCH_CONNECTION_MISSING') && ['127.0.0.1','localhost'].includes(window.location.hostname)) {
+                    openResearchConnection(); return;
+                }
                 throw new Error('HTTP ' + resp.status
                     + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
             }
@@ -2448,8 +2595,20 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!winner.image_url) {
                 throw new Error('Winner has no usable product image. Please try again.');
             }
+            if (!readUrlField) {
+                if (winner.source !== 'discovery' || winner.discovery?.version !== '3.0') {
+                    throw new Error('The server has not returned a fresh research result. Update the discovery backend; saved-list products are not accepted here.');
+                }
+                const seen = discoveryHistory();
+                const keys = winner.identity_keys || [];
+                if (seen.some(item => item.id === winner.id || item.keys.some(key => keys.includes(key)))) {
+                    throw new Error('This product was already shown. Try again to research another category.');
+                }
+            }
+
             console.log('[pick-pipeline] âœ“', { id: winner.id, name: winner.name });
 
+            rememberDiscoveredWinner(winner);
             window.__lastWinnerId = winner.id;
             persistCurrentWinner(winner);
             // PATH A never reads the URL field. PATH B may update it with
@@ -2529,12 +2688,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     : 'Pinterest generation failed');
             const backendDetail = (msg.match(/HTTP 404\s*—\s*(.+)$/)
                 || msg.match(/No product candidate in our pool[^"]*/)
-                || msg.match(/We found matching products[^"]*/))[0] || '';
+                || msg.match(/We found matching products[^"]*/))?.[0] || '';
             const body = isWinnerStage
                 ? (isTimeout
                     ? 'The first request after a quiet period can take a moment while the server warms up. Click the button once more and the result should appear in a few seconds.'
-                    : (isNoPhotoError && backendDetail)
-                        ? backendDetail
+                    : isNoPhotoError
+                        ? 'Research completed, but no new product passed the checks. Previous products are still excluded. See the research result below.'
                         : failBody)
                 : (isTimeout
                     ? 'Pinterest generation is taking longer than usual. Click again.'
@@ -2592,6 +2751,50 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     // â”€â”€ PATH A â€” Find a Winning Product (no input required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Reads NOTHING from the URL field. Always hits the discovery
     // endpoint with the default 'trending product' seed.
+    // A stable anonymous browser identity and 30-day local history survive
+    // refreshes. Server SQLite history is shared across workers on this host.
+    const DISCOVERY_HISTORY_KEY = 'trafficlift.discovery.history.v3';
+    const DISCOVERY_CLIENT_KEY = 'trafficlift.discovery.client.v3';
+    function discoveryClientId() {
+        if (window.__discoveryClientId) return window.__discoveryClientId;
+        let id = '';
+        try { id = localStorage.getItem(DISCOVERY_CLIENT_KEY) || ''; } catch (_) {}
+        if (!/^[a-zA-Z0-9_-]{16,64}$/.test(id)) {
+            id = crypto.randomUUID().replace(/-/g, '');
+            try { localStorage.setItem(DISCOVERY_CLIENT_KEY, id); } catch (_) {}
+        }
+        window.__discoveryClientId = id;
+        return id;
+    }
+    function discoveryHistory() {
+        let items = window.__discoveryHistory || [];
+        try {
+            const stored = JSON.parse(localStorage.getItem(DISCOVERY_HISTORY_KEY) || '[]');
+            if (Array.isArray(stored)) items = stored;
+        } catch (_) {}
+        return items.filter(item => item && typeof item.id === 'string'
+            && Number.isFinite(item.at) && item.at > Date.now()-30*86400000
+            && Array.isArray(item.keys)).slice(-100);
+    }
+    function rememberDiscoveredWinner(winner) {
+        if (winner.source !== 'discovery') return;
+        const items = discoveryHistory();
+        items.push({id:winner.id, keys:(winner.identity_keys || []).filter(k => typeof k === 'string'), at:Date.now()});
+        window.__discoveryHistory = items.slice(-100);
+        try { localStorage.setItem(DISCOVERY_HISTORY_KEY, JSON.stringify(window.__discoveryHistory)); } catch (_) {}
+    }
+    function discoveryParams() {
+        const history = discoveryHistory();
+        const params = new URLSearchParams();
+        const ids = new Set(history.map(item => item.id));
+        if (window.__lastWinnerId) ids.add(window.__lastWinnerId);
+        if (ids.size) params.set('exclude', [...ids].join(','));
+        const keys = [...new Set(history.flatMap(item => item.keys))].slice(-160);
+        if (keys.length) params.set('exclude_keys', keys.join(','));
+        params.set('client_id', discoveryClientId());
+        return params;
+    }
+
     async function findWinningProduct() {
         const btn = document.getElementById('findWinningProductBtn');
 
@@ -2627,9 +2830,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // Note: we deliberately do NOT read #productUrl here.
         const isFirstRun = !window.__pickPipelineRanOnce;
         window.__pickPipelineRanOnce = true;
-        const prev = window.__lastWinnerId || '';
-        const params = new URLSearchParams();
-        if (prev) params.set('exclude', prev);
+        const params = discoveryParams();
         // PATH A calls ONLY the dedicated discovery endpoint - never
         // /find-winner, never /analyze-product-url, never a keyword path.
         const requestUrl = apiUrl(`/api/v1/discover-winner?${params.toString()}`);
@@ -2653,7 +2854,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 : 'Running live research to discover a real trending product.',
             noPhotoHeading: "We couldn't find a qualified product right now. Try Find Winning Product again.",
             failHeading: 'Find Winning Product failed',
-            failBody: 'Find Winning Product failed - check your network and try again.',
+            failBody: 'The research provider could not return usable results. See the provider details below.',
         });
     }
 

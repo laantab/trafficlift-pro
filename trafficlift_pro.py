@@ -38,7 +38,9 @@ from dotenv import load_dotenv
 # Load .env (if present) BEFORE importing anything that reads os.getenv.
 # On Render / production, env vars come from the platform and .env is absent
 # — load_dotenv() is a no-op in that case, so this is safe everywhere.
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), encoding='utf-8-sig')
+from backend.research_config import load_research_config, research_status
+load_research_config()
 
 from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -414,6 +416,7 @@ async def health_check():
         "service": APP_NAME,
         "version": APP_VERSION,
         "ai_backend_active": _get_ai_mode(),
+        "research_connection": research_status(),
         "ai_backends": {
             "openai":  ai_modes["openai"],
             "minimax": ai_modes["minimax"],
@@ -708,6 +711,15 @@ async def get_campaign(campaign_id: str) -> JSONResponse:
         )
     # Rename 'assets' → 'compiled_package' for frontend compatibility
     record["compiled_package"] = record.pop("assets")
+    # History must share the live response shape expected by the dashboard.
+    record['campaign_id'] = record['id']
+    record['scraped_product'] = {
+        'title': record.get('product_title') or record.get('input_url', ''),
+        'primary_image': record.get('product_image'),
+        'description': '',
+    }
+    record['meta'] = {'ai_mode': record.get('ai_mode', 'saved'), 'processing_time_ms': 0,
+                      'restored_from_history': True}
     return JSONResponse(record)
 
 
@@ -738,6 +750,8 @@ async def clear_all_campaigns() -> JSONResponse:
 
 # Mount the product-scout router (trending/evergreen product suggestions).
 app.include_router(product_scout_router)
+from backend.photo_video_api import router as photo_video_router
+app.include_router(photo_video_router)
 
 @app.get("/", include_in_schema=False)
 async def root():
@@ -771,3 +785,4 @@ if __name__ == "__main__":
         reload=reload,
         log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
+
