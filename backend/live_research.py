@@ -122,20 +122,27 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
         return [], []
     api_key = os.getenv("TAVILY_API_KEY", "").strip()
     try:
-        resp = requests.post(
-            TAVILY_ENDPOINT,
-            json={
-                "api_key": api_key,
-                "query": query,
-                "max_results": max_results,
-                "search_depth": "basic",
-                "include_answer": False,
-                "include_images": True,
-                "include_image_descriptions": True,
-                "topic": "general",
-            },
-            timeout=DEFAULT_TIMEOUT,
-        )
+        # One bounded retry for transient transport failure. Authentication,
+        # quota and billing responses are returned without retries.
+        for attempt in range(2):
+            try:
+                resp = requests.post(
+                    TAVILY_ENDPOINT,
+                    json={
+                        "api_key": api_key,
+                        "query": query,
+                        "max_results": max_results,
+                        "search_depth": "basic",
+                        "include_answer": False,
+                        "include_images": True,
+                        "include_image_descriptions": True,
+                        "topic": "general",
+                    },
+                    timeout=(3, 10),
+                )
+                break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt:raise
         if resp.status_code != 200:
             logger.warning("Tavily HTTP %s", resp.status_code)
             _problem(f"Tavily HTTP {resp.status_code}")

@@ -27,8 +27,8 @@ MERCHANT_FILTERS = ['site:amazon.com/dp/', 'site:walmart.com/ip/', 'site:target.
 MAX_QUERIES = 3
 MAX_CANDIDATES = 12
 MAX_QUALIFICATION = MAX_CANDIDATES
-REQUEST_SECONDS = 32
-RESEARCH_SECONDS = 16
+REQUEST_SECONDS = 44
+RESEARCH_SECONDS = 28
 logger = logging.getLogger(__name__)
 _POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix='discovery')
 
