@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from dotenv import dotenv_values
 
-VERSION = '4.7'
+VERSION = '4.8'
 ROOT = Path(__file__).resolve().parents[1]
 _LOCK = threading.Lock()
 _SOURCE = 'environment'

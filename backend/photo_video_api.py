@@ -211,3 +211,24 @@ def set_research_connection(payload: ResearchKeyRequest, request: Request):
         raise HTTPException(422, str(exc))
     except OSError:
         raise HTTPException(503, 'Could not save the research connection. Check that TrafficLift can write to its own folder.')
+
+
+@router.get('/api/v1/product-image')
+def product_image(url:str,request:Request):
+    """Same-origin, validated product bytes for canvas pin export."""
+    guard(request)
+    import hashlib
+    try:
+        if len(url)>2048:raise ValueError('Image URL is too long.')
+        _validate_public_https_url(url)
+        directory=storage()/'pin-images'/hashlib.sha256(url.encode()).hexdigest()
+        directory.mkdir(parents=True,exist_ok=True)
+        with pin_image_lock:
+            files=[directory/('product'+suffix) for suffix in ('.jpg','.png','.webp')]
+            cached=next((file for file in files if file.is_file()),None)
+            if cached is None:cached=_download_product_image(url,directory)
+        return FileResponse(cached,headers={'Cache-Control':'private, max-age=3600'})
+    except (ValueError,OSError) as exc:
+        raise HTTPException(422,'The product photo could not be retrieved safely.') from exc
+
+pin_image_lock=threading.Lock()

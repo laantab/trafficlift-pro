@@ -1046,7 +1046,7 @@
 
     // â”€â”€â”€ Loading State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function showLoading(show) {
-        document.getElementById('emptyState').classList.toggle('hidden', show);
+        document.getElementById('emptyState').classList.toggle('hidden', show || !!currentResults || !!window.__currentWinner);
         document.getElementById('resultsContent').classList.toggle('hidden', show);
         document.getElementById('loadingState').classList.toggle('hidden', !show);
         if (!show) document.getElementById('loadingSteps').innerHTML = '';
@@ -2046,10 +2046,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                             : Array.isArray(pkg.suggested_boards)     ? pkg.suggested_boards
                             : [];
         const dims          = pkg.optimal_pin_dimensions ?? pkg.dimensions ?? '1000 x 1500 px (2:3 vertical ratio)';
-        const cta           = pkg.pin_cta_suggestion ?? 'Shop now | Limited stock available';
+        const cta           = pkg.pin_cta_suggestion ?? 'Check details and current price';
         const hashtags      = Array.isArray(winner?.hashtags) ? winner.hashtags : [];
         const destUrl       = winner?.url ?? data.input_url ?? '';
 
+        document.getElementById('executionOutput')?.classList.remove('hidden');
+        document.getElementById('resultsContent')?.classList.remove('hidden');
+        document.getElementById('emptyState')?.classList.add('hidden');
         out.classList.remove('hidden');
         out.innerHTML = `
             <div class="bg-slate-950 border border-pink-700/40 rounded-xl p-4 space-y-3" id="pinterestPackage">
@@ -2179,23 +2182,15 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function _loadImageWithCors(url) {
-        // Try to load the image WITH crossOrigin='anonymous' so the canvas
-        // can read back the pixels and produce an exportable JPEG. If the
-        // server doesn't send CORS headers (or returns any non-2xx), this
-        // rejects and we return null — caller MUST use the branded fallback.
-        //
-        // We deliberately do NOT retry without crossOrigin: that would
-        // silently taint the canvas and break downloadPinImage's toBlob()
-        // for the entire pipeline. A safe fallback is always preferable to
-        // a silently-broken download.
+        // Studio retrieves validated image bytes on the same origin for canvas export.
         if (!url) return null;
         try {
             const img = new Image();
             img.crossOrigin = 'anonymous';
-            img.src = url;
             await new Promise((resolve, reject) => {
                 img.onload = resolve;
                 img.onerror = () => reject(new Error('cors-load-failed'));
+                img.src = window.location.pathname === '/studio' ? apiUrl('/api/v1/product-image?'+new URLSearchParams({url})) : url;
             });
             return img;
         } catch (_) {
@@ -2388,11 +2383,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const cta         = (pkg && pkg.pin_cta_suggestion) || 'Shop now';
 
         // 1. HERO (0..900)
+        window.__lastPinDataUrl = null;
         const hero = await _loadImageWithCors(winner && winner.image_url);
         if (hero && hero.naturalWidth > 0) {
             _drawHeroImage(ctx, hero, W, 900);
         } else {
-            _drawFallbackHero(ctx, W, 900, categoryKey, productName);
+            throw new Error('The actual product photo could not be loaded. A generic picture will not replace it.');
         }
 
         // 2. TITLE BAND (900..1200)

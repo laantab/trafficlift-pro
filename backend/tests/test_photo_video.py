@@ -164,3 +164,19 @@ def test_old_video_history_and_download_remain_available(client,tmp_path,monkeyp
     monkeypatch.setenv('TRAFFICLIFT_VIDEO_DIR',str(tmp_path/'new'))
     assert client.get('/api/v1/photo-videos').json()['videos'][0]['id']==job
     assert client.get(f'/api/v1/photo-videos/{job}/video').status_code==200
+
+def test_pin_photo_same_origin_cached_png(client,tmp_path):
+    def download(url,directory):
+        path=directory/'product.png';path.write_bytes(b'png-fixture');return path
+    with patch.object(api,'_download_product_image',side_effect=download) as fetch:
+        first=client.get('/api/v1/product-image',params={'url':'https://example.com/product.png'})
+        second=client.get('/api/v1/product-image',params={'url':'https://example.com/product.png'})
+    assert first.status_code==second.status_code==200
+    assert first.content==second.content==b'png-fixture'
+    assert first.headers['content-type']=='image/png'
+    fetch.assert_called_once()
+
+def test_pin_photo_rejects_unsafe_and_remote(client):
+    with patch.object(api,'_validate_public_https_url',side_effect=ValueError('private')):
+        assert client.get('/api/v1/product-image',params={'url':'https://127.0.0.1/a'}).status_code==422
+    assert client.get('/api/v1/product-image',params={'url':'https://example.com/a'},headers={'Origin':'https://evil.example'}).status_code==403

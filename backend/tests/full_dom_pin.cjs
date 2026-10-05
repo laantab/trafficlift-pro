@@ -1,0 +1,23 @@
+const fs=require('fs'),assert=require('assert');
+const {JSDOM,VirtualConsole}=require('jsdom');
+const {createCanvas,Image}=require('@napi-rs/canvas');
+const photo=createCanvas(1200,1200);const draw=photo.getContext('2d');draw.fillStyle='#16a0aa';draw.fillRect(0,0,1200,1200);draw.fillStyle='#13272e';draw.fillRect(150,180,900,800);const bytes=photo.toBuffer('image/png');
+let requests=[],pinImageRequests=0,errors=[];
+const winner={id:'url-lunch',name:'Verified Lunch Box',url:'https://www.amazon.com/dp/B012345678',image_url:'https://images.example/product.png',image_status:'verified',source:'url',category:'Kitchen'};
+const pkg={board_title:'Lunch Box',pin_title:'Your Lunch, Organized',optimized_description:'Check the exact product listing.',recommended_keywords:['lunch box'],pin_cta_suggestion:'Check price and options'};
+const campaign={campaign_id:'test-one',input_url:winner.url,mode:'organic',scraped_product:{title:winner.name,primary_image:winner.image_url,description:'Exact product details'},compiled_package:{pinterest_seo_engine:pkg},meta:{ai_mode:'template_fallback',processing_time_ms:3}};
+let html=fs.readFileSync('index.html','utf8').replace(/<script[^>]*src=[^>]*><\/script>/g,'').replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/,'').replace('</head>','<style>.hidden{display:none!important}</style></head>');
+const console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
+const dom=new JSDOM(html,{url:'http://127.0.0.1:8000/studio',runScripts:'dangerously',virtualConsole:console,beforeParse(w){
+ w.AbortController=global.AbortController;w.AbortSignal=global.AbortSignal;w.lucide={createIcons(){}};
+ const canvases=new WeakMap();w.HTMLCanvasElement.prototype.getContext=function(){let c=canvases.get(this);if(!c){c=createCanvas(this.width,this.height);canvases.set(this,c);}return c.getContext('2d')};w.HTMLCanvasElement.prototype.toDataURL=function(...a){return canvases.get(this).toDataURL(...a)};
+ w.Image=class extends Image{get naturalWidth(){return this.width}get naturalHeight(){return this.height}set src(value){assert(value.includes('/api/v1/product-image?'),'Studio must use same-origin image endpoint');pinImageRequests++;queueMicrotask(()=>{super.src=bytes})}};
+ w.fetch=async(url,options)=>{requests.push({url:String(url),options});let data={};if(String(url).includes('/analyze-product-url'))data=winner;else if(String(url).includes('/traffic/generate'))data=campaign;else if(String(url).includes('/health'))data={status:'ok',ai_mode:'template_fallback'};else if(String(url).includes('/history'))data={campaigns:[]};return {ok:true,json:async()=>data}};
+}});
+(async()=>{const w=dom.window;if(w.document.readyState==='loading')await new Promise(r=>w.document.addEventListener('DOMContentLoaded',r,{once:true}));w.document.querySelector('#channelGrid input').checked=true;w.document.getElementById('productUrl').value='https://link.amazon/share';await w.launchCampaign();for(let i=0;i<50&&!w.__lastPinDataUrl;i++)await new Promise(r=>setTimeout(r,20));
+assert(w.__lastPinDataUrl?.startsWith('data:image/jpeg'),'Real canvas pin must be exported');
+assert(!w.document.getElementById('executionOutput').classList.contains('hidden'),'Pin parent must be visible');
+assert(w.document.getElementById('emptyState').classList.contains('hidden'),'Completed campaign must hide Ready to generate');
+assert(w.document.querySelector('#pinPreviewWrap img'),'Pin preview image must exist');
+assert.equal(pinImageRequests,1);assert.deepEqual(JSON.parse(requests.find(r=>r.url.includes('/traffic/generate')).options.body).product_payload,winner);
+const output=Buffer.from(w.__lastPinDataUrl.split(',')[1],'base64');fs.writeFileSync('/tmp/trafficlift-dom-pin.jpg',output);assert(output.length>10000);assert.equal(errors.length,0,errors.join('\n'));process.stdout.write('PASS: actual DOM, visible pin, empty-state behavior, same-origin image loading, real 1000x1500 canvas export\n');dom.window.close();})().catch(e=>{process.stderr.write(e.stack+'\n');dom.window.close();process.exitCode=1});
