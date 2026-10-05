@@ -391,6 +391,16 @@
         }
     }
 
+    function clearSelectedProduct() {
+        persistCurrentWinner(null);
+        currentResults = null;
+        window.__lastPinDataUrl = null;
+        window.__lastPinResult = null;
+        const execution = document.getElementById('executionOutput');
+        if (execution) { execution.innerHTML = ''; execution.classList.add('hidden'); }
+        document.getElementById('resultsContent')?.classList.add('hidden');
+    }
+
     function restoreCurrentWinner() {
         if (window.__currentWinner && window.__currentWinner.name) return window.__currentWinner;
         try {
@@ -543,6 +553,7 @@
 
         const budget = parseFloat(document.getElementById('dailyBudget').value) || 25.0;
 
+        clearSelectedProduct();
         // Show loading
         showLoading(true);
         setLoadingStep('Scraping product metadata...');
@@ -2912,6 +2923,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (urlInput) urlInput.focus();
             return;
         }
+        clearSelectedProduct();
         const isFirstRun = !window.__pickPipelineRanOnce;
         window.__pickPipelineRanOnce = true;
         const prev = window.__lastWinnerId || '';

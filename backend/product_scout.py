@@ -362,14 +362,8 @@ def analyze_product_url_get(
                 "Try the full product page URL (must start with http:// or https://)."
             ),
         )
-    excl = [x for x in (exclude or "").split(",") if x] if exclude else []
-    return _synthesize(
-        url_or_keyword=url.strip(),
-        category="Trending General",
-        seed=seed,
-        exclude=excl,
-        use_ai=False,
-    )
+    from backend.exact_product import analyze_exact_product
+    return analyze_exact_product(url.strip())
 
 
 @router.get("/discover-winner")
