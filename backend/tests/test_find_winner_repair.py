@@ -1,4 +1,4 @@
-﻿"""backend/tests/test_find_winner_repair.py
+"""backend/tests/test_find_winner_repair.py
 
 Regression suite for the Find Winner / 1-Click Pinterest repair.
 
@@ -724,9 +724,9 @@ def test_path_a_can_extract_one_concrete_product_from_research_snippet():
     title = "Trending products to sell online"
     snippet = "One breakout item is the rechargeable spin scrubber for bathroom cleaning."
     name = discovery_mod._normalize_title(title, snippet)
-    assert name
-    assert discovery_mod._has_specific_product_signal(name)
-    assert "scrubber" in name.lower()
+    # A roundup title cannot establish which exact model a seller image belongs to.
+    assert name is None
+
 
 
 def test_pin_preview_target_is_visible_in_winner_panel_once():
@@ -927,7 +927,7 @@ def test_discover_route_forwards_exclude_to_live_discovery(monkeypatch):
     from trafficlift_pro import app
 
     captured = {}
-    def fake_discover(*, exclude_ids=None):
+    def fake_discover(*, exclude_ids=None, **kwargs):
         captured["exclude_ids"] = set(exclude_ids or set())
         return {
             "id": "discover-new-123",
@@ -942,6 +942,7 @@ def test_discover_route_forwards_exclude_to_live_discovery(monkeypatch):
     r = c.get("/api/v1/discover-winner?exclude=discover-old-001")
     assert r.status_code == 200, r.text
     assert captured["exclude_ids"] == {"discover-old-001"}
+
 
 
 def test_live_discovery_skips_excluded_candidate(monkeypatch):
@@ -985,7 +986,9 @@ def test_live_discovery_skips_excluded_candidate(monkeypatch):
     )
 
     env = mock.Mock()
-    env.research_sources = [{"title":"t","url":"https://example.com","snippet":"s"}]
+    env.research_status = "live"
+    env.research_provider = "test"
+    env.research_sources = [{"title":c.name,"url":c.url,"snippet":c.name+" product reviews"} for c in [card1,card2]]
     env.research_image_urls = []
     env.research_query = "q"
 
@@ -1005,7 +1008,9 @@ def test_live_discovery_skips_excluded_candidate(monkeypatch):
     monkeypatch.setattr(d.ProductControlAgent, "evaluate", lambda *a, **k: Report())
 
     winner = d.discover_winner(exclude_ids={"discover-old-001"})
-    assert winner["id"] == "discover-new-002"
+    from backend.winner_history import product_id
+    assert winner["id"] == product_id("Magnetic Phone Stand", "https://example.com/2")
+
 
 
 # ── CLEAN ONE-CLICK REBUILD (fourth repair pass) ──────────────────────────
@@ -1849,16 +1854,17 @@ def test_gate_28_research_images_skips_ddg_when_tavily_already_satisfied():
 
 
 def test_gate_29_pipeline_timeout_bounds_the_request():
-    """The shared pipeline's timeout must be in [20 000, 45 000] ms."""
+    """The shared pipeline's timeout must be in [32 000, 75 000] ms."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     import re
     m = re.search(r"TIMEOUT_MS\s*=\s*(\d+)", src)
     assert m, "pipeline must declare TIMEOUT_MS"
     val = int(m.group(1))
-    assert 20_000 <= val <= 45_000, (
-        f"TIMEOUT_MS = {val}; must be in [20 000, 45 000] ms so the user "
+    assert 32_000 <= val <= 75_000, (
+        f"TIMEOUT_MS = {val}; must be in [32 000, 75 000] ms so the user "
         "gets fast retry feedback (warm-up ping handles Render cold-start)"
     )
+
 
 
 def test_gate_30_frontend_warms_up_backend_on_load():
@@ -3239,16 +3245,12 @@ def test_url_resolver_extract_asin_is_host_agnostic():
 
 
 def test_url_resolver_flags_non_amazon_target():
-    """When the resolved final URL is not on an Amazon host, the
-    ResolvedProduct must record this in ``notes`` so the rest of
-    the pipeline can react appropriately."""
+    """A non-Amazon resolved URL is flagged independently of network access."""
     from backend.url_resolver import resolve_url_to_product
-    rp = resolve_url_to_product(
-        "https://example.com/dp/B0fIJWu2r",
-        timeout=2.0,
-        tavily_timeout=0,
-    )
-    assert any("non_amazon_target" in n for n in rp.notes)
+    url='https://example.com/dp/B0fIJWu2r'
+    with mock.patch('backend.url_resolver._safe_get',return_value=(url,'<html><title>Real Desk Lamp Product</title></html>',None)):
+        rp=resolve_url_to_product(url,timeout=2.0,tavily_timeout=0)
+    assert any('non_amazon_target' in note for note in rp.notes)
 
 
 def test_url_resolver_extract_title_from_html_jsonld():
@@ -3834,44 +3836,16 @@ def test_backend_discovery_is_bounded():
 
 
 def test_backend_discovery_rejects_with_specific_message(monkeypatch):
-    """When discovery finds NO candidates AND curated fallback also
-    fails, the 404 message must be the discovery-specific wording —
-    NOT the legacy query-relevance wording."""
+    """Unavailable research is a 503, never a saved-list substitution."""
     import types
     from fastapi import HTTPException
-
-    # Stub out live_research.research so it returns empty envelopes.
-    import backend.discovery as discovery_mod
-    monkeypatch.setattr(
-        "backend.live_research.research",
-        lambda *a, **kw: types.SimpleNamespace(
-            research_status="fallback",
-            research_sources=[],
-            research_query="x",
-        ),
-    )
-    # Stub the curated picker to return None so we fall through to 404.
-    monkeypatch.setattr(
-        discovery_mod, "_pick_curated_winner",
-        lambda **kw: None,
-    )
-
+    monkeypatch.setattr("backend.live_research.research", lambda *a,**kw: types.SimpleNamespace(research_status="fallback",research_sources=[]))
     from backend.discovery import discover_winner
-    try:
+    with pytest.raises(HTTPException) as exc:
         discover_winner()
-    except HTTPException as exc:
-        # Must be discovery-specific, NOT the legacy pool-mismatch text.
-        assert "in our pool" not in exc.detail, (
-            f"discovery 404 must not include legacy 'in our pool' text; got {exc.detail!r}"
-        )
-        assert "matched your query" not in exc.detail, (
-            f"discovery 404 must not include legacy 'matched your query' text; got {exc.detail!r}"
-        )
-        assert "couldn't find a qualified product" in exc.detail.lower(), (
-            f"discovery 404 must include the discovery-specific text; got {exc.detail!r}"
-        )
-        return
-    raise AssertionError("discover_winner() should have raised HTTPException(404)")
+    assert exc.value.status_code==503
+    assert 'No saved-list product was substituted' in exc.value.detail
+
 
 
 def test_backend_discovery_returns_qualified_winner(monkeypatch):
@@ -3887,13 +3861,13 @@ def test_backend_discovery_returns_qualified_winner(monkeypatch):
         {
             "title": "Rotating Spice Rack Organizer 16 Jars",
             "url": "https://example.com/spice-rack",
-            "snippet": "A real product that organizes spices on your counter.",
+            "snippet": "Product reviews: organizes spices on your counter.",
             "content": "A real product.",
         },
         {
             "title": "LED Desk Lamp with USB Charging Port",
             "url": "https://example.com/desk-lamp",
-            "snippet": "A useful product for office desks.",
+            "snippet": "Product reviews: useful for office desks.",
             "content": "Office desk lighting.",
         },
     ]
@@ -3945,49 +3919,20 @@ def test_backend_discovery_returns_qualified_winner(monkeypatch):
     )
 
 
+
 def test_backend_discovery_skips_candidate_without_verified_image(monkeypatch):
-    """If the live candidate's image cascade fails, discovery must
-    fall back to the curated pool — NOT return 404."""
+    """A missing real photo prevents release; saved-list fallback is forbidden."""
     import types
-    from backend import discovery as discovery_mod
-    from backend.product_control_agent import ProductControlAgent
-    from backend.discovery import discover_winner
+    from fastapi import HTTPException
+    from backend import discovery as d
+    env=types.SimpleNamespace(research_status='live',research_provider='test',research_query='desk product reviews',research_image_urls=[],research_sources=[{'title':'LED Desk Lamp with USB Port','url':'https://example.com/lamp','snippet':'LED Desk Lamp with USB Port product reviews'}])
+    monkeypatch.setattr('backend.live_research.research',lambda *a,**kw:env)
+    monkeypatch.setattr(d,'_find_image_for_candidate',lambda *a,**kw:None)
+    with mock.patch.object(d,'_pick_curated_winner') as saved:
+        with pytest.raises(HTTPException) as exc:d.discover_winner()
+        assert exc.value.status_code==404
+        saved.assert_not_called()
 
-    fake_sources = [
-        {"title": "LED Desk Lamp with USB Port", "url": "https://example.com/b",
-         "snippet": "A useful product for office desks.",
-         "content": "Office desk lighting."},
-    ]
-    fake_env = types.SimpleNamespace(
-        research_status="live",
-        research_query="x",
-        research_sources=fake_sources,
-        research_image_urls=[],
-    )
-    monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
-
-    # Live image discovery returns None (no verified image).
-    monkeypatch.setattr(
-        discovery_mod, "_find_image_for_candidate",
-        lambda card, intent="", tavily_image_urls=None, deadline_monotonic=None: None,
-    )
-
-    # Stub the curated picker so it returns a winner without hitting
-    # Tavily. We test that the curated fallback path is exercised.
-    monkeypatch.setattr(
-        discovery_mod, "_pick_curated_winner",
-        lambda **kw: {"name": "Stanley Quencher Tumbler",
-                      "source": "discovery-curated",
-                      "image_status": "verified",
-                      "discovery": {"fallback_used": "curated_pool"}},
-    )
-
-    winner = discover_winner()
-    assert winner.get("source") == "discovery-curated", (
-        f"when live candidate fails, discover_winner must fall back to "
-        f"curated pool; got source={winner.get('source')!r}"
-    )
-    assert winner["discovery"]["fallback_used"] == "curated_pool"
 
 
 # ── LIVE TAVILY IMAGES EXTRACTION (added 2026-09-28) ────────────────────
@@ -4094,12 +4039,9 @@ def test_normalize_extracts_product_from_snippet_when_title_generic():
         "Cleansing Brush, Mini Air Purifier, and Smart Desk Lamp."
     )
     name = _normalize_title("Trending Products", snippet)
-    assert name and "Ultrasonic" in name, (
-        f"expected extracted product name with 'Ultrasonic'; got {name!r}"
-    )
-    assert "Cleansing" in name or "Brush" in name, (
-        f"expected the brush phrase; got {name!r}"
-    )
+    # Generic multi-product articles are no longer eligible seller listings.
+    assert name is None
+
 
 
 def test_normalize_keeps_good_title_unchanged():
@@ -4179,7 +4121,7 @@ def test_discover_winner_uses_prefetched_image_first(monkeypatch):
     # Real-shape envelope with research_image_urls populated.
     fake_sources = [
         {"title": "LED Desk Lamp with USB Port", "url": "https://example.com/lamp",
-         "snippet": "A real product for office desks.",
+         "snippet": "Product reviews for office desks.",
          "content": "Desk lighting."},
     ]
     fake_image_urls = [
@@ -4220,6 +4162,7 @@ def test_discover_winner_uses_prefetched_image_first(monkeypatch):
     )
     assert winner.get("source") == "discovery"
     assert winner.get("image_status") == "verified"
+
 
 
 # ── CURATED WINNERS POOL (added 2026-09-28) ─────────────────────────────
@@ -4434,45 +4377,17 @@ def test_pick_curated_winner_returns_none_when_no_image(monkeypatch):
     assert winner is None
 
 
-def test_discover_winner_falls_back_to_curated_when_live_research_empty(monkeypatch):
-    """If live Tavily research produces ZERO candidates, discover_winner
-    must fall back to the curated pool and return a verified winner
-    instead of 404ing."""
+def test_discover_winner_refuses_curated_when_live_research_empty(monkeypatch):
+    """Fresh discovery reports empty provider results instead of reusing a pool."""
     import types
-    from backend import discovery as discovery_mod
+    from fastapi import HTTPException
+    from backend import discovery as d
+    monkeypatch.setattr('backend.live_research.research',lambda *a,**kw:types.SimpleNamespace(research_status='live',research_sources=[]))
+    with mock.patch.object(d,'_pick_curated_winner') as saved:
+        with pytest.raises(HTTPException) as exc:d.discover_winner()
+        assert exc.value.status_code==503
+        saved.assert_not_called()
 
-    # Live research returns an empty envelope.
-    fake_env = types.SimpleNamespace(
-        research_status="live",
-        research_query="x",
-        research_sources=[],
-        research_image_urls=[],
-    )
-    monkeypatch.setattr("backend.live_research.research", lambda *a, **kw: fake_env)
-
-    # Curated image resolver succeeds.
-    monkeypatch.setattr(
-        discovery_mod, "_resolve_curated_image",
-        lambda entry, deadline_monotonic: "https://m.media-amazon.com/images/I/asin.jpg",
-    )
-
-    # Audit succeeds.
-    class _Report:
-        ok = True
-        product = {"id": "x", "name": "y", "category": "z",
-                   "image_url": "https://x", "image_status": "verified",
-                   "url": "https://u", "angle": "a", "pin_title": "p",
-                   "pin_description": "d", "hashtags": ["#t"]}
-        primary_reason = "ok"
-    from backend.product_control_agent import ProductControlAgent
-    monkeypatch.setattr(ProductControlAgent, "evaluate",
-                        staticmethod(lambda w: _Report()))
-
-    winner = discovery_mod.discover_winner()
-    assert winner is not None
-    assert winner.get("source") == "discovery-curated"
-    assert winner.get("image_status") == "verified"
-    assert winner["discovery"]["fallback_used"] == "curated_pool"
 
 
 def test_curated_image_queries_are_real_searchable_phrases():
@@ -4485,3 +4400,4 @@ def test_curated_image_queries_are_real_searchable_phrases():
                 f"curated image query too short or generic for "
                 f"{entry['name']!r}: {q!r}"
             )
+

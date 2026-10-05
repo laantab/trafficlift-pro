@@ -292,3 +292,7 @@ Returns service status and whether OpenAI is connected.
 ## License
 
 MIT — free to use, remix, and ship.
+
+## Free narrated product videos
+
+The owned CPU video studio creates a 1080×1920 MP4 from the selected product photo, local narration, captions, original music and a closing action. No GPU or paid video provider is needed. On Windows, double-click **Start_Free_Video_Studio.bat**. See [setup and limitations](docs/FREE_VIDEO_STUDIO.md). The studio is local-only and does not enable rendering on Render.

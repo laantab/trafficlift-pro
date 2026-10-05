@@ -70,3 +70,8 @@ node_modules/
 # ── Local video scratch (rendered demos, prompts, polling logs) ─────
 video/
 !video/.gitkeep
+
+# Free local video runtime and downloaded models
+.video-venv/
+.video-tools/
+models/

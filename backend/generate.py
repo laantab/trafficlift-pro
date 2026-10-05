@@ -344,6 +344,8 @@ class TrafficLiftGenerator:
             target_channels: list of channel slugs
             daily_budget:  daily ad spend in USD (paid mode only)
         """
+        if mode == 'organic' and not self._has_openai:
+            return self._grounded_templates(product, target_channels)
         package = CompiledPackage()
 
         if mode == "organic":
@@ -370,6 +372,51 @@ class TrafficLiftGenerator:
                 product, channels_for_ads, daily_budget
             )
 
+        return package
+
+    @staticmethod
+    def _grounded_templates(product, channels):
+        """Listing-based drafts; do not invent testing, popularity or urgency."""
+        title = re.sub(r'^Amazon\.(?:com|co\.uk)\s*:\s*', '', product.title, flags=re.I)
+        title = re.sub(r'\s*:\s*(?:Home & Kitchen|Amazon\..*)$', '', title, flags=re.I)
+        name = title.split(',')[0].strip()[:90] or 'This product'
+        listing = re.sub(r'\s+', ' ', product.description or title).strip()[:150]
+        keywords = [k for k in product.raw_keywords if k.lower() not in
+                    {'amazoncom', 'amazon', 'com', 'home', 'kitchen'}][:10]
+        category = 'Juicers' if re.search(r'\bjuicer\b', title, re.I) else name
+        hook = f'Considering {name}? Here is what to check before buying.'
+        details = f'The seller describes it as: {listing}. Check the exact model details on the product page.'
+        consideration = 'Compare its size, cleaning steps and everyday usefulness with what you need.'
+        cta = 'Open the product link to check the current price, details and customer reviews.'
+        tags = [re.sub(r'[^#\w]', '', '#' + k.replace(' ', '')) for k in keywords[:5]]
+        package = CompiledPackage()
+        if 'pinterest' in channels:
+            package.pinterest_seo_engine = PinterestSEOEngine(
+                board_title=f'{category} Buying Guide', pin_title=f'A closer look at {name}',
+                optimized_description=f'{details} {consideration} {cta}',
+                recommended_keywords=keywords, suggested_board_names=[f'{category} Buying Guide'],
+                pin_cta_suggestion='Check details and current price')
+        if 'tiktok_organic' in channels:
+            package.short_form_video_blueprint = ShortFormVideoBlueprint(
+                hook_0_3s=hook, problem_3_10s=consideration, solution_10_25s=details,
+                call_to_action=cta, suggested_hashtags=tags, estimated_duration='~30 seconds',
+                hook_type='Buying consideration')
+        if 'youtube_shorts' in channels:
+            package.youtube_shorts_blueprint = YouTubeShortsBlueprint(
+                video_title=f'{name}: what to check before buying', hook_segment=hook,
+                body_segment=f'{details} {consideration}', call_to_action=cta,
+                description_template=f'{details}\nProduct page: {product.url}',
+                title_tags=keywords, shorts_hashtags=tags,
+                suggested_thumbnails=[f'Product photo with text: {name}'],
+                seo_tips=['Show the exact product photo.', 'Add a real demonstration only when supplied.'])
+        if 'twitter_threads' in channels:
+            tweets = [hook, f'Seller listing: {listing}', consideration,
+                      'Before buying, check current customer reviews and the return policy.',
+                      f'{cta}\n{product.url}']
+            tweets = [t if len(t) <= 260 else t[:257] + '...' for t in tweets]
+            package.twitter_viral_thread = TwitterViralThread(
+                thread_theme=f'{name}: buying considerations', tweets=tweets,
+                suggested_hashtags=tags, cta_final_tweet=tweets[-1])
         return package
 
     def minimax_video_params(
