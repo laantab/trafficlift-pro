@@ -59,5 +59,20 @@ const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',i
  assert.equal(b.context.window.__currentWinner.image_url,saved.scraped_product.primary_image);
  assert(checkboxes[0].checked && !checkboxes[1].checked);
  assert(b.nodes.get('statusMessage').textContent.includes('no new generation'));
+ // URL launch must verify the product and invoke the image-pin renderer.
+ b=browser({ok:true,json:async()=>winner});
+ b.context.document.getElementById('productUrl').value='https://link.amazon/example';
+ b.context.document.querySelectorAll=()=>[{value:'pinterest'}];
+ b.context.tick=async()=>{};b.context.showLoading=()=>{};b.context.setLoadingStep=()=>{};
+ b.context.fetchHealthStatus=()=>{};b.context.renderResults=()=>{};
+ b.context.AbortSignal=AbortSignal;
+ let launchCalls=[],pinCalls=0;
+ b.context.renderPinterestResult=()=>{pinCalls++};
+ b.context.fetch=async(url,options)=>{launchCalls.push({url,options});return {ok:true,json:async()=>url.includes('/analyze-product-url')?{...winner,url:'https://amazon.com/dp/EXAMPLE'}:{compiled_package:{pinterest_seo_engine:{}},campaign_id:'new'}}};
+ await b.context.launchCampaign();
+ assert.equal(launchCalls.length,2);
+ assert(launchCalls[0].url.includes('/analyze-product-url'));
+ assert.equal(JSON.parse(launchCalls[1].options.body).product_payload.name,'Juicer');
+ assert.equal(pinCalls,1);
  console.log('PASS: actual button request, same origin, Pinterest continuation, visible failures, curated rejection');
 })().catch(e=>{console.error(e);process.exitCode=1});

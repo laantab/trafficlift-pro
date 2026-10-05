@@ -549,10 +549,18 @@
         await tick();
 
         try {
+            setLoadingStep('Verifying your product and photo...');
+            const analyzed = await fetch(apiUrl('/api/v1/analyze-product-url?'+new URLSearchParams({url})), {signal:AbortSignal.timeout(75000)});
+            const winner = await analyzed.json().catch(()=>({}));
+            if (!analyzed.ok) throw new Error(winner.detail || 'The product could not be verified. Try the full Amazon product page URL.');
+            if (!winner.image_url || !winner.name || /^(untitled product|amazon(?:\.com)?)$/i.test(winner.name.trim())) {
+                throw new Error('The link did not provide an identifiable product and photo. Try the full Amazon product page URL.');
+            }
+            persistCurrentWinner(winner);
             const r = await fetch(apiUrl('/api/v1/traffic/generate'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ input_url: url, mode: currentMode, target_channels: channels, daily_budget: budget }),
+                body: JSON.stringify({ product_payload:winner, input_url: winner.url || url, mode: currentMode, target_channels: channels, daily_budget: budget }),
             });
 
             if (!r.ok) {
@@ -565,6 +573,12 @@
             await tick(400);
             currentResults = data;
             renderResults(data);
+            if (!document.getElementById('pinterestResult')) {
+                const pinHost=document.createElement('div');pinHost.id='pinterestResult';pinHost.className='mt-4 space-y-2';
+                document.getElementById('executionOutput').appendChild(pinHost);
+            }
+            if (data.compiled_package?.pinterest_seo_engine) renderPinterestResult(data,winner);
+
 
             // Update campaign ID tag
             const tag = document.getElementById('campaignIdTag');
