@@ -1452,7 +1452,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         video.controls = true; video.playsInline = true; video.preload = 'metadata';
         video.src = apiUrl(job.video_url); video.className = 'w-full max-h-[60vh]';
         const download = document.createElement('a');
-        download.href = apiUrl(job.video_url); download.textContent = 'Download checked MP4';
+        download.href = apiUrl(job.video_url); download.textContent = 'Download draft MP4';
         download.className = 'block mt-3 text-brand-400';
         const destination = document.createElement('a');
         destination.href = job.product_url; destination.target = '_blank'; destination.rel = 'noopener noreferrer';
@@ -1473,7 +1473,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             link.textContent = 'Product information source'; link.className = 'block text-brand-400';
             script.append(link);
         }
-        resultEl.append(video, download, destination, script); resultEl.classList.remove('hidden');
+        const reviewNotice=document.createElement('p');
+        reviewNotice.className='mt-3 text-amber-300';
+        reviewNotice.textContent=job.marketing_review?.message || 'Technical render checks passed. Review image clarity, product accuracy, framing and the complete video before publishing.';
+        resultEl.append(reviewNotice,video, download, destination, script); resultEl.classList.remove('hidden');
     }
     async function loadFreeVideoHistory() {
         const list = document.getElementById('freeVideoHistory');

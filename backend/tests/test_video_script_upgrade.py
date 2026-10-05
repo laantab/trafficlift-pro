@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 from pathlib import Path
 from backend.product_facts import resolve_video_facts
@@ -100,3 +101,8 @@ def test_exact_listing_bullets_are_used_without_manual_benefit(tmp_path):
     assert record['status']=='succeeded'
     assert record['sales_plan']['mode']=='benefit_led'
     assert 'weighted base' in record['sales_plan']['phrases'][2]
+
+
+@pytest.fixture(autouse=True)
+def fake_photo_assessment_for_mocked_renderer(monkeypatch):
+    monkeypatch.setattr('backend.photo_quality.choose_photos',lambda paths:[(paths[0],{'status':'SOURCE_CHECKS_PASS','concerns':[]})])

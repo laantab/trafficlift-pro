@@ -101,18 +101,27 @@ def worker(record,payload,directory):
         record['sales_plan']['requested_seconds']=payload.seconds
         record['seconds']=60
         save(record,directory)
-        update('Getting photo')
-        image=_download_product_image(payload.image_url,directory)
-        extra_photos=[]
-        for photo_url in photos[:3]:
-            if photo_url == payload.image_url:continue
+        update('Choosing the clearest photo from this product listing')
+        from backend.photo_quality import resolution_variants,choose_photos
+        candidates=[];urls=[];last_photo_error=None
+        for original in [payload.image_url]+photos[:3]:
+            for url in resolution_variants(original):
+                if url not in urls:urls.append(url)
+        for url in urls[:6]:
             try:
-                photo_dir=directory/('photo-'+str(len(extra_photos)));photo_dir.mkdir(exist_ok=True)
-                extra_photos.append(_download_product_image(photo_url,photo_dir))
-            except Exception:pass
+                photo_dir=directory/('source-'+str(len(candidates)));photo_dir.mkdir(exist_ok=True)
+                candidates.append(_download_product_image(url,photo_dir))
+            except Exception as exc:last_photo_error=exc;continue
+        if not candidates and last_photo_error:raise last_photo_error
+        chosen=choose_photos(candidates)
+        image=chosen[0][0];extra_photos=[item[0] for item in chosen[1:4]]
+        record['photo_quality']=chosen[0][1]
+        record['marketing_review']={'status':'NEEDS_VISUAL_REVIEW',
+                                   'message':'Render checks do not establish marketing approval. Check product identity, edge markings, focus, composition and the complete video.'}
+        save(record,directory)
         out=render(image,directory,payload.name,payload.benefit,payload.product_url,record['seconds'],payload.style,update,sales_plan=record['sales_plan'],extra_images=extra_photos)
         record['seconds']=json.loads((directory/'quality.json').read_text())['duration'] if (directory/'quality.json').is_file() else record['seconds']
-        record.update(status='succeeded',message=('Benefit-led video checked and ready' if record['sales_plan'].get('mode') == 'benefit_led' else 'Product overview checked and ready — benefit details unavailable'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
+        record.update(status='succeeded',message=('Video rendered — visual marketing review required' if record['sales_plan'].get('mode') == 'benefit_led' else 'Product overview rendered — benefit details unavailable; visual review required'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
     finally:
