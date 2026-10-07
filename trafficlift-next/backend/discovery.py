@@ -1,0 +1,1011 @@
+"""True product discovery pipeline.
+
+This is the implementation of PATH A — Find Winning Product. It runs
+when the user clicks Find Winning Product with NO input. It must NOT
+depend on a user query, keyword relevance, or the static pool.
+
+Architecture:
+    1. Live research queries via Tavily (5 targeted product-opportunity
+       queries). No fake keywords.
+    2. Normalize each Tavily result into a candidate product record.
+    3. Reject articles, blog posts, brands without product, vague
+       listicles, duplicates, malformed candidates.
+    4. Build full ProductCard records with normalized fields and
+       evidence.
+    5. For each candidate, run the existing image cascade
+       (build_image_query_cascade + Tavily image search + validate +
+       rank). Skip candidates that fail image qualification.
+    6. Audit the first qualified candidate with ProductControlAgent.
+    7. Return the winner or a discovery-specific 404.
+
+Bounded by MAX_DISCOVERY_RESEARCH_QUERIES and MAX_DISCOVERY_CANDIDATES.
+"""
+from __future__ import annotations
+
+import logging
+import random
+import re
+from urllib.parse import urlsplit
+import time
+from typing import Optional
+
+from backend import live_research
+from backend.curated_winners import CURATED_WINNERS, CuratedWinner
+from backend.product_control_agent import (
+    ProductControlAgent,
+    _validate_image,
+    build_image_query_cascade,
+    rank_image_candidates,
+    MIN_PRODUCT_IMAGE_SCORE,
+    STRONG_IMAGE_SCORE,
+)
+from backend.product_research import ProductCard, ProductResearcher, _placeholder
+
+logger = logging.getLogger(__name__)
+
+
+# ── Constants ────────────────────────────────────────────────────────────
+
+MAX_DISCOVERY_RESEARCH_QUERIES = 5
+MAX_DISCOVERY_CANDIDATES = 8
+MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE = 3
+DISCOVERY_REQUEST_BUDGET_SECONDS = 19.0
+
+# How long the live-research phase may consume before we cut over to
+# the curated pool. Keeps the curated fallback from starving. With
+# 5s live, curated gets ~14s — enough for ~5 curated entries (each
+# takes ~2s for Tavily image-search + validation + audit).
+LIVE_PHASE_BUDGET_SECONDS = 5.0
+
+# Cap on consecutive duplicate curated picks before we resample.
+# Real users typically refresh only a few times per session, so this
+# gives variety without being chaotic.
+CURATED_SEEN_WINDOW = 4
+
+
+# Targeted product-opportunity searches. These are NOT fake keywords —
+# they are real search queries that surface live product launches,
+# review roundups, and trending consumer products.
+DISCOVERY_QUERIES = [
+    "trending best-selling consumer products 2026",
+    "popular home products trending now",
+    "trending kitchen gadgets best sellers",
+    "trending pet products best sellers 2026",
+    "popular desk accessories and tech gadgets 2026",
+]
+
+
+# Reject candidates that look like articles, blogs, brands without
+# product, services, or generic listicles. The check looks for these
+# patterns in the title and snippet.
+#
+# IMPORTANT: Be PERMISSIVE — most live Tavily results for product-opportunity
+# queries are listicle/blog titles like "Best Kitchen Gadgets 2026".
+# Those are valid discovery sources — the snippet/content describes real
+# products. We only reject CLEAR non-product content (downloads, courses,
+# generic store pages, etc.).
+_NON_PRODUCT_TITLE_PATTERNS = (
+    r"\bfree download\b",
+    r"\bpdf\b",
+    r"\bcourse\b",
+    r"\btutorial\b",
+    r"\bnewsletter signup\b",
+    r"\bcareers?\b",
+    r"\babout us\b",
+    r"\bcontact us?\b",
+    r"\bprivacy policy\b",
+    r"\bterms of service\b",
+    r"\bsitemap\b",
+)
+_NON_PRODUCT_TITLE_RE = re.compile(
+    "|".join(_NON_PRODUCT_TITLE_PATTERNS), re.IGNORECASE
+)
+
+# Generic phrases that mean "no specific product" — reject only when the
+# ENTIRE title is one of these (not when they appear as a substring).
+_GENERIC_TITLE_TOKENS = {
+    "amazon", "amazon.com", "store", "shop", "products",
+    "search results", "all products",
+}
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────
+
+def _looks_like_article(title: str, snippet: str) -> bool:
+    """Return True when a search result is not itself one concrete product.
+
+    Research articles/listicles remain useful as *evidence*, but they must
+    never become the winner payload. PATH A promises one sellable product
+    per click, so titles such as "21 Trending Products to Sell in 2026",
+    "Best Products for TikTok", category/search pages, and roundup articles
+    are rejected as product candidates.
+    """
+    text = f"{title} {snippet}"
+    # Indexed seller snippets can include footer links such as privacy policy.
+    # They do not turn a named product listing into an article.
+    if _NON_PRODUCT_TITLE_RE.search(title or ""):
+        return True
+    low = (title or "").strip().lower()
+    if low in _GENERIC_TITLE_TOKENS:
+        return True
+
+    # Strong listicle / roundup / category-page signals.
+    listicle_patterns = (
+        r"\b(?:top|best)\s+\d+\b",
+        r"\b(?:the\s+)?\d+\s+(?:best|top)\b",
+        r"\b(?:buyers?|buying|shopping)\s+(?:s\s+)?guides?\b",
+        r"\b(?:buyers?[’']s|buyer[’']s)\s+guides?\b",
+        r"\b(?:best|top)\b.*\b(?:stores|shops|retailers|brands)\b",
+        r"\bwhere\s+to\s+(?:buy|shop)\b",
+        r"\b(?:comparison|round\s*up)\b",
+        r"\b\d+\s+(?:trending|best|top|viral|winning)\s+products?\b",
+        r"\bproducts?\s+to\s+sell\b",
+        r"\btrending\s+products?\b",
+        r"\bbest\s+products?\b",
+        r"\bproduct\s+ideas?\b",
+        r"\b(?:best|top|trending|viral)\b.*\b(?:gadgets?|tools?|accessories|supplies|products?|items?)\b.*\b20\d{2}\b",
+        r"\broundup\b",
+        r"\bbest\s+sellers?\b",
+    )
+    return any(re.search(p, low, re.IGNORECASE) for p in listicle_patterns)
+
+
+def _has_specific_product_signal(name: str) -> bool:
+    """True if the name contains at least one SPECIFIC product noun.
+
+    Used by the title normalizer: if the title ONLY has generic stems
+    (``product``, ``item``, ``kit``, ``set``, …) and no specific stem
+    (``brush``, ``lamp``, ``organizer``, …), treat the title as a
+    SEO-only phrase and try to extract a better name from the snippet.
+    """
+    if not name:
+        return False
+    low = name.lower()
+    for stem in _SPECIFIC_NOUN_STEMS:
+        if re.search(_stem_pattern(stem), low):
+            return True
+    return False
+
+
+def _normalize_title(raw_title: str, snippet: str = "") -> Optional[str]:
+    """Clean a raw Tavily title into a usable product name.
+
+    Strips common noise patterns:
+      - 'Amazon.com: ' prefix
+      - ' : Amazon.com' suffix
+      - leading list markers ('Top 10…', 'Best 5…')
+      - trailing '... [Review]' style suffixes
+
+    If the resulting title has only GENERIC product signal (e.g.
+    "Trending Products" — has "products" but no concrete noun like
+    "brush"), try to extract a concrete product name from the snippet.
+    Listicle articles typically name their top picks in the opening
+    sentences.
+    """
+    if not raw_title:
+        return None
+    t = raw_title.strip()
+    # Strip Amazon prefix
+    t = re.sub(r"^Amazon\.com\s*:\s*", "", t, flags=re.IGNORECASE)
+    # Strip Amazon suffix
+    t = re.sub(r"\s*[\|:]\s*Amazon\.com.*$", "", t, flags=re.IGNORECASE)
+    # Keep a contiguous seller title prefix rather than inventing a
+    # product name from an arbitrary surrounding snippet.
+    t = t.split(' | ')[0]
+    t = re.sub(r"\s*:\s*(?:Home & Kitchen|Office Products|Tools & Home Improvement|Sports & Outdoors|Pet Supplies).*$", '', t, flags=re.I)
+    if len(t) > 90:
+        prefix = t.split(',')[0]
+        t = prefix if len(prefix) <= 90 else prefix[:91].rsplit(' ',1)[0]
+    # Strip trailing '... Review' / '... in 2026' style suffixes
+    t = re.sub(r"\s*[\.…]+\s*\d{4}.*$", "", t)
+    t = re.sub(r"\s*[\|]\s*review.*$", "", t, flags=re.IGNORECASE)
+    # Strip leading listicle markers (e.g. "Top 10: ")
+    t = re.sub(r"^(?:top|best)\s+\d+\s*[:\-–—]\s*", "", t, flags=re.IGNORECASE)
+    # Strip surrounding quotes
+    t = t.strip().strip('"').strip("'").strip()
+    if not t or len(t) < 6 or len(t) > 150:
+        return None
+    # If the title has NO specific product signal (only generic stems
+    # like "products" / "items") AND a snippet is available, try to
+    # extract a real product phrase from the snippet.
+    if not _has_specific_product_signal(t):
+        # A generic article/listicle title is research evidence, not a product.
+        return None
+    return t
+
+
+def _extract_product_phrase_from_snippet(snippet: str) -> Optional[str]:
+    """Find a product-noun-bearing phrase in the snippet.
+
+    Looks for the first occurrence of a SPECIFIC product noun in the
+    snippet and returns a short surrounding phrase (up to ~6 words,
+    capitalized as in the snippet). Generic stems (``product``,
+    ``item``, ``kit``, ``set``, …) are only used as a fallback when no
+    specific stem is found — otherwise the extractor would latch onto
+    "products" in phrases like "Top trending products" and miss the
+    actual product name mentioned later.
+
+    Returns None if no product noun is found anywhere in the snippet.
+    """
+    if not snippet:
+        return None
+    low = snippet.lower()
+    # Only accept SPECIFIC product nouns. Generic words such as
+    # "product", "item", "kit", or "set" are not enough to establish a
+    # single concrete winner and were the root cause of listicle pages
+    # being promoted as products.
+    specific_stems = _SPECIFIC_NOUN_STEMS
+    best_pos, best_stem = _find_first_stem(low, specific_stems)
+    if best_pos < 0:
+        return None
+    # Slice the snippet around the match: take up to 5 words BEFORE and
+    # 1 word AFTER the stem, capped at ~60 chars total. We DO walk
+    # through whitespace — we only stop at sentence punctuation
+    # (period, semicolon, exclamation, question mark) so the phrase
+    # stays within a single sentence fragment.
+    sentence_breaks = {".", ";", "!", "?", "\n"}
+    start = best_pos
+    words_before = 0
+    while start > 0 and snippet[start - 1] not in sentence_breaks and \
+            words_before < 5 and (best_pos - start) < 60:
+        # Walk backward through a single whitespace-delimited word.
+        # First, skip any whitespace.
+        while start > 0 and snippet[start - 1] in " \t":
+            start -= 1
+        # Now walk backward through the word chars until whitespace or
+        # a sentence break.
+        while start > 0 and snippet[start - 1] not in " \t" and \
+                snippet[start - 1] not in sentence_breaks:
+            start -= 1
+        words_before += 1
+    end = best_pos + len(best_stem)
+    words_after = 0
+    while end < len(snippet) and snippet[end] not in sentence_breaks and \
+            words_after < 1 and (end - best_pos) < 40:
+        # Skip whitespace, then walk through the next word.
+        while end < len(snippet) and snippet[end] in " \t":
+            end += 1
+        while end < len(snippet) and snippet[end] not in " \t" and \
+                snippet[end] not in sentence_breaks:
+            end += 1
+        words_after += 1
+    phrase = snippet[start:end].strip(" .,;:!?\"'")
+    if not phrase or len(phrase) < 6:
+        return None
+    # Drop leading articles / fillers that wouldn't make a good product
+    # name (e.g. "include the Ultrasonic Brush" → "Ultrasonic Brush").
+    words = phrase.split()
+    drop = {"a", "an", "the", "and", "or", "include", "includes",
+            "with", "featuring", "like", "such", "as"}
+    while words and words[0].lower() in drop:
+        words.pop(0)
+    if not words:
+        return None
+    phrase = " ".join(words)
+    if len(phrase) < 6:
+        return None
+    # Title-case the phrase nicely.
+    out_words = []
+    for i, w in enumerate(words):
+        if i == 0:
+            out_words.append(w[:1].upper() + w[1:])
+        elif w.lower() in {"a", "an", "the", "and", "or", "for", "with",
+                           "to", "of", "in", "on", "at", "by"}:
+            out_words.append(w.lower())
+        else:
+            out_words.append(w[:1].upper() + w[1:])
+    return " ".join(out_words)
+
+
+def _find_first_stem(low: str, stems: tuple) -> tuple:
+    """Return (position, stem) of the first stem occurrence in ``low``
+    text, or (-1, "") if none match."""
+    best_pos = -1
+    best_stem = ""
+    for stem in stems:
+        m = re.search(_stem_pattern(stem), low)
+        if m and (best_pos == -1 or m.start() < best_pos):
+            best_pos = m.start()
+            best_stem = stem
+            if best_pos == 0:
+                break
+    return best_pos, best_stem
+
+
+# Specific (concrete) product types — used first by the snippet extractor
+# so we prefer concrete nouns like "brush", "lamp", "mug" over generic
+# words like "products", "items", "kit".
+_SPECIFIC_NOUN_STEMS = (
+    "lamp", "light", "organizer", "rack", "stand", "holder", "shelf",
+    "charger", "cable", "speaker", "headphone", "earbud", "mat",
+    "brush", "scrubber", "vacuum", "mop", "spray", "towel", "bed",
+    "bowl", "feeder", "leash", "collar", "mug", "cup", "knife",
+    "pan", "pot", "tray", "stool", "chair", "desk", "monitor",
+    "keyboard", "mouse", "router", "hub", "adapter", "pillow",
+    "blanket", "duvet", "sheet", "filter", "purifier", "fan",
+    "heater", "cooler", "bottle", "flask", "jug", "pitcher",
+    "thermos", "kettle", "blender", "mixer", "grill", "fryer",
+    "oven", "stove", "fridge", "freezer", "washer", "dryer",
+    "drill", "saw", "screwdriver", "hammer", "wrench", "tool",
+    "bag", "backpack", "wallet", "purse", "belt", "watch",
+    "ring", "necklace", "earring", "bracelet", "scarf", "hat",
+    "glove", "sock", "shoe", "boot", "sandal", "sneaker",
+    "shirt", "pants", "dress", "jacket", "coat", "sweater",
+    "hoodie", "cushion", "sofa", "table", "mirror",
+    "gadget", "supplies", "gear", "equipment",
+    "device", "machine", "system",
+)
+
+
+# Generic stems — only used as fallback in the snippet extractor. Kept
+# separate so the extractor can prefer specific nouns.
+_GENERIC_NOUN_STEMS = (
+    "product", "item", "kit", "set", "bundle",
+    "accessory", "solution", "essential",
+    "innovation", "necessity",
+)
+
+
+def _derive_product_type(name: str) -> Optional[str]:
+    """Best-effort product-type extraction from a name."""
+    if not name:
+        return None
+    low = name.lower()
+    # Common product-type tokens
+    TYPE_TOKENS = (
+        "lamp", "light", "organizer", "rack", "stand", "holder", "shelf",
+        "charger", "cable", "speaker", "headphone", "earbud", "mat",
+        "brush", "scrubber", "vacuum", "mop", "spray", "towel", "bed",
+        "bowl", "feeder", "leash", "collar", "mug", "cup", "knife",
+        "pan", "pot", "tray", "stool", "chair", "desk", "monitor",
+        "keyboard", "mouse", "router", "hub", "adapter", "pillow",
+        "blanket", "duvet", "sheet", "filter", "purifier", "fan",
+        "heater", "cooler", "bottle", "flask", "jug", "pitcher",
+        # Broader nouns from listicle titles
+        "gadget", "gadgets", "product", "products", "kit", "set",
+        "accessory", "accessories", "tool", "tools", "supplies",
+    )
+    for t in TYPE_TOKENS:
+        if re.search(r"\b" + re.escape(t) + r"\b", low):
+            return t
+    # Otherwise take the last noun-ish word (very rough heuristic).
+    words = re.findall(r"[a-z]{4,}", low)
+    return words[-1] if words else None
+
+
+def _infer_category(name: str) -> str:
+    """Map a product name to a CATEGORY_LABELS-like display label."""
+    if not name:
+        return "Trending General"
+    low = name.lower()
+    if any(w in low for w in ("kitchen", "spice", "knife", "pan", "pot", "mug",
+                              "coffee", "blender", "cookware", "recipe", "utensil",
+                              "air fryer", "mixer", "grill")):
+        return "Kitchen & Cooking"
+    if any(w in low for w in ("phone", "tablet", "laptop", "charger", "cable",
+                              "wireless", "bluetooth", "smart", "led", "usb",
+                              "earbud", "headphone", "speaker", "monitor",
+                              "keyboard", "mouse", "tech", "gadget", "dock")):
+        return "Tech & Gadgets"
+    if any(w in low for w in ("dog", "cat", "puppy", "kitten", "pet", "leash",
+                              "collar", "kennel", "crate", "feeder", "litter",
+                              "bowl", "treat", "grooming", "bed ")):
+        return "Pet Supplies"
+    if any(w in low for w in ("lamp", "light", "mirror", "shelf", "throw",
+                              "blanket", "candle", "vase", "plant", "wall",
+                              "decor", "pillow", "bedroom", "couch", "sofa")):
+        return "Aesthetic Home Decor"
+    if any(w in low for w in ("yoga", "fitness", "exercise", "gym", "workout",
+                              "dumbbell", "resistance", "band", "roller",
+                              "posture", "massage", "foam")):
+        return "Fitness & Wellness"
+    if any(w in low for w in ("clean", "scrub", "brush", "mop", "vacuum",
+                              "sweep", "dust", "wipe", "soap", "stain",
+                              "toilet", "shower", "bathroom", "spray")):
+        return "Home & Cleaning"
+    return "Trending General"
+
+
+def _stem_pattern(stem: str) -> str:
+    """Return a whole-word regex pattern that matches the stem AND its
+    common English plurals (``stand`` → ``stands``, ``accessory`` →
+    ``accessories``, ``box`` → ``boxes``).
+    """
+    if stem.endswith("y"):
+        # y → ies plural (e.g. accessory → accessories)
+        return r"\b" + re.escape(stem[:-1]) + r"(?:y|ies)\b"
+    if stem.endswith(("s", "x", "z", "sh", "ch")):
+        return r"\b" + re.escape(stem) + r"(?:es|s)?\b"
+    return r"\b" + re.escape(stem) + r"(?:s|es)?\b"
+
+
+def _has_product_signal(name: str) -> bool:
+    """True if the name contains at least one product-ish noun.
+
+    The list combines three layers:
+      1. Specific product nouns (lamp, organizer, mug, ...)
+      2. Broader product signals (gadget, product, kit, accessory, ...)
+
+    Tier 2 is included because live Tavily results for discovery queries
+    frequently have generic listicle titles like "Best Kitchen Gadgets"
+    or "Top Pet Products". Rejecting those means we'd miss the actual
+    product-rich source pages.
+
+    Single-word phrases like "Kitchen" or "Apple" (brand/category alone,
+    no product signal) still fail — they don't contain ANY product
+    noun or specific broad signal.
+
+    Match is **whole-word** so ``"kit"`` does NOT match inside
+    ``"kitchen"``, ``"mat"`` does NOT match inside ``"format"``.
+
+    Each stem is matched against itself AND its plural (``stand`` →
+    ``stands``, ``accessory`` → ``accessories``) so listicle titles
+    like "Top 10 Phone Stands" and "Best Coffee Accessories" pass.
+    """
+    if not name:
+        return False
+    low = name.lower()
+    PRODUCT_NOUN_STEMS = (
+        # Specific product types
+        "lamp", "light", "organizer", "rack", "stand", "holder", "shelf",
+        "charger", "cable", "speaker", "headphone", "earbud", "mat",
+        "brush", "scrubber", "vacuum", "mop", "spray", "towel", "bed",
+        "bowl", "feeder", "leash", "collar", "mug", "cup", "knife",
+        "pan", "pot", "tray", "stool", "chair", "desk", "monitor",
+        "keyboard", "mouse", "router", "hub", "adapter", "pillow",
+        "blanket", "duvet", "sheet", "filter", "purifier", "fan",
+        "heater", "cooler", "bottle", "flask", "jug", "pitcher",
+        "thermos", "kettle", "blender", "mixer", "grill", "fryer",
+        "oven", "stove", "fridge", "freezer", "washer", "dryer",
+        "drill", "saw", "screwdriver", "hammer", "wrench", "tool",
+        "bag", "backpack", "wallet", "purse", "belt", "watch",
+        "ring", "necklace", "earring", "bracelet", "scarf", "hat",
+        "glove", "sock", "shoe", "boot", "sandal", "sneaker",
+        "shirt", "pants", "dress", "jacket", "coat", "sweater",
+        "hoodie", "cushion", "sofa", "table", "mirror",
+        # Broader product signals — listicle/blog titles contain these
+        "gadget", "product", "item", "kit", "set", "bundle",
+        "accessory", "supplies", "gear", "equipment",
+        "solution", "device", "machine", "system", "essential",
+        "tool", "innovation", "necessity",
+    )
+    for stem in PRODUCT_NOUN_STEMS:
+        if re.search(_stem_pattern(stem), low):
+            return True
+    return False
+
+
+def _score_candidate(card: ProductCard, evidence_count: int) -> int:
+    """Compute a discovery-mode score using only signals available on the
+    card. No fake numeric claims — uses existing fields.
+
+    Signals used:
+      - evidence_count (number of research sources that mention this
+        product or its keywords; the constructor fills this in from the
+        research_sources)
+      - evergreen_score (existing field on ProductCard)
+      - trend_score_range midpoint
+      - margin_estimate keyword scoring
+    """
+    score = 0
+    # Evidence strength (more sources = more confidence).
+    score += min(evidence_count * 5, 30)
+    # Evergreen strength.
+    if card.evergreen_score is not None:
+        score += int(card.evergreen_score * 30)
+    # Trend score midpoint.
+    if card.trend_score_range:
+        lo, hi = card.trend_score_range
+        score += int((lo + hi) / 2 / 4)
+    # Margin estimate: "High" / "Medium-High" / "Medium" etc.
+    margin = (card.margin_estimate or "").lower()
+    if "high" in margin:
+        score += 25
+    elif "medium" in margin:
+        score += 15
+    elif "low" in margin:
+        score += 5
+    # Product specificity bonus — explicit product-type noun = better.
+    if card.angle_options and len(card.angle_options[0]) > 40:
+        score += 5
+    return score
+
+
+# ── Candidate building from Tavily results ──────────────────────────────
+
+# These hosts may provide evidence, but they are not the selected seller.
+EVIDENCE_ONLY_DOMAINS = {'shopperapproved.com','trustpilot.com','reviews.io',
+                         'resellerratings.com','sitejabber.com','g2.com','capterra.com'}
+
+def is_evidence_site(url):
+    host=(urlsplit(url).hostname or '').lower().removeprefix('www.')
+    return any(host==d or host.endswith('.'+d) for d in EVIDENCE_ONLY_DOMAINS)
+
+def _is_listing_url(url):
+    parsed=urlsplit(url)
+    host=(parsed.hostname or '').lower().removeprefix('www.')
+    path=parsed.path.lower()
+    if not host or parsed.scheme not in {'http','https'} or is_evidence_site(url):return False
+    if path.rstrip('/') in {'','/shop','/store','/products','/product','/collections','/reviews','/solutions','/pricing','/features','/about','/contact'}:return False
+    if re.search(r'/(?:blog|blogs|news|articles|category|categories|search|reviews|review|directory|directories)(?:/|$)',path):return False
+    if host in {'amazon.com','walmart.com','target.com','etsy.com'}:
+        routes={'amazon.com':r'/(?:dp|gp/product)/[a-z0-9]{9,10}(?:/|$)',
+                'walmart.com':r'/ip/.+','target.com':r'/p/.+','etsy.com':r'/listing/\d+'}
+        return bool(re.search(routes[host],path))
+    return True
+
+
+def _build_candidates_from_envelope(
+    envelope, seen_titles: set
+) -> list[ProductCard]:
+    """Walk one ResearchEnvelope's research_sources and yield ProductCards.
+
+    Each Tavily result becomes a candidate. The card's evidence_count is
+    the number of other sources that mention any token from this title
+    — a cheap co-mention signal.
+    """
+    if envelope is None:
+        return []
+    sources = list(envelope.research_sources or [])
+    if not sources:
+        return []
+    cards: list[ProductCard] = []
+    for i, src in enumerate(sources):
+        raw_title = (src.get("title") or "").strip()
+        url = (src.get("url") or "").strip()
+        snippet = (src.get("snippet") or src.get("content") or "").strip()
+        if not raw_title or not url:
+            continue
+        if not _is_listing_url(url):
+            logger.info('[discover] reject non-listing URL: %s', url)
+            continue
+        if re.search(r"\b(every new|announced|pipeline 20\d\d|product roundup|reserve a table|store for|pet store in)\b",raw_title,re.I) or _looks_like_article(raw_title, snippet):
+            logger.info("[discover] reject article/blog: %r", raw_title[:80])
+            continue
+        name = _normalize_title(raw_title, snippet)
+        if not name:
+            continue
+        # PATH A must return one concrete product, never a roundup title.
+        # Requiring a SPECIFIC noun prevents generic/listicle candidates such
+        # as "21 Trending Products..." from passing just because they contain
+        # the word "products".
+        if not _has_specific_product_signal(name):
+            logger.info("[discover] reject non-concrete candidate: %r", name[:80])
+            continue
+        # Deduplicate full product identity; shared brand prefixes do not
+        # make different models the same product.
+        key = " ".join(re.findall(r"[a-z0-9]+", name.lower()))
+        if key in seen_titles:
+            logger.info("[discover] reject duplicate: %r", name[:80])
+            continue
+        seen_titles.add(key)
+        product_type = _derive_product_type(name)
+        category = _infer_category(name)
+        from backend.winner_history import product_id
+        cid = product_id(name, url)
+        # Count co-mentions in the other sources.
+        co_mentions = 0
+        title_tokens = [t for t in re.findall(r"[a-z]{4,}", name.lower())]
+        for j, other in enumerate(sources):
+            if j == i:
+                continue
+            other_text = " ".join([
+                (other.get("title") or "").lower(),
+                (other.get("snippet") or other.get("content") or "").lower(),
+            ])
+            if any(tok in other_text for tok in title_tokens[:3]):
+                co_mentions += 1
+        evidence_count = 1 + co_mentions
+        pin_title = f"{name}"
+        pin_desc = (
+            f"{name} — surfaced by live trending-product research. "
+            f"Co-mentioned in {evidence_count} source(s) of fresh market data."
+        )
+        card = ProductCard(
+            id=cid,
+            name=name,
+            category=category,
+            image_url=_placeholder(cid, name, category.lower().split(" ")[0]
+                                    if category else "kitchen"),
+            url=url,
+            angle_options=[
+                f"{name} — trending pick from live research.",
+                f"Why {name} is showing up everywhere right now.",
+                f"Top trend signal: {name}.",
+            ],
+            pin_title_options=[pin_title, f"Trending: {name}"],
+            pin_description_options=[pin_desc],
+            hashtags_pool=["#Trending", "#BestSeller", "#MustHave",
+                           "#TopPicks", "#Viral", "#NewDrop"],
+            viral_hook_options=[
+                f"{name} is trending — here's why.",
+            ],
+            trend_score_range=(70 + min(co_mentions * 5, 25),
+                               85 + min(co_mentions * 5, 15)),
+            trend_signals_options=[
+                [f"Surfaced from live research query '{envelope.research_query}'",
+                 f"Co-mentioned across {evidence_count} independent sources"],
+            ],
+            margin_estimate="Medium (25-40%)",
+            evergreen_score=0.7,
+            competition="Medium",
+            competition_reasons=[f"Surfaced from live discovery; competition varies"],
+        )
+        cards.append(card)
+        logger.info(
+            "[discover] candidate=%r category=%r type=%r evidence=%d",
+            name[:60], category, product_type, evidence_count,
+        )
+        if len(cards) >= MAX_DISCOVERY_CANDIDATES:
+            break
+    return cards
+
+
+# ── Image discovery for a candidate ─────────────────────────────────────
+
+# Cap how many pre-fetched Tavily images we validate per candidate. This
+# keeps the worst-case validation work bounded:
+#   8 candidates × 5 images × 2s HEAD = 80s worst case if all time out.
+# We cap at 4 (enough to surface the top picks from Tavily) and STOP
+# validating as soon as we find a strong image.
+MAX_PREFETCHED_IMAGES_PER_CANDIDATE = 4
+
+# Per-URL HEAD timeout for discovery. Shorter than the 3s default so a
+# dead CDN cannot blow the discovery budget.
+DISCOVERY_IMAGE_HEAD_TIMEOUT = 2.0
+
+
+def _find_image_for_candidate(card: ProductCard, intent: str = "",
+                                tavily_image_urls: Optional[list[str]] = None,
+                                deadline_monotonic: Optional[float] = None) -> Optional[str]:
+    """Find a verified product image for one candidate.
+
+    Strategy (ordered by speed and quality):
+      1. **Tavily pre-fetched images** — these came back in the SAME
+         request that surfaced this candidate. Tavily's image ranking is
+         high quality, and they're already on Tavily's CDN. Validate +
+         rank them; accept the first one above ``MIN_PRODUCT_IMAGE_SCORE``.
+      2. **Image cascade** — run ``build_image_query_cascade`` and
+         Tavily-image-search each variant. Bounded by
+         ``MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE``.
+      3. Return None if neither yields a verified, scored image.
+
+    If ``deadline_monotonic`` is provided, the function returns None as
+    soon as the wall clock crosses it (avoids blowing the parent
+    request budget while validating slow CDNs).
+    """
+    def _budget_left() -> bool:
+        return deadline_monotonic is None or time.monotonic() < deadline_monotonic
+
+    # ── STEP 1: try pre-fetched Tavily images first ─────────────────────
+    if not _budget_left():
+        return None
+    pre_urls = list(tavily_image_urls or []) if tavily_image_urls else []
+    pre_urls = pre_urls[:MAX_PREFETCHED_IMAGES_PER_CANDIDATE]
+    pre_verified = _validate_and_rank(
+        pre_urls, card.name, card.category or "",
+        head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+    )
+    if pre_verified:
+        url, score = pre_verified
+        logger.info(
+            "[discover] image from pre-fetched tavily card=%r score=%d url=%s",
+            card.name[:60], score, url[:80],
+        )
+        return url
+
+    # ── STEP 2: cascade fallback ───────────────────────────────────────
+    if not _budget_left():
+        return None
+    cascade = build_image_query_cascade(
+        product_name=card.name,
+        category=card.category or "",
+        intent=intent,
+    )
+    if not cascade:
+        return None
+    cascade = cascade[:MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE]
+
+    candidate_urls: list[str] = []
+    seen: set[str] = set()
+    for q in cascade:
+        if not _budget_left():
+            break
+        try:
+            urls = live_research.research_images(q, max_results=3) or []
+        except Exception as exc:
+            logger.info("[discover] image query failed q=%r: %s", q, exc)
+            urls = []
+        for u in urls:
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            candidate_urls.append(u)
+
+    if not _budget_left():
+        return None
+    cascade_verified = _validate_and_rank(
+        candidate_urls, card.name, card.category or "",
+        head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+    )
+    if cascade_verified:
+        url, score = cascade_verified
+        logger.info(
+            "[discover] image from cascade card=%r score=%d url=%s",
+            card.name[:60], score, url[:80],
+        )
+        return url
+
+    logger.info("[discover] no verified image card=%r (pre=%d cascade=%d)",
+                card.name[:60], len(pre_urls), len(candidate_urls))
+    return None
+
+
+def _validate_and_rank(urls: list[str], name: str, category: str,
+                       *, head_timeout: float = DISCOVERY_IMAGE_HEAD_TIMEOUT
+                       ) -> Optional[tuple[str, int]]:
+    """Validate each URL via HEAD, then rank the survivors. Return the
+    best (url, score) above ``MIN_PRODUCT_IMAGE_SCORE`` or None."""
+    if not urls:
+        return None
+    validated: list[tuple[str, object]] = []
+    for u in urls:
+        try:
+            # _validate_image expects ``head_timeout`` as a kwarg, NOT
+            # ``timeout``. (Earlier passing ``timeout=`` here silently
+            # raised TypeError, which we caught and treated as 'no
+            # image' — that's the original PATH A 404 root cause.)
+            check = _validate_image(u, head_timeout=head_timeout)
+        except Exception as exc:
+            logger.info("[discover] validate error for %s: %s", u[:80], exc)
+            continue
+        if check and check.ok:
+            validated.append((u, check))
+    if not validated:
+        return None
+    # ``rank_image_candidates`` takes a list[str] of URLs plus
+    # keyword-only product_name / category. Extract just the URLs here.
+    url_only = [u for (u, _c) in validated]
+    try:
+        ranked = rank_image_candidates(
+            url_only, product_name=name, category=category,
+        )
+    except TypeError as exc:
+        logger.warning("[discover] rank_image_candidates signature mismatch: %s", exc)
+        ranked = []
+    if not ranked:
+        return None
+    best_url, best_score = ranked[0]
+    if best_score < MIN_PRODUCT_IMAGE_SCORE:
+        return None
+    return best_url, best_score
+
+
+# ── Main entry point ─────────────────────────────────────────────────────
+
+def discover_winner(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
+    """Fresh-only PATH A; saved pools remain available to legacy browsing."""
+    from backend.discovery_engine import discover
+    return discover(exclude_ids=exclude_ids, exclude_keys=exclude_keys,
+                    client_id=client_id, seed=seed, broad_market=True, require_signals=True)
+
+
+# ── Curated winners fallback (PATH A reliability layer) ─────────────────
+
+# Module-level sliding window of recently-picked curated winner names.
+# Resets to empty after every fresh request — process-wide state would
+# leak across requests on a multi-worker server.
+_RECENT_CURATED_NAMES: list[str] = []
+
+
+def _pick_curated_winner(*, seen_names: set[str],
+                          exclude_ids: Optional[set[str]] = None,
+                          deadline_monotonic: float,
+                          t_start: float) -> Optional[dict]:
+    """Pick the next curated winner whose image we can verify.
+
+    Tries each curated entry in shuffled order, stopping at the first
+    one whose Tavily image search yields a verified product photo. To
+    provide variety across repeated clicks, the pool is shuffled and
+    we skip names that were picked very recently (sliding window of
+    ``CURATED_SEEN_WINDOW``).
+
+    Returns the winner payload (compatible with /find-winner shape) or
+    ``None`` if the budget is exhausted or no curated entry has a
+    verified image.
+    """
+    global _RECENT_CURATED_NAMES
+    exclude_ids = set(exclude_ids or set())
+
+    if not CURATED_WINNERS:
+        logger.warning("[discover] curated pool is empty — fallback disabled")
+        return None
+
+    # Build candidate order. Priority:
+    #   1. Entries with hardcoded direct_image_url(s) — fastest path,
+    #      guaranteed to work without Tavily. These are tried FIRST so
+    #      PATH A always returns within budget.
+    #   2. Other entries (Tavily image-search path).
+    # Within each priority tier, shuffle to provide variety, but skip
+    # names that were picked very recently (sliding window).
+    pool = list(CURATED_WINNERS)
+    random.shuffle(pool)
+    fast_pool = [w for w in pool if w.get("direct_image_url") or w.get("direct_image_urls")]
+    slow_pool = [w for w in pool if w not in fast_pool]
+
+    # Trim recent window.
+    if len(_RECENT_CURATED_NAMES) > CURATED_SEEN_WINDOW:
+        _RECENT_CURATED_NAMES = _RECENT_CURATED_NAMES[-CURATED_SEEN_WINDOW:]
+    recent_set = set(_RECENT_CURATED_NAMES)
+
+    # First pass: try non-recent entries from FAST pool, then SLOW pool.
+    ordered: list = []
+    def _curated_id(entry):
+        card_id = re.sub(r"\W+", "-", entry["name"].lower())[:60].strip("-") or "curated"
+        return f"curated-{card_id}"
+
+    for tier in (fast_pool, slow_pool):
+        non_recent = [
+            w for w in tier
+            if w["name"] not in recent_set
+            and w["name"] not in seen_names
+            and _curated_id(w) not in exclude_ids
+        ]
+        ordered.extend(non_recent)
+    # If we filtered out everything, allow repeats within each tier.
+    if not ordered:
+        ordered = [
+            w for w in (list(fast_pool) + list(slow_pool))
+            if _curated_id(w) not in exclude_ids
+        ]
+
+    for entry in ordered:
+        if time.monotonic() > deadline_monotonic:
+            logger.info("[discover] curated: budget exhausted after %d entries",
+                        len(ordered))
+            return None
+        winner = _try_curated_entry(entry, deadline_monotonic, t_start)
+        if winner is not None:
+            _RECENT_CURATED_NAMES.append(entry["name"])
+            return winner
+    return None
+
+
+def _try_curated_entry(entry: CuratedWinner, deadline_monotonic: float,
+                       t_start: float) -> Optional[dict]:
+    """Resolve one curated entry to a verified winner payload or None."""
+    name = entry["name"]
+    category = entry.get("category") or "Trending General"
+    image_url = _resolve_curated_image(entry, deadline_monotonic)
+    if not image_url:
+        logger.info("[discover] curated: no verified image for %r", name[:60])
+        return None
+    # Build the winner payload via ProductResearcher._materialize — same
+    # path as the static pool — then run ProductControlAgent.evaluate
+    # for audit. This keeps audit + scoring consistent with the rest
+    # of the backend.
+    card_id = re.sub(r"\W+", "-", name.lower())[:60].strip("-") or "curated"
+    card = ProductCard(
+        id=f"curated-{card_id}",
+        name=name,
+        category=category,
+        image_url=image_url,
+        url=entry.get("source_url") or "",
+        angle_options=entry.get("angle_options") or [],
+        pin_title_options=entry.get("pin_title_options") or [],
+        pin_description_options=entry.get("pin_description_options") or [],
+        hashtags_pool=entry.get("hashtags_pool") or [],
+        viral_hook_options=entry.get("viral_hook_options") or [],
+        trend_score_range=tuple(entry.get("trend_score_range") or (70, 88)),
+        trend_signals_options=entry.get("trend_signals_options") or [[]],
+        margin_estimate=entry.get("margin_estimate") or "Medium (25-40%)",
+        evergreen_score=float(entry.get("evergreen_score") or 0.75),
+        competition=entry.get("competition") or "Medium",
+        competition_reasons=entry.get("competition_reasons") or [],
+    )
+    researcher = ProductResearcher()
+    audit_payload = researcher._materialize(card, category)
+    # Override the `source` so the provenance is clear.
+    audit_payload["source"] = "discovery-curated"
+    audit_payload["source_label"] = entry.get("source_label") or "Curated"
+    audit_payload["image_url"] = image_url
+    report = ProductControlAgent.evaluate(audit_payload)
+    if not report.ok:
+        logger.info("[discover] curated: audit FAIL for %r reason=%s",
+                    name[:60], report.primary_reason)
+        return None
+    winner = report.product
+    winner["source"] = "discovery-curated"
+    winner["discovery"] = {
+        "research_queries": [],
+        "raw_results": 0,
+        "normalized_candidates": 0,
+        "candidates_attempted": 0,
+        "winner_evidence_count": 0,
+        "winner_source_url": card.url,
+        "winner_source_label": entry.get("source_label") or "Curated",
+        "curated_notes": entry.get("notes") or "",
+        "elapsed_seconds": round(time.monotonic() - t_start, 3),
+        "fallback_used": "curated_pool",
+    }
+    winner["selection_rationale"] = (
+        f"Live research did not surface a qualified product within the "
+        f"budget; selected from the curated winning-products pool. "
+        f"{entry.get('source_label', 'Curated')} — "
+        f"{entry.get('notes', '')}".strip()
+    )
+    winner["trend_signals"] = list(
+        (entry.get("trend_signals_options") or [["Curated trending product"]])[0]
+    )
+    winner["image_status"] = "verified"
+    logger.info(
+        "[discover] curated ACCEPTED winner=%r category=%r image=%s elapsed=%.2fs",
+        name[:60], category, image_url[:80], time.monotonic() - t_start,
+    )
+    return winner
+
+
+def _resolve_curated_image(entry: CuratedWinner,
+                            deadline_monotonic: float) -> Optional[str]:
+    """Run the curated entry's image queries and return the first
+    verified product photo, or None if no query yields a strong image.
+
+    The image URLs come from Tavily's image-search endpoint and are
+    validated + ranked through the same pipeline as live research.
+
+    The collected URLs are capped at MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE
+    to keep the validation cost bounded — each HEAD validation can
+    take up to ``DISCOVERY_IMAGE_HEAD_TIMEOUT`` seconds.
+    """
+    # Fast path: try the hardcoded `direct_image_url` / `direct_image_urls`
+    # first. These are real CDN URLs (Shopify, Amazon, scene7, etc.) that
+    # have been hand-verified for stability. If HEAD returns ok=True, we
+    # return immediately — no Tavily call, no scoring delay.
+    direct_urls = list(entry.get("direct_image_urls") or [])
+    if entry.get("direct_image_url"):
+        direct_urls.insert(0, entry["direct_image_url"])
+    if direct_urls:
+        verified = _validate_and_rank(
+            direct_urls, entry["name"], entry.get("category") or "",
+            head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+        )
+        if verified:
+            logger.info(
+                "[discover] curated image from direct hardcoded URL for %r",
+                entry["name"][:60],
+            )
+            return verified[0]
+
+    # Normal path: Tavily image-search with the curated queries.
+    queries = entry.get("image_queries") or []
+    if not queries:
+        return None
+    cap = MAX_IMAGE_SEARCH_QUERIES_PER_CANDIDATE
+    all_urls: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        if time.monotonic() > deadline_monotonic:
+            break
+        try:
+            urls = live_research.research_images(query, max_results=3) or []
+        except Exception as exc:
+            logger.info("[discover] curated image query failed q=%r: %s",
+                        query[:60], exc)
+            urls = []
+        for u in urls:
+            if u and u not in seen:
+                seen.add(u)
+                all_urls.append(u)
+        # Stop gathering once we have enough candidates.
+        if len(all_urls) >= cap:
+            break
+    if not all_urls:
+        return None
+    verified = _validate_and_rank(
+        all_urls, entry["name"], entry.get("category") or "",
+        head_timeout=DISCOVERY_IMAGE_HEAD_TIMEOUT,
+    )
+    if verified:
+        return verified[0]
+    return None
+

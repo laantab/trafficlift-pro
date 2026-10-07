@@ -1,0 +1,3 @@
+{
+  "backend/tests/test_research_recovery.py::test_listing_snippet_footer_does_not_reject_real_product": true
+}
