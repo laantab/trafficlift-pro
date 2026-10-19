@@ -2035,6 +2035,62 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
     }
 
+    // Free, deterministic Pinterest editor. Only suggest generic, verifiable language;
+    // never infer features, ratings, sales or buyer outcomes from an unverified listing.
+    function editPinterestPackage(pkg, winner) {
+        const product = String(winner?.name || '').trim();
+        const rawTitle = String(pkg?.pin_title || '').trim();
+        const category = String(winner?.category || '').trim();
+        const searchText = (product + ' ' + category).toLowerCase();
+        let topic = '';
+        let headline = '';
+        let board = '';
+        if (/drawer organizer|silverware organizer|utensil tray/.test(searchText)) {
+            topic = 'expandable bamboo drawer organizer';
+            if (!/expandab|bamboo/.test(searchText)) topic = 'drawer organizer';
+            headline = 'Ideas for a More Organized Drawer';
+            board = 'Kitchen Drawer Organization';
+        } else if (/lunch box|bento/.test(searchText)) {
+            topic = 'lunch box';
+            headline = 'Make Lunchtime More Organized';
+            board = 'Lunch Organization Ideas';
+        } else if (/water bottle|tumbler/.test(searchText)) {
+            topic = 'water bottle';
+            headline = 'Find Your Everyday Water Bottle';
+            board = 'Everyday Kitchen Essentials';
+        } else if (/lamp|lighting/.test(searchText)) {
+            topic = 'lamp';
+            headline = 'Explore Lighting Ideas for Your Space';
+            board = 'Home Lighting Ideas';
+        } else if (/storage|organizer|shelf/.test(searchText)) {
+            topic = 'home organizer';
+            headline = 'Explore Smarter Storage Ideas';
+            board = 'Home Storage Ideas';
+        } else {
+            topic = product.replace(/^\S+\s+/, '').slice(0,65) || product || 'product';
+            headline = ('Explore ' + topic).slice(0,90);
+            board = category ? category + ' Ideas' : 'Useful Product Ideas';
+        }
+        const title = headline.slice(0,100);
+        const description = ('Explore ' + topic + ' ideas with ' + product +
+            '. Review the seller listing for exact size, materials, available options and current price before deciding. See product details.').slice(0,490);
+        const original = rawTitle.toLowerCase();
+        const listingStyle = !!product && (original.startsWith(product.toLowerCase().slice(0,25)) || original.length > 100);
+        return {
+            ...pkg,
+            pin_title: title,
+            optimized_description: description,
+            pin_cta_suggestion: 'See Product Details',
+            suggested_board_names: [board],
+            editorial_review: {
+                status: 'draft',
+                notes: 'Review seller facts, image rights, destination and Pinterest policies before publishing.',
+                listing_title_rewritten: listingStyle,
+                claims_verified: false
+            }
+        };
+    }
+
     function renderPinterestResult(data, winner) {
         const out = document.getElementById('pinterestResult');
         if (!out) return;
@@ -2051,16 +2107,17 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             return;
         }
 
-        // Read either the canonical (backend) or aliased (frontend-friendly) keys.
-        const pinDesc       = pkg.optimized_description ?? pkg.pin_description ?? '';
+        // Build the editable marketing package without any paid text generation.
+        const reviewedPkg = editPinterestPackage(pkg, winner);
+        const pinDesc       = reviewedPkg.optimized_description ?? reviewedPkg.pin_description ?? '';
         const keywords      = Array.isArray(pkg.recommended_keywords) ? pkg.recommended_keywords
                             : Array.isArray(pkg.keywords)             ? pkg.keywords
                             : [];
-        const boards        = Array.isArray(pkg.suggested_board_names) ? pkg.suggested_board_names
+        const boards        = Array.isArray(reviewedPkg.suggested_board_names) ? reviewedPkg.suggested_board_names
                             : Array.isArray(pkg.suggested_boards)     ? pkg.suggested_boards
                             : [];
-        const dims          = pkg.optimal_pin_dimensions ?? pkg.dimensions ?? '1000 x 1500 px (2:3 vertical ratio)';
-        const cta           = pkg.pin_cta_suggestion ?? 'Check details and current price';
+        const dims          = reviewedPkg.optimal_pin_dimensions ?? pkg.dimensions ?? '1000 x 1500 px (2:3 vertical ratio)';
+        const cta           = reviewedPkg.pin_cta_suggestion ?? 'Check details and current price';
         const hashtags      = Array.isArray(winner?.hashtags) ? winner.hashtags : [];
         const destUrl       = winner?.url ?? data.input_url ?? '';
 
@@ -2071,11 +2128,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         out.innerHTML = `
             <div class="bg-slate-950 border border-pink-700/40 rounded-xl p-4 space-y-3" id="pinterestPackage">
                 <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-pink-400">📌 Pinterest Ready</span>
+                    <span class="text-xs font-bold text-pink-400">📌 Pinterest Marketing Draft</span>
                     <div class="flex items-center gap-2">
                         <button onclick="copyPinterestPackage(this)"
-                            data-board="${escapeHtml(pkg.board_title || '')}"
-                            data-pin="${escapeHtml(pkg.pin_title || '')}"
+                            data-board="${escapeHtml(reviewedPkg.board_title || '')}"
+                            data-pin="${escapeHtml(reviewedPkg.pin_title || '')}"
                             data-desc="${escapeHtml(pinDesc)}"
                             data-tags="${escapeHtml(keywords.join(' '))}"
                             data-cta="${escapeHtml(cta)}"
@@ -2096,9 +2153,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     </div>
                     <div id="pinPreviewNotice" class="hidden mt-2 text-[10px] text-slate-400 text-center"></div>
                 </div>
-                <dl class="text-xs space-y-2 text-slate-300">
-                    <div><dt class="text-slate-400 font-semibold">Board Title</dt><dd class="text-white">${escapeHtml(pkg.board_title || '')}</dd></div>
-                    <div><dt class="text-slate-400 font-semibold">Pin Title</dt><dd class="text-white">${escapeHtml(pkg.pin_title || '')}</dd></div>
+                <p class="text-amber-200 text-xs">Editorial draft — check the product listing, photo rights, and claims before publishing. No sales performance is guaranteed.</p>\n                <dl class="text-xs space-y-2 text-slate-300">
+                    <div><dt class="text-slate-400 font-semibold">Board Title</dt><dd class="text-white">${escapeHtml(reviewedPkg.board_title || '')}</dd></div>
+                    <div><dt class="text-slate-400 font-semibold">Pin Title</dt><dd class="text-white">${escapeHtml(reviewedPkg.pin_title || '')}</dd></div>
                     <div><dt class="text-slate-400 font-semibold">Description</dt><dd class="text-slate-200 bg-slate-900 p-2 rounded border border-slate-800">${escapeHtml(pinDesc)}</dd></div>
                     <div><dt class="text-slate-400 font-semibold">Keywords</dt><dd class="text-purple-300">${escapeHtml(keywords.join(', '))}</dd></div>
                     ${hashtags.length ? `<div><dt class="text-slate-400 font-semibold">Hashtags</dt><dd class="text-pink-300">${hashtags.map(escapeHtml).join(' ')}</dd></div>` : ''}
@@ -2114,7 +2171,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // Render the designed pin and embed it as a preview image. The data URL
         // is cached on window.__lastPinDataUrl so the Download button ships
         // exactly this design.
-        renderPinPreview(winner, pkg).then((dataUrl) => {
+        renderPinPreview(winner, reviewedPkg).then((dataUrl) => {
             if (renderGeneration !== window.__pinRenderGeneration) return;
             const wrap = document.getElementById('pinPreviewWrap');
             const notice = document.getElementById('pinPreviewNotice');
