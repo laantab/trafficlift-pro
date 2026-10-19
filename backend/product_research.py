@@ -2366,7 +2366,7 @@ class ProductResearcher:
         pin_desc = rng.choice(card.pin_description_options)
         hook = rng.choice(card.viral_hook_options)
         # 4-6 hashtags per call
-        n_tags = rng.randint(4, min(6, len(card.hashtags_pool)))
+        n_tags = rng.randint(min(4, len(card.hashtags_pool)), min(6, len(card.hashtags_pool)))
         tags = rng.sample(card.hashtags_pool, n_tags)
 
         url = card.url
@@ -2424,35 +2424,17 @@ def _build_url_candidate(resolution) -> ProductCard:
         category=category,
         image_url=placeholder,
         url=final_url,
-        angle_options=[
-            f"Amazon bestseller — {name}",
-            f"Trending Amazon pick (#{asin})",
-            "Top-selling Amazon find — see why it's trending.",
-        ],
-        pin_title_options=[
-            f"{name}",
-            f"Trending on Amazon: {name[:60]}",
-            f"Must-see Amazon find ✨",
-        ],
-        pin_description_options=[
-            f"{name} — one of the top-trending products on Amazon right now. "
-            f"Pinned for its popularity, value, and real demand.",
-        ],
-        hashtags_pool=["#Amazon", "#Trending", "#BestSeller",
-                       "#MustHave", "#Viral", "#TopPicks"],
-        viral_hook_options=[
-            f"This Amazon product is blowing up — see why.",
-            f"The Amazon find everyone's pinning right now.",
-        ],
-        trend_score_range=(80, 95),
-        trend_signals_options=[
-            ["Amazon Best Seller Rank climbing this week",
-             "Strong review velocity and rating trend"],
-        ],
-        margin_estimate="Medium (25-40%)",
-        evergreen_score=0.8,
-        competition="Medium",
-        competition_reasons=["Amazon bestseller — well-known product"],
+        angle_options=[f'Explore {name} and its product details.'],
+        pin_title_options=[name],
+        pin_description_options=[f'Explore {name}. Check the exact seller listing for specifications, included items, current price and availability.'],
+        hashtags_pool=['#ProductDetails'],
+        viral_hook_options=[f'Take a closer look at {name}.'],
+        trend_score_range=(0,0),
+        trend_signals_options=[['This is the product from your URL. Demand and sales volume are not verified.']],
+        margin_estimate='Not established',
+        evergreen_score=0.0,
+        competition='Not established',
+        competition_reasons=['Competition has not been researched for this URL.'],
     )
 
 

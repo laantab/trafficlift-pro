@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -361,43 +362,32 @@ def analyze_product_url_get(
                 "Try the full product page URL (must start with http:// or https://)."
             ),
         )
-    excl = [x for x in (exclude or "").split(",") if x] if exclude else []
-    return _synthesize(
-        url_or_keyword=url.strip(),
-        category="Trending General",
-        seed=seed,
-        exclude=excl,
-        use_ai=False,
-    )
+    from backend.exact_product import analyze_exact_product
+    return analyze_exact_product(url.strip())
 
 
 @router.get("/discover-winner")
 def discover_winner_get(
-    exclude: Optional[str] = Query(
-        None,
-        description="Comma-separated product ids to avoid.",
-    ),
+    exclude: Optional[str] = Query(None, max_length=6000),
+    exclude_keys: Optional[str] = Query(None, max_length=9000),
+    client_id: Optional[str] = Query(None, min_length=16, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
     seed: Optional[int] = Query(None, ge=0, le=10_000),
 ) -> dict:
-    """PATH A — true live product discovery.
+    """Fresh-only discovery with browser-scoped durable exclusions.
 
-    No user query, no keyword. Runs Tavily research queries for real
-    trending product opportunities, builds candidate products from the
-    results, scores + qualifies them with supported signals only,
-    verifies a real product image for each, and returns the first
-    qualified candidate as the winner.
-
-    Returns the same winner payload shape as /find-winner so the
-    frontend's shared _runPickPipeline works for both workflows.
-
-    On exhaustion of the candidate budget, returns HTTP 404 with a
-    discovery-specific message — NEVER the keyword-relevance message
-    from the legacy path.
+    No keyword input, no hidden saved-list substitution. All provider calls
+    are bounded; failures become actionable 404/503 responses.
     """
     from backend.discovery import discover_winner as _discover
-    excl = {x for x in (exclude or "").split(",") if x} if exclude else set()
-    _ = seed
-    return _discover(exclude_ids=excl)
+    excl = {x for x in (exclude or "").split(",") if x}
+    keys = {x for x in (exclude_keys or "").split(",") if x}
+    try:
+        return _discover(exclude_ids=excl, exclude_keys=keys, client_id=client_id, seed=seed)
+    except HTTPException:
+        raise
+    except (OSError, sqlite3.Error):
+        logger.exception("Discovery history unavailable")
+        raise HTTPException(503, "Product history is temporarily unavailable. Try again shortly; no repeat was substituted.")
 
 
 @router.get("/find-winners")

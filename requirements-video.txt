@@ -1,0 +1,6 @@
+-r requirements.txt
+kokoro-onnx==0.6.1
+onnxruntime==1.30.0
+soundfile==0.14.0
+numpy>=2.0,<3
+Pillow>=12.0,<13

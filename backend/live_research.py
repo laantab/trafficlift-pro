@@ -1,7 +1,7 @@
 """backend/live_research.py
 Live Internet research layer for the winning-product picker.
 
-Two providers, no fabrication:
+Three providers, no fabrication:
 
 * **Tavily** — primary. Used when ``TAVILY_API_KEY`` is configured.
   Endpoint: https://api.tavily.com/search. Returns clean structured hits.
@@ -34,6 +34,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -42,6 +44,12 @@ from urllib.parse import unquote
 import requests
 
 logger = logging.getLogger("live_research")
+_DIAGNOSTICS = threading.local()
+
+def _problem(message):
+    errors = getattr(_DIAGNOSTICS, 'errors', None)
+    if errors is not None: errors.append(message)
+
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -67,6 +75,7 @@ class ResearchSource:
     snippet: str
     url: str
     provider: str  # "tavily" | "duckduckgo"
+    image_urls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -80,6 +89,8 @@ class ResearchEnvelope:
     # Image URLs discovered alongside the text research. Used by the
     # researcher to enrich candidates with real product photos.
     research_image_urls: list[str] = field(default_factory=list)
+
+    research_errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -111,21 +122,30 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
         return [], []
     api_key = os.getenv("TAVILY_API_KEY", "").strip()
     try:
-        resp = requests.post(
-            TAVILY_ENDPOINT,
-            json={
-                "api_key": api_key,
-                "query": query,
-                "max_results": max_results,
-                "search_depth": "basic",
-                "include_answer": False,
-                "include_images": True,   # surface image URLs for candidate enrichment
-                "topic": "general",
-            },
-            timeout=DEFAULT_TIMEOUT,
-        )
+        # One bounded retry for transient transport failure. Authentication,
+        # quota and billing responses are returned without retries.
+        for attempt in range(2):
+            try:
+                resp = requests.post(
+                    TAVILY_ENDPOINT,
+                    json={
+                        "api_key": api_key,
+                        "query": query,
+                        "max_results": max_results,
+                        "search_depth": "basic",
+                        "include_answer": False,
+                        "include_images": True,
+                        "include_image_descriptions": True,
+                        "topic": "general",
+                    },
+                    timeout=(3, 10),
+                )
+                break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt:raise
         if resp.status_code != 200:
-            logger.warning("Tavily HTTP %s: %s", resp.status_code, resp.text[:200])
+            logger.warning("Tavily HTTP %s", resp.status_code)
+            _problem(f"Tavily HTTP {resp.status_code}")
             return [], []
         data = resp.json()
         results = data.get("results") or []
@@ -134,9 +154,10 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
             out.append(
                 ResearchSource(
                     title=(r.get("title") or "").strip()[:200],
-                    snippet=(r.get("content") or "").strip()[:500],
+                    snippet=(r.get("content") or "").strip()[:3000],
                     url=(r.get("url") or "").strip(),
                     provider="tavily",
+                    image_urls=[(image if isinstance(image,str) else image.get("url", "")) for image in (r.get("images") or []) if isinstance(image,(str,dict))],
                 )
             )
         # Extract the dedicated `images` field. Tavily returns it as a
@@ -157,7 +178,8 @@ def _query_tavily(query: str, max_results: int) -> tuple[list[ResearchSource], l
                 images.append(u)
         return out, images
     except Exception as exc:
-        logger.warning("Tavily request failed: %s", exc)
+        logger.warning("Tavily request failed (%s)", type(exc).__name__)
+        _problem("Tavily request failed: " + type(exc).__name__)
         return [], []
 
 
@@ -175,6 +197,7 @@ def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource
             timeout=DEFAULT_TIMEOUT,
         )
         if resp.status_code != 200:
+            _problem(f"DuckDuckGo HTTP {resp.status_code}")
             logger.warning("DDG HTTP %s", resp.status_code)
             return [], []
 
@@ -216,10 +239,152 @@ def _query_duckduckgo(query: str, max_results: int) -> tuple[list[ResearchSource
         # DDG HTML rarely exposes direct image URLs in the result list,
         # but some result URLs DO end in image extensions. Defer to the
         # same defensive scan we use for Tavily sources.
+        if not out: _problem("DuckDuckGo returned no parsed results")
         image_urls = _collect_image_urls_from_sources(out)
         return out, image_urls
     except Exception as exc:
+        _problem("DuckDuckGo request failed: " + type(exc).__name__)
         logger.warning("DDG request failed: %s", exc)
+        return [], []
+
+
+def _query_brave(query, max_results):
+    """Public web results with observed title/snippet selectors; no paid API."""
+    try:
+        response = requests.get('https://search.brave.com/search',
+                                params={'q': query, 'source': 'web'},
+                                headers={'User-Agent': 'Mozilla/5.0'}, timeout=9)
+        if response.status_code != 200 or len(response.content) > 2_000_000:
+            _problem(f'Brave HTTP {response.status_code}')
+            return [], []
+        from bs4 import BeautifulSoup
+        from urllib.parse import urlsplit
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = []
+        seen = set()
+        for card in soup.select('.result-content'):
+            title = card.select_one('.search-snippet-title')
+            link = card.select_one('a[href]')
+            if not title or not link:
+                continue
+            url = link.get('href','')
+            parsed = urlsplit(url)
+            if parsed.scheme not in {'http','https'} or not parsed.hostname or url in seen:
+                continue
+            if parsed.hostname in {'search.brave.com','brave.com'}:
+                continue
+            description = card.select_one('.generic-snippet')
+            results.append(ResearchSource(title=(title.get('title') or title.get_text(' ',strip=True))[:200],
+                snippet=description.get_text(' ',strip=True)[:500] if description else '',
+                url=url, provider='brave_web'))
+            seen.add(url)
+            if len(results) >= max_results:
+                break
+        if not results:
+            _problem('Brave returned no parsed web result cards')
+        return results, []
+    except Exception as exc:
+        _problem('Brave request failed: ' + type(exc).__name__)
+        return [], []
+
+
+def _query_bing_html(query, max_results):
+    """Use actual web result cards when the RSS feed loses query restrictions."""
+    try:
+        response = requests.get('https://www.bing.com/search', params={'q': query},
+                                headers={'User-Agent': DEFAULT_USER_AGENT}, timeout=4)
+        if response.status_code != 200 or len(response.content) > 2_000_000:
+            _problem(f'Bing web HTTP {response.status_code}')
+            return [], []
+        from bs4 import BeautifulSoup
+        from urllib.parse import urlsplit, parse_qs
+        import base64
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = []
+        for card in soup.select('li.b_algo'):
+            link = card.select_one('h2 a[href]')
+            if not link:
+                continue
+            url = link.get('href', '')
+            parsed = urlsplit(url)
+            # Bing's click wrapper stores the destination as URL-safe base64.
+            if parsed.hostname in {'bing.com', 'www.bing.com'} and parsed.path == '/ck/a':
+                encoded = parse_qs(parsed.query).get('u', [''])[0]
+                if not encoded.startswith('a1'):
+                    continue
+                encoded = encoded[2:]
+                try:
+                    url = base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)).decode('utf-8')
+                except (ValueError, UnicodeError):
+                    continue
+            if urlsplit(url).scheme not in {'http','https'}:
+                continue
+            snippet = card.select_one('.b_caption p') or card.select_one('p')
+            results.append(ResearchSource(title=link.get_text(' ',strip=True)[:200],url=url,
+                                          snippet=snippet.get_text(' ',strip=True)[:500] if snippet else '',
+                                          provider='bing_web'))
+            if len(results) >= max_results:
+                break
+        if not results:
+            _problem('Bing web returned no parsed result cards')
+        return results, _collect_image_urls_from_sources(results)
+    except Exception as exc:
+        _problem('Bing web request failed: ' + type(exc).__name__)
+        return [], []
+
+
+def _filter_search_hits(query, hits):
+    """Never label off-site RSS results as matches to a merchant query."""
+    from urllib.parse import urlsplit
+    constraints = re.findall(r'\bsite:([^\s]+)', query, re.I)
+    if not constraints:
+        return hits
+    filtered = []
+    for hit in hits:
+        parsed = urlsplit(hit.url)
+        for constraint in constraints:
+            domain, _, path = constraint.partition('/')
+            host = (parsed.hostname or '').lower()
+            if (host == domain.lower() or host.endswith('.'+domain.lower())) and (not path or parsed.path.startswith('/'+path)):
+                filtered.append(hit)
+                break
+    if len(filtered) < len(hits):
+        _problem(f'Excluded {len(hits)-len(filtered)} results outside requested seller listing paths')
+    return filtered
+
+
+def _query_bing_rss(query: str, max_results: int):
+    """Independent zero-key RSS fallback. Empty/error feeds are not evidence."""
+    try:
+        response = requests.get('https://www.bing.com/search',
+                                params={'q': query, 'format': 'rss'},
+                                headers={'User-Agent': DEFAULT_USER_AGENT}, timeout=4)
+        if response.status_code != 200:
+            _problem(f'Bing RSS HTTP {response.status_code}')
+            return [], []
+        if len(response.content) > 2_000_000:
+            _problem('Bing RSS response too large')
+            return [], []
+        root = ET.fromstring(response.content)
+        if root.tag != 'rss':
+            _problem('Bing did not return an RSS feed')
+            return [], []
+        out = []
+        from urllib.parse import urlsplit
+        from bs4 import BeautifulSoup
+        for item in root.findall('./channel/item')[:max_results]:
+            title = (item.findtext('title') or '').strip()
+            url = (item.findtext('link') or '').strip()
+            parsed = urlsplit(url)
+            if not title or parsed.scheme not in {'http','https'} or not parsed.hostname:
+                continue
+            snippet = BeautifulSoup(item.findtext('description') or '', 'html.parser').get_text(' ',strip=True)
+            out.append(ResearchSource(title=title[:200],snippet=snippet[:500],url=url,provider='bing_rss'))
+        if not out: _problem('Bing RSS returned no results')
+        return out, _collect_image_urls_from_sources(out)
+    except Exception as exc:
+        _problem('Bing RSS request failed: ' + type(exc).__name__)
+        logger.warning('Bing RSS request failed (%s)', type(exc).__name__)
         return [], []
 
 
@@ -276,6 +441,7 @@ def research(
     provider's dedicated images field (Tavily `images`, DDG URL-extension
     scan) — NOT just from URLs embedded in the text result URLs.
     """
+    _DIAGNOSTICS.errors = []
     q = (query or "").strip()
     if not q:
         return ResearchEnvelope(
@@ -289,6 +455,7 @@ def research(
     # 1. Tavily
     if _is_tavily_configured():
         tav_hits, tav_images = _query_tavily(q, max_results)
+        tav_hits = _filter_search_hits(q, tav_hits)
         # Accept the Tavily response when EITHER results OR images are
         # non-empty. Some Tavily responses return images without text
         # results (or vice versa) and we still want the data we got.
@@ -309,10 +476,28 @@ def research(
                 research_query=q,
                 research_image_urls=tav_images,
             )
-        logger.info("Tavily returned no hits, falling back to DuckDuckGo")
+        # A configured provider failure must not be hidden by public scraping.
+        errors = list(_DIAGNOSTICS.errors)
+        if not errors: errors.append('Tavily returned no usable results')
+        return ResearchEnvelope(research_status='fallback', research_timestamp=_now_iso(),
+            research_provider='tavily', research_sources=[], research_image_urls=[],
+            research_summary='Configured research provider did not return usable evidence.',
+            research_query=q, research_errors=errors)
+
+    # Prefer the public provider that actually returns constrained listing
+    # results. DDG often serves a 202 challenge and Bing RSS can lose intent.
+    brave_hits, brave_images = _query_brave(q, max_results)
+    brave_hits = _filter_search_hits(q, brave_hits)
+    if brave_hits:
+        return ResearchEnvelope(research_status='live' if len(brave_hits)>=3 else 'partial',
+            research_timestamp=_now_iso(), research_provider='brave_web',
+            research_sources=[asdict(source) for source in brave_hits],
+            research_summary=_summarize_sources(q,brave_hits), research_query=q,
+            research_image_urls=brave_images, research_errors=list(_DIAGNOSTICS.errors))
 
     # 2. DuckDuckGo fallback
     ddg_hits, ddg_images = _query_duckduckgo(q, max_results)
+    ddg_hits = _filter_search_hits(q, ddg_hits)
     if ddg_hits:
         return ResearchEnvelope(
             research_status="live" if len(ddg_hits) >= 3 else "partial",
@@ -324,12 +509,33 @@ def research(
             research_image_urls=ddg_images,
         )
 
+    # Prefer full web results; RSS sometimes drops site/path constraints.
+    web_hits, web_images = _query_bing_html(q, max_results)
+    web_hits = _filter_search_hits(q, web_hits)
+    if web_hits:
+        return ResearchEnvelope(research_status='live' if len(web_hits)>=3 else 'partial',
+            research_timestamp=_now_iso(), research_provider='bing_web',
+            research_sources=[asdict(source) for source in web_hits],
+            research_summary=_summarize_sources(q,web_hits), research_query=q,
+            research_image_urls=web_images, research_errors=list(_DIAGNOSTICS.errors))
+
+    # 3. An independent public feed; no API key or paid calls.
+    bing_hits, bing_images = _query_bing_rss(q, max_results)
+    bing_hits = _filter_search_hits(q, bing_hits)
+    if bing_hits:
+        return ResearchEnvelope(research_status='live' if len(bing_hits)>=3 else 'partial',
+            research_timestamp=_now_iso(), research_provider='bing_rss',
+            research_sources=[asdict(source) for source in bing_hits],
+            research_summary=_summarize_sources(q,bing_hits), research_query=q,
+            research_image_urls=bing_images, research_errors=list(_DIAGNOSTICS.errors))
+
     # 3. No evidence anywhere
     return ResearchEnvelope(
         research_status="fallback",
         research_timestamp=_now_iso(),
         research_provider="none",
         research_summary=f"Live research unavailable for '{q}'.",
+        research_errors=list(_DIAGNOSTICS.errors),
         research_query=q,
     )
 
