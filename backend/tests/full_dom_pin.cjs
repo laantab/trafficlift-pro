@@ -16,11 +16,13 @@ const dom=new JSDOM(html,{url:'http://127.0.0.1:8000/studio',runScripts:'dangero
 }});
 (async()=>{const w=dom.window;if(w.document.readyState==='loading')await new Promise(r=>w.document.addEventListener('DOMContentLoaded',r,{once:true}));w.document.querySelector('#channelGrid input').checked=true;w.document.getElementById('productUrl').value='https://link.amazon/share';await w.launchCampaign();for(let i=0;i<50&&!w.__lastPinDataUrl;i++)await new Promise(r=>setTimeout(r,20));
 assert(w.__lastPinDataUrl?.startsWith('data:image/jpeg'),'Real canvas pin must be exported');
+assert.equal(w.document.querySelector('#pinterestPackage [data-pin]')?.dataset.pin,'Make Lunchtime More Organized','New marketing headline must reach the actual Pinterest result');
+assert(w.document.getElementById('pinterestPackage').textContent.includes('Editorial draft'),'Draft and claim-review notice must be visible');
 assert(!w.document.getElementById('executionOutput').classList.contains('hidden'),'Pin parent must be visible');
 assert(w.document.getElementById('emptyState').classList.contains('hidden'),'Completed campaign must hide Ready to generate');
 assert(w.document.querySelector('#pinPreviewWrap img'),'Pin preview image must exist');
 assert.equal(pinImageRequests,1);assert.deepEqual(JSON.parse(requests.find(r=>r.url.includes('/traffic/generate')).options.body).product_payload,winner);
-const output=Buffer.from(w.__lastPinDataUrl.split(',')[1],'base64');fs.writeFileSync('/tmp/trafficlift-dom-pin.jpg',output);assert(output.length>10000);const oldFetch=w.fetch;let generatedAgain=false;
+const output=Buffer.from(w.__lastPinDataUrl.split(',')[1],'base64');const picture=new Image();picture.src=output;assert.equal(picture.width,1000);assert.equal(picture.height,1500);fs.writeFileSync('/tmp/trafficlift-dom-pin.jpg',output);assert(output.length>10000);const oldFetch=w.fetch;let generatedAgain=false;
 w.fetch=async(url,options)=>{if(String(url).includes('/analyze-product-url'))return {ok:false,json:async()=>({detail:'Amazon link opened a department page. No other product was selected.'})};if(String(url).includes('/traffic/generate'))generatedAgain=true;return oldFetch(url,options)};
 w.document.getElementById('productUrl').value='https://link.amazon/unresolved';await w.launchCampaign();assert.equal(generatedAgain,false);assert.equal(w.__currentWinner,null);assert.equal(w.__lastPinDataUrl,null);assert(w.document.getElementById('executionOutput').classList.contains('hidden'));
 assert.equal(errors.length,0,errors.join('\n'));process.stdout.write('PASS: actual DOM, visible pin, empty-state behavior, same-origin image loading, real 1000x1500 canvas export, failed URL clears stale product\n');dom.window.close();})().catch(e=>{process.stderr.write(e.stack+'\n');dom.window.close();process.exitCode=1});
