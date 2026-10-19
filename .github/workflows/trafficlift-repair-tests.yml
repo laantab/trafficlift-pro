@@ -29,6 +29,10 @@ jobs:
         run: python -m compileall -q backend trafficlift_pro.py
       - name: Check local narrated-video user interface
         run: node backend/tests/photo_video_ui.cjs
+      - name: Install local DOM and canvas test dependencies
+        run: npm install --no-save --no-package-lock jsdom@24 @napi-rs/canvas@0.1.96
+      - name: Verify complete Pinterest image export in a DOM
+        run: node backend/tests/full_dom_pin.cjs
       - name: Check Pinterest editorial quality safeguards
         run: node backend/tests/pinterest_editor_ui.cjs
       - name: Check persistent discovery browser history
