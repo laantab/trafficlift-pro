@@ -11,7 +11,7 @@ function element(id) {
 }
 const winner={name:'Sunset Projection Lamp',image_url:'https://example.com/lamp.jpg',url:'https://example.com/lamp'};
 let submitted;
-const context={document:{getElementById:element,createElement:()=>({})},restoreCurrentWinner:()=>winner,buildWinnerVideoPrompt:()=> 'prompt',syncVideoModelOptions(){},updateVideoPromptCount(){},lucide:{createIcons(){}},showToast(){},URL,Date,AbortSignal,apiUrl:p=>p,setTimeout:fn=>{fn();return 1},fetch:async(path,opts={})=>{
+const context={document:{getElementById:element,createElement:()=>element('created-'+Math.random())},restoreCurrentWinner:()=>winner,buildWinnerVideoPrompt:()=> 'prompt',syncVideoModelOptions(){},updateVideoPromptCount(){},lucide:{createIcons(){}},showToast(){},URL,Date,AbortSignal,apiUrl:p=>p,setTimeout:fn=>{fn();return 1},fetch:async(path,opts={})=>{
  let data;
  if(path==='/api/v1/photo-videos'&&opts.method==='POST'){submitted=JSON.parse(opts.body);data={video:{id:'a'.repeat(32)}};}
  else if(path==='/api/v1/photo-videos')data={videos:[]};
