@@ -2038,6 +2038,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     function renderPinterestResult(data, winner) {
         const out = document.getElementById('pinterestResult');
         if (!out) return;
+        // Invalidate any older asynchronous image draw before starting a new pin.
+        const renderGeneration = ++window.__pinRenderGeneration;
+        window.__lastPinDataUrl = null;
         const pkg = (data && data.compiled_package && data.compiled_package.pinterest_seo_engine) || null;
         if (!pkg) {
             out.classList.remove('hidden');
@@ -2112,6 +2115,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // is cached on window.__lastPinDataUrl so the Download button ships
         // exactly this design.
         renderPinPreview(winner, pkg).then((dataUrl) => {
+            if (renderGeneration !== window.__pinRenderGeneration) return;
             const wrap = document.getElementById('pinPreviewWrap');
             const notice = document.getElementById('pinPreviewNotice');
             if (!wrap) return;
@@ -2124,6 +2128,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 notice.classList.remove('hidden');
             }
         }).catch((err) => {
+            if (renderGeneration !== window.__pinRenderGeneration) return;
             console.error('[pin-preview] render failed:', err);
             const wrap = document.getElementById('pinPreviewWrap');
             const notice = document.getElementById('pinPreviewNotice');
@@ -2169,6 +2174,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     // Download button can ship the EXACT design shown on screen.
     window.__lastPinDataUrl = null;
     window.__lastPinFilename = null;
+    window.__pinRenderGeneration = 0;
 
     // Category → gradient pair (matches the existing brand palette).
     const PIN_FALLBACK_GRADIENTS = {
@@ -2394,6 +2400,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const cta         = (pkg && pkg.pin_cta_suggestion) || 'Shop now';
 
         // 1. HERO (0..900)
+        const generationAtStart = window.__pinRenderGeneration;
         window.__lastPinDataUrl = null;
         const hero = await _loadImageWithCors(winner && winner.image_url);
         if (hero && hero.naturalWidth > 0) {
@@ -2410,6 +2417,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
         // Export to JPEG data URL and cache for download
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        if (generationAtStart !== window.__pinRenderGeneration) return null;
         window.__lastPinDataUrl = dataUrl;
         window.__lastPinFilename = 'pinterest-' + (productName || 'pin')
             .replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 50) + '-1000x1500.jpg';
