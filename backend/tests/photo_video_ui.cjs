@@ -5,7 +5,7 @@ const elements=new Map();
 function element(id) {
  if(!elements.has(id)) {
   const hidden=new Set(['hidden']);
-  elements.set(id,{id,value:'',textContent:'',src:'',childNodes:[],classList:{add:x=>hidden.add(x),remove:x=>hidden.delete(x),contains:x=>hidden.has(x),toggle:(x,on)=>on?hidden.add(x):hidden.delete(x)},replaceChildren(){this.childNodes=[]},append(...nodes){this.childNodes.push(...nodes)}});
+  elements.set(id,{id,value:'',textContent:'',src:'',childNodes:[],classList:{add:x=>hidden.add(x),remove:x=>hidden.delete(x),contains:x=>hidden.has(x),toggle:(x,on)=>on?hidden.add(x):hidden.delete(x)},replaceChildren(){this.childNodes=[]},append(...nodes){this.childNodes.push(...nodes)},setAttribute(){},getAttribute(){return null}});
  }
  return elements.get(id);
 }
