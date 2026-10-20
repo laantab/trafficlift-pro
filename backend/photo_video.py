@@ -103,7 +103,10 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     lengths=[len(a)/rate for a in clips]
     # Use every recorded phrase. Natural length replaces long silent holds
     # and can extend the requested target instead of cutting the sales script.
-    seconds=max(15,math.ceil(sum(lengths)+.22*(len(lengths)-1)+1.6))
+    # Respect the requested 15/30/60 preset when the measured narration fits.
+    # If it does not, extend safely rather than cut speech or silently truncate.
+    needed=math.ceil(sum(lengths)+.22*(len(lengths)-1)+1.6)
+    seconds=max(int(seconds),15,needed)
     if seconds>120:raise ValueError('The script exceeds two minutes. Shorten the product facts.')
     starts=narration_starts(lengths, seconds)
     voice=np.zeros(rate*seconds,dtype=np.float32)
@@ -201,7 +204,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
     quality['marketing_approval']='NOT_APPROVED: source and complete video need visual review'
-    quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
