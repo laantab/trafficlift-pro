@@ -52,3 +52,28 @@ jobs:
         run: node backend/tests/discovery_history_ui.cjs
       - name: Check complete winner button workflow
         run: node backend/tests/winner_click_ui.cjs
+
+  video-composition-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install video composition dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          pip install numpy pillow soundfile pytest
+      - name: Render real Phase 2 MP4 with synthetic test speech
+        run: python -m backend.tests.video_phase2_mp4_smoke
+      - name: Preserve synthetic MP4 and QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-smoke-mp4
+          path: |
+            /tmp/trafficlift-phase2-smoke.mp4
+            /tmp/trafficlift-phase2-quality.json
+          if-no-files-found: ignore
