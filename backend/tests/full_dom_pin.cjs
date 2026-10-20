@@ -21,6 +21,13 @@ assert(w.document.getElementById('pinterestPackage').textContent.includes('Edito
 assert(!w.document.getElementById('executionOutput').classList.contains('hidden'),'Pin parent must be visible');
 assert(w.document.getElementById('emptyState').classList.contains('hidden'),'Completed campaign must hide Ready to generate');
 assert(w.document.querySelector('#pinPreviewWrap img'),'Pin preview image must exist');
+// Regression: the lamp screenshot previously had an ellipsized headline and oversized footer.
+assert(!w._wrapText.toString().includes("last + '…'"),'Renderer must never append ellipsis');
+assert(w._drawHeroImage.toString().includes('Math.min'),'Hero must contain the complete product rather than crop it');
+assert(w.renderPinPreview.toString().includes('1350, 150'),'CTA must use the reduced 150px footer');
+const fitCanvas=createCanvas(1000,270),fitCtx=fitCanvas.getContext('2d');
+fitCtx.font='800 60px system-ui, sans-serif';
+assert.throws(()=>w._wrapText(fitCtx,'Mainstays 17 LED Catch-All Base AC Outlet Adjustable Flexible Desk Lamp with extremely long retailer title and more product specifications than a Pinterest pin can display',900,2),/does not fit/);
 assert.equal(pinImageRequests,1);assert.deepEqual(JSON.parse(requests.find(r=>r.url.includes('/traffic/generate')).options.body).product_payload,winner);
 const output=Buffer.from(w.__lastPinDataUrl.split(',')[1],'base64');const picture=new Image();picture.src=output;assert.equal(picture.width,1000);assert.equal(picture.height,1500);fs.writeFileSync('/tmp/trafficlift-dom-pin.jpg',output);assert(output.length>10000);const oldFetch=w.fetch;let generatedAgain=false;
 w.fetch=async(url,options)=>{if(String(url).includes('/analyze-product-url'))return {ok:false,json:async()=>({detail:'Amazon link opened a department page. No other product was selected.'})};if(String(url).includes('/traffic/generate'))generatedAgain=true;return oldFetch(url,options)};
