@@ -120,11 +120,11 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
                 if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
                 photo=ImageOps.exif_transpose(source).convert('RGB')
                 if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
-                fitted_photos.append(ImageOps.contain(photo,(800,800),Image.Resampling.LANCZOS))
+                fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
                 if min(photo.size)>=1400:
                     w,h=photo.size
                     detail=photo.crop((round(w*.175),round(h*.175),round(w*.825),round(h*.825)))
-                    detail_photos.append(ImageOps.contain(detail,(800,800),Image.Resampling.LANCZOS))
+                    detail_photos.append(ImageOps.contain(detail,(888,888),Image.Resampling.LANCZOS))
                 else:detail_photos.append(None)
         except (ValueError,OSError):
             if path==image_path:raise
@@ -136,12 +136,21 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         if not (90<=box[0] and box[2]<=990 and 120<=box[1] and box[3]<=1635):raise ValueError('Text failed the safe-margin check.')
         d.text(xy,value,font=font(size),fill=color)
     boundaries=[0]+[start-.05 for start in starts[1:]]+[seconds]
+    stage_labels = {'hook': 'A CLOSER LOOK', 'product': 'MEET THE PRODUCT', 'benefit': 'SELLER-LISTED DETAILS', 'routine': 'IN YOUR ROUTINE', 'buying_details': 'BEFORE YOU BUY', 'cta': 'SEE THE LISTING'}
     def frame(t):
         scene=min(len(phrases)-1,max(0,bisect.bisect_right(boundaries,t)-1))
         local=(t-boundaries[scene])/(boundaries[scene+1]-boundaries[scene])
         im=Image.new('RGB',(1080,1920),bg);d=ImageDraw.Draw(im)
-        text(d,(96,145),'A CLOSER LOOK',25)
-        for i,line in enumerate(title_lines):text(d,(96,245+i*68),line,52)
+        stage = storyboard[scene]['stage']
+        text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
+        # Use the full product title only for the opening shot, preventing
+        # five nearly identical title cards.
+        if scene == 0:
+            for i,line in enumerate(title_lines):
+                text(d,(96,245+i*68),line,52)
+        else:
+            scene_heading = {'product':'See the actual product', 'benefit':'Review listed features', 'routine':'Picture your setup', 'buying_details':'Check fit and options', 'cta':'Explore product details'}.get(stage,'Product overview')
+            text(d,(96,245),scene_heading,48)
         # A sizeable, alternating push/pull across real listing photos.
         # The whole product stays within the panel at every frame.
         photo_index=storyboard[scene]['photo_index']
@@ -150,7 +159,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         moving=fitted.resize((width,height),Image.Resampling.LANCZOS)
         im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
-        labels=sales_plan['captions'][scene]
+        labels=storyboard[scene]['caption']
         label_lines=wrap(labels,36)
         if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
         for row,line in enumerate(label_lines):text(d,(96,1410+row*45),line,36)
@@ -177,7 +186,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
     quality['marketing_approval']='NOT_APPROVED: source and complete video need visual review'
-    quality.update(storyboard=storyboard, phase2_storyboard='PASS', narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
