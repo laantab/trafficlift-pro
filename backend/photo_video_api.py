@@ -99,7 +99,7 @@ def worker(record,payload,directory):
         benefit=facts.pop('benefit','')
         record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,120,**facts)
         record['sales_plan']['requested_seconds']=payload.seconds
-        record['seconds']=60
+        record['seconds']=payload.seconds
         save(record,directory)
         update('Choosing the clearest photo from this product listing')
         from backend.photo_quality import resolution_variants,choose_photos
