@@ -5,8 +5,8 @@ const { chromium } = require('playwright');
 const { createCanvas } = require('@napi-rs/canvas');
 (async () => {
   const source = fs.readFileSync('index.html','utf8')
-    .replace(/<script[^>]*src=[^>]*><\\/script>/g,'')
-    .replace(/<script>\\s*tailwind.config[\\s\\S]*?<\\/script>/,'');
+    .replace(/<script[^>]*src=[^>]*><\/script>/g,'')
+    .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/,'');
   const fixture = createCanvas(800,800);
   const c = fixture.getContext('2d');
   c.fillStyle='#fff'; c.fillRect(0,0,800,800);
