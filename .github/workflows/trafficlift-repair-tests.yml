@@ -33,6 +33,19 @@ jobs:
         run: npm install --no-save --no-package-lock jsdom@24 @napi-rs/canvas@0.1.96
       - name: Verify complete Pinterest image export in a DOM
         run: node backend/tests/full_dom_pin.cjs
+      - name: Install Chromium browser for release acceptance
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1 jsdom@24 @napi-rs/canvas@0.1.96
+          npx playwright install --with-deps chromium
+      - name: Verify lamp pin in real Chromium
+        run: node backend/tests/chromium_pin.cjs
+      - name: Save Chromium acceptance pin
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromium-lamp-pin
+          path: /tmp/trafficlift-chromium-lamp.jpg
+          if-no-files-found: ignore
       - name: Check Pinterest editorial quality safeguards
         run: node backend/tests/pinterest_editor_ui.cjs
       - name: Check persistent discovery browser history
