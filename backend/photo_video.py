@@ -14,6 +14,22 @@ def dependencies():
     return model, voices
 
 
+def balanced_caption_chunks(phrase, max_words=7):
+    """Preserve the spoken words while avoiding orphaned one-word subtitles."""
+    words = str(phrase or '').split()
+    if not words:
+        return []
+    count = math.ceil(len(words) / max_words)
+    sizes = [len(words) // count + (1 if i < len(words) % count else 0)
+             for i in range(count)]
+    result = []
+    cursor = 0
+    for size in sizes:
+        result.append(' '.join(words[cursor:cursor + size]))
+        cursor += size
+    return result
+
+
 def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
     """Plan honest vertical-photo scenes without creating imaginary demonstrations.
 
@@ -102,8 +118,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     ass='[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,38,&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,0,0,0,0,100,100,0,0,3,12,0,2,110,110,205,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
-        words=phrase.split();chunks=[]
-        for i in range(0,len(words),7):chunks.append(' '.join(words[i:i+7]))
+        chunks=balanced_caption_chunks(phrase)
         total=sum(len(c.split()) for c in chunks);offset=0
         for chunk in chunks:
             chunk_duration=duration*len(chunk.split())/total
