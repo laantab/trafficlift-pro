@@ -1142,70 +1142,45 @@ def test_case_32_buttons_reset_to_workflow_specific_labels():
         "pipeline must re-enable the button on success"
 
 
-def test_case_33_wrap_text_handles_long_titles_without_throwing():
-    """_wrapText() must use let (not const) for the variable it mutates,
-    AND must not throw on very long pin titles."""
+def test_case_33_wrap_text_rejects_overflow_without_truncation():
+    """Headline wrapping must preserve all words or reject an overlong title.
+
+    The former implementation silently added ellipses and discarded words.
+    This is a release-quality regression: rejection is preferable to an
+    apparently successful but visibly truncated Pinterest pin.
+    """
     import re
+    import subprocess
+
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    fn_idx = src.index("function _wrapText(")
-    body = src[fn_idx:_script_end_idx(src)]
-    # The previous bug was `const last = ...; last = ...;` — Assignment to
-    # constant variable. Make sure we use `let last`.
-    assert re.search(r"\blet\s+last\s*=", body), \
-        "_wrapText must use `let last` (was `const last` — threw TypeError)"
-    # No `const last =` should remain
-    assert not re.search(r"\bconst\s+last\s*=", body), \
-        "_wrapText must not declare last as const"
-    # Verify the function parses cleanly via tree-sitter (no orphan braces)
-    import tree_sitter_javascript as tsjs
-    from tree_sitter import Language, Parser
-    # Extract just the _wrapText declaration including body
-    m = re.search(r"function _wrapText\([^)]*\)\s*\{", body)
-    assert m, "_wrapText declaration not found"
-    start = m.start()
-    # Find the matching closing brace by counting depth
-    i = m.end() - 1
-    depth = 1
-    while i < len(body) - 1 and depth > 0:
-        i += 1
-        if body[i] == '{': depth += 1
-        elif body[i] == '}': depth -= 1
-    if depth != 0:
-        # Fallback to first 'return lines;' end
-        end = body.index('return lines;', start) + len('return lines;')
-        block = body[start:end]
-    else:
-        block = body[start:i + 1]
-    # Wrap into a parseable block (template literals inside need backticks)
-    tree = Parser(Language(tsjs.language())).parse(block.encode("utf-8"))
-    errors = []
-    def _walk(node):
-        if node.has_error and (node.type == "ERROR" or node.is_missing):
-            errors.append((node.start_point[0] + 1, node.type))
-        for c in node.children:
-            _walk(c)
-    _walk(tree.root_node)
-    assert not errors, f"_wrapText has parse errors: {errors[:3]}"
-    # Also: simulate a call with a long title by running the function with a
-    # synthetic ctx that counts measureText calls and never overflows. This
-    # proves the function does NOT throw on long input (the original bug
-    # was an Assignment-to-constant crash on ellipsize-overflow).
-    import subprocess, sys
-    sim = (
-        "const calls = [];\n"
-        "const ctx = { measureText: (s) => ({ width: s.length * 12 }) };\n"
-        "const lines = _wrapText(ctx, 'word '.repeat(40).trim(), 200, 3);\n"
-        "console.log('LINES', lines.length, JSON.stringify(lines));\n"
-    )
-    # Extract just the function body and prepend it to a stub that calls it.
-    body_only = re.search(r"function _wrapText\([^)]*\)\s*\{(.*?)\n    \}", body, flags=re.DOTALL)
-    if body_only:
-        js = "function _wrapText(ctx, text, maxWidth, maxLines) {" + body_only.group(1) + "}\n" + sim
-        js_path = ROOT / "video" / "_wrap_text_smoke.js"
-        js_path.write_text(js, encoding="utf-8")
-        # We don't have node — but the parse check above already proves the
-        # function body is syntactically valid. The functional smoke will be
-        # covered by the live browser test.
+    match = re.search(r"function _wrapText\([^)]*\)\s*\{", src)
+    assert match, "_wrapText declaration not found"
+    start = match.start()
+    depth = 0
+    end = None
+    for i in range(match.end() - 1, len(src)):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    assert end is not None, "_wrapText declaration has unbalanced braces"
+    fn = src[start:end]
+    assert "…" not in fn and "ellips" not in fn.lower(), "Do not ellipsize exported titles"
+    js = fn + """
+const ctx = { measureText: (s) => ({ width: s.length * 12 }) };
+const short = _wrapText(ctx, 'Better Light for Your Workspace', 250, 3);
+if (short.join(' ') !== 'Better Light for Your Workspace') throw Error('Title was truncated');
+if (short.length > 3) throw Error('Title exceeded line limit');
+let rejected = false;
+try { _wrapText(ctx, 'word '.repeat(40).trim(), 200, 3); }
+catch (e) { rejected = /fit/.test(String(e.message)); }
+if (!rejected) throw Error('Long retailer title was not rejected');
+"""
+    result = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
 
 
 def test_case_34_load_image_with_cors_does_not_taint_canvas():
