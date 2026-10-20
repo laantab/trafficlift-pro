@@ -14,6 +14,42 @@ def dependencies():
     return model, voices
 
 
+def crop_uniform_photo_margin(photo):
+    """Tighten obvious plain-color listing backgrounds without cropping a product.
+
+    Cropping is conservative: all four corners must share the same neutral
+    background and the foreground bounding box must have adequate resolution.
+    Photos with lifestyle backgrounds or ambiguous edges are left unchanged.
+    """
+    from PIL import Image, ImageChops
+    if photo.mode != 'RGB':
+        photo = photo.convert('RGB')
+    w, h = photo.size
+    if min(w, h) < 500:
+        return photo
+    corners = [photo.getpixel(p) for p in [(0,0), (w-1,0), (0,h-1), (w-1,h-1)]]
+    reference = corners[0]
+    if max(max(abs(a-b) for a,b in zip(reference, sample)) for sample in corners[1:]) > 12:
+        return photo
+    if max(reference) - min(reference) > 18:
+        return photo
+    background = Image.new('RGB', photo.size, reference)
+    difference = ImageChops.difference(photo, background).convert('L')
+    bbox = difference.point(lambda v: 255 if v > 25 else 0).getbbox()
+    if not bbox:
+        return photo
+    x0, y0, x1, y1 = bbox
+    if x0 < 5 or y0 < 5 or x1 > w-5 or y1 > h-5:
+        return photo
+    pad_x = max(20, round((x1-x0) * .07))
+    pad_y = max(20, round((y1-y0) * .07))
+    bounds = (max(0,x0-pad_x), max(0,y0-pad_y), min(w,x1+pad_x), min(h,y1+pad_y))
+    width, height = bounds[2]-bounds[0], bounds[3]-bounds[1]
+    if min(width, height) < 400 or width * height > .85 * w * h:
+        return photo
+    return photo.crop(bounds)
+
+
 def balanced_caption_chunks(phrase, max_words=7):
     """Preserve the spoken words while avoiding orphaned one-word subtitles."""
     words = str(phrase or '').split()
@@ -136,7 +172,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         try:
             with Image.open(path) as source:
                 if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
-                photo=ImageOps.exif_transpose(source).convert('RGB')
+                photo=crop_uniform_photo_margin(ImageOps.exif_transpose(source).convert('RGB'))
                 if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
                 fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
                 if min(photo.size)>=1400:
