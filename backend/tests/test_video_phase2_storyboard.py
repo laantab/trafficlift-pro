@@ -53,3 +53,22 @@ def test_render_uses_distinct_stage_titles_and_larger_photo_panel():
     assert "if scene == 0:" in src
     assert "scene_heading =" in src
     assert "labels=storyboard[scene]['caption']" in src
+
+
+def test_blank_photo_margin_is_trimmed_without_clipping():
+    from PIL import Image, ImageDraw
+    from backend.photo_video import crop_uniform_photo_margin
+    image = Image.new('RGB', (800,800), '#fcfcfc')
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((190,110,610,690), fill='#264653')
+    cropped = crop_uniform_photo_margin(image)
+    assert cropped.width < image.width and cropped.height < image.height
+    assert cropped.getpixel((cropped.width//2,cropped.height//2)) == (38,70,83)
+
+
+def test_lifestyle_photo_is_not_force_cropped():
+    from PIL import Image
+    from backend.photo_video import crop_uniform_photo_margin
+    photo = Image.new('RGB',(800,800),'#ffffff')
+    photo.putpixel((799,799),(10,50,60))
+    assert crop_uniform_photo_margin(photo).size == photo.size
