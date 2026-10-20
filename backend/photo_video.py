@@ -14,6 +14,39 @@ def dependencies():
     return model, voices
 
 
+def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
+    """Plan honest vertical-photo scenes without creating imaginary demonstrations.
+
+    Returns serializable scene metadata used by the renderer and final QA.
+    Additional photos must already be identity-matched and approved upstream.
+    """
+    if available_photos < 1:
+        raise ValueError("A real matching product photo is required.")
+    phrases = sales_plan.get("phrases") or []
+    captions = sales_plan.get("captions") or []
+    if not phrases or len(phrases) != len(captions):
+        raise ValueError("Narration and scene captions must match.")
+    stages = ["hook", "product", "benefit", "buying_details", "cta"]
+    details = list(detail_available or [])
+    storyboard = []
+    for i, (phrase, caption) in enumerate(zip(phrases, captions)):
+        photo = i % available_photos
+        closeup = i in (1, 2) and photo < len(details) and bool(details[photo])
+        storyboard.append({
+            "scene": i + 1,
+            "stage": (sales_plan.get("scenes") or [{}] * len(phrases))[i].get("stage", stages[min(i, len(stages)-1)])
+                if i < len(sales_plan.get("scenes") or []) else stages[min(i, len(stages)-1)],
+            "caption": caption,
+            "narration": phrase,
+            "photo_index": photo,
+            "photo_treatment": "real_photo_detail_crop" if closeup else "real_photo_full",
+            "motion": "gentle_pan_zoom",
+            "transition": "fade" if i else "opening",
+            "demonstration": False,
+        })
+    return storyboard
+
+
 def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
     if sales_plan["review"]["status"] != "PASS":
@@ -96,6 +129,8 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         except (ValueError,OSError):
             if path==image_path:raise
     if not fitted_photos:raise ValueError('A real product photo is required.')
+    storyboard = build_scene_storyboard(sales_plan, len(fitted_photos), [d is not None for d in detail_photos])
+    (root/'scene_storyboard.json').write_text(json.dumps(storyboard,indent=2),encoding='utf-8')
     def text(d,xy,value,size=44,color=ink):
         box=d.textbbox(xy,value,font=font(size))
         if not (90<=box[0] and box[2]<=990 and 120<=box[1] and box[3]<=1635):raise ValueError('Text failed the safe-margin check.')
@@ -109,8 +144,8 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         for i,line in enumerate(title_lines):text(d,(96,245+i*68),line,52)
         # A sizeable, alternating push/pull across real listing photos.
         # The whole product stays within the panel at every frame.
-        photo_index=scene % len(fitted_photos)
-        fitted=(detail_photos[photo_index] if scene in {1,2} and detail_photos[photo_index] is not None else fitted_photos[photo_index])
+        photo_index=storyboard[scene]['photo_index']
+        fitted=(detail_photos[photo_index] if storyboard[scene]['photo_treatment']=='real_photo_detail_crop' else fitted_photos[photo_index])
         width,height,x,y=scene_geometry(fitted.size,scene,local)
         moving=fitted.resize((width,height),Image.Resampling.LANCZOS)
         im.paste(moving,(x,y))
@@ -142,7 +177,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
     quality['marketing_approval']='NOT_APPROVED: source and complete video need visual review'
-    quality.update(narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(storyboard=storyboard, phase2_storyboard='PASS', narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
