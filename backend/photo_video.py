@@ -66,6 +66,26 @@ def balanced_caption_chunks(phrase, max_words=7):
     return result
 
 
+def check_narration_audio(path):
+    """Reject a silent, clipped or nearly inaudible spoken track before MP4 export."""
+    import numpy as np
+    import soundfile as sf
+    audio, rate = sf.read(str(path), dtype='float32', always_2d=False)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    if rate < 16000 or len(audio) < rate:
+        raise ValueError('Narration audio is missing or too short.')
+    if not np.isfinite(audio).all():
+        raise ValueError('Narration audio contains invalid samples.')
+    peak = float(np.max(np.abs(audio)))
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    if peak < 0.012 or rms < 0.001:
+        raise ValueError('Narration is silent or too quiet for a product video.')
+    if peak >= .999:
+        raise ValueError('Narration appears clipped.')
+    return {'status':'PASS','peak':round(peak,4),'rms':round(rms,5),'sample_rate':int(rate)}
+
+
 def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
     """Plan honest vertical-photo scenes without creating imaginary demonstrations.
 
@@ -148,6 +168,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     voice=np.zeros(rate*seconds,dtype=np.float32)
     for a,t in zip(clips,starts): voice[round(t*rate):round(t*rate)+len(a)]=a
     sf.write(root/'voice.wav',voice,rate)
+    narration_qa=check_narration_audio(root/'voice.wav')
     time=np.arange(rate*seconds)/rate
     music=sum(np.sin(2*np.pi*f*time)*.012 for f in [130.81,164.81,196])
     music*=np.minimum(1,time/.4)*np.minimum(1,(seconds-time)/.8)
@@ -239,6 +260,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
+    quality['narration_audio']=narration_qa
     quality['marketing_approval']='NOT_APPROVED: source and complete video need visual review'
     quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
