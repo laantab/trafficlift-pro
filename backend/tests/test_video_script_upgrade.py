@@ -64,6 +64,8 @@ def test_worker_rehydrates_history_product_and_uses_requested_preset(tmp_path):
     assert record['status']=='succeeded'
     assert record['sales_plan']['mode']=='benefit_led'
     assert record['seconds'] == 15
+    assert record['requested_seconds'] == 15
+    assert record['duration_extended'] is False
     assert render.call_args.args[5] == 15
     assert render.call_args.kwargs['sales_plan']['phrases'][1].count('Oura Ring 4') >= 1
     assert json.loads((tmp_path/'job.json').read_text())['sales_plan']['evidence']
