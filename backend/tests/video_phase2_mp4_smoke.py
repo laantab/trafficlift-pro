@@ -5,7 +5,7 @@ Speech is synthetic audio, NOT a Kokoro quality test. No paid providers.
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-import json, sys, types
+import json, sys, types, os
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -31,6 +31,7 @@ def main():
             audio = np.sin(2 * np.pi * 200 * t).astype(np.float32) * .03
             return audio, rate
     kokoro.Kokoro = FakeKokoro
+    real_voice = os.getenv('TRAFFICLIFT_TEST_REAL_KOKORO') == '1'
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root/'voice.onnx').touch()
@@ -51,17 +52,24 @@ def main():
             'review':{'status':'PASS','evidence_status':'Synthetic smoke only'},
             'requested_seconds':15
         }
-        with patch.dict(sys.modules,{'onnxruntime':onnx,'kokoro_onnx':kokoro}), \
-             patch('backend.photo_video.dependencies',return_value=(root/'voice.onnx',root/'voices.bin')):
+        if real_voice:
+            from backend.photo_video import dependencies
+            model, voices = dependencies()
+            assert model.stat().st_size > 1_000_000 and voices.stat().st_size > 1_000_000
             output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=photos[1:])
+        else:
+            with patch.dict(sys.modules,{'onnxruntime':onnx,'kokoro_onnx':kokoro}), \\
+                 patch('backend.photo_video.dependencies',return_value=(root/'voice.onnx',root/'voices.bin')):
+                output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=photos[1:])
         assert output.is_file() and output.stat().st_size>10000
         qa=json.loads((root/'quality.json').read_text())
         assert qa['status']=='PASS' and qa['motion']['status']=='PASS'
         assert qa['scene_count']==5 and qa['photo_count']==2
-        assert qa['duration']==15
+        assert qa['duration']>=15 and qa['duration']<=120
+        assert qa['narration_audio']['status']=='PASS'
         assert (root/'scene_storyboard.json').is_file()
         # Keep only the final rendered asset/QA for an optional CI artifact.
-        dest=Path('/tmp/trafficlift-phase2-smoke.mp4')
+        dest=Path('/tmp/trafficlift-phase2-real-kokoro.mp4' if real_voice else '/tmp/trafficlift-phase2-smoke.mp4')
         dest.write_bytes(output.read_bytes())
         Path('/tmp/trafficlift-phase2-quality.json').write_text(json.dumps(qa,indent=2))
         print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 5 scenes, 2 photos, decoded and motion-checked')
