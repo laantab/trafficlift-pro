@@ -52,7 +52,7 @@ def test_cta_ends_near_video_end_instead_of_early_silent_hold():
     assert starts[1] > starts[0]+2
 
 
-def test_worker_rehydrates_history_product_and_extends_short_runtime(tmp_path):
+def test_worker_rehydrates_history_product_and_uses_requested_preset(tmp_path):
     payload = VideoRequest.model_construct(name='Oura Ring 4 : Target',image_url='https://example.com/ring.jpg',
                            product_url='https://www.target.com/p/oura-ring-4',seconds=15)
     plan = build_sales_plan(payload.name,'',payload.product_url,15)
@@ -63,8 +63,10 @@ def test_worker_rehydrates_history_product_and_extends_short_runtime(tmp_path):
         worker(record,payload,tmp_path)
     assert record['status']=='succeeded'
     assert record['sales_plan']['mode']=='benefit_led'
-    assert record['seconds'] >= 30
-    assert render.call_args.args[5] == record['seconds']
+    assert record['seconds'] == 15
+    assert record['requested_seconds'] == 15
+    assert record['duration_extended'] is False
+    assert render.call_args.args[5] == 15
     assert render.call_args.kwargs['sales_plan']['phrases'][1].count('Oura Ring 4') >= 1
     assert json.loads((tmp_path/'job.json').read_text())['sales_plan']['evidence']
     lock.release.assert_called_once()

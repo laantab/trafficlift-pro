@@ -14,6 +14,111 @@ def dependencies():
     return model, voices
 
 
+def crop_uniform_photo_margin(photo):
+    """Tighten obvious plain-color listing backgrounds without cropping a product.
+
+    Cropping is conservative: all four corners must share the same neutral
+    background and the foreground bounding box must have adequate resolution.
+    Photos with lifestyle backgrounds or ambiguous edges are left unchanged.
+    """
+    from PIL import Image, ImageChops
+    if photo.mode != 'RGB':
+        photo = photo.convert('RGB')
+    w, h = photo.size
+    if min(w, h) < 500:
+        return photo
+    corners = [photo.getpixel(p) for p in [(0,0), (w-1,0), (0,h-1), (w-1,h-1)]]
+    reference = corners[0]
+    if max(max(abs(a-b) for a,b in zip(reference, sample)) for sample in corners[1:]) > 12:
+        return photo
+    if max(reference) - min(reference) > 18:
+        return photo
+    background = Image.new('RGB', photo.size, reference)
+    difference = ImageChops.difference(photo, background).convert('L')
+    bbox = difference.point(lambda v: 255 if v > 25 else 0).getbbox()
+    if not bbox:
+        return photo
+    x0, y0, x1, y1 = bbox
+    if x0 < 5 or y0 < 5 or x1 > w-5 or y1 > h-5:
+        return photo
+    pad_x = max(20, round((x1-x0) * .07))
+    pad_y = max(20, round((y1-y0) * .07))
+    bounds = (max(0,x0-pad_x), max(0,y0-pad_y), min(w,x1+pad_x), min(h,y1+pad_y))
+    width, height = bounds[2]-bounds[0], bounds[3]-bounds[1]
+    if min(width, height) < 400 or width * height > .85 * w * h:
+        return photo
+    return photo.crop(bounds)
+
+
+def balanced_caption_chunks(phrase, max_words=7):
+    """Preserve the spoken words while avoiding orphaned one-word subtitles."""
+    words = str(phrase or '').split()
+    if not words:
+        return []
+    count = math.ceil(len(words) / max_words)
+    sizes = [len(words) // count + (1 if i < len(words) % count else 0)
+             for i in range(count)]
+    result = []
+    cursor = 0
+    for size in sizes:
+        result.append(' '.join(words[cursor:cursor + size]))
+        cursor += size
+    return result
+
+
+def check_narration_audio(path):
+    """Reject a silent, clipped or nearly inaudible spoken track before MP4 export."""
+    import numpy as np
+    import soundfile as sf
+    audio, rate = sf.read(str(path), dtype='float32', always_2d=False)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    if rate < 16000 or len(audio) < rate:
+        raise ValueError('Narration audio is missing or too short.')
+    if not np.isfinite(audio).all():
+        raise ValueError('Narration audio contains invalid samples.')
+    peak = float(np.max(np.abs(audio)))
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    if peak < 0.012 or rms < 0.001:
+        raise ValueError('Narration is silent or too quiet for a product video.')
+    if peak >= .999:
+        raise ValueError('Narration appears clipped.')
+    return {'status':'PASS','peak':round(peak,4),'rms':round(rms,5),'sample_rate':int(rate)}
+
+
+def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
+    """Plan honest vertical-photo scenes without creating imaginary demonstrations.
+
+    Returns serializable scene metadata used by the renderer and final QA.
+    Additional photos must already be identity-matched and approved upstream.
+    """
+    if available_photos < 1:
+        raise ValueError("A real matching product photo is required.")
+    phrases = sales_plan.get("phrases") or []
+    captions = sales_plan.get("captions") or []
+    if not phrases or len(phrases) != len(captions):
+        raise ValueError("Narration and scene captions must match.")
+    stages = ["hook", "product", "benefit", "buying_details", "cta"]
+    details = list(detail_available or [])
+    storyboard = []
+    for i, (phrase, caption) in enumerate(zip(phrases, captions)):
+        photo = i % available_photos
+        closeup = i in (1, 2) and photo < len(details) and bool(details[photo])
+        storyboard.append({
+            "scene": i + 1,
+            "stage": (sales_plan.get("scenes") or [{}] * len(phrases))[i].get("stage", stages[min(i, len(stages)-1)])
+                if i < len(sales_plan.get("scenes") or []) else stages[min(i, len(stages)-1)],
+            "caption": caption,
+            "narration": phrase,
+            "photo_index": photo,
+            "photo_treatment": "real_photo_detail_crop" if closeup else "real_photo_full",
+            "motion": "gentle_pan_zoom",
+            "transition": "fade" if i else "opening",
+            "demonstration": False,
+        })
+    return storyboard
+
+
 def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
     if sales_plan["review"]["status"] != "PASS":
@@ -54,12 +159,16 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     lengths=[len(a)/rate for a in clips]
     # Use every recorded phrase. Natural length replaces long silent holds
     # and can extend the requested target instead of cutting the sales script.
-    seconds=max(15,math.ceil(sum(lengths)+.22*(len(lengths)-1)+1.6))
+    # Respect the requested 15/30/60 preset when the measured narration fits.
+    # If it does not, extend safely rather than cut speech or silently truncate.
+    needed=math.ceil(sum(lengths)+.22*(len(lengths)-1)+1.6)
+    seconds=max(int(seconds),15,needed)
     if seconds>120:raise ValueError('The script exceeds two minutes. Shorten the product facts.')
     starts=narration_starts(lengths, seconds)
     voice=np.zeros(rate*seconds,dtype=np.float32)
     for a,t in zip(clips,starts): voice[round(t*rate):round(t*rate)+len(a)]=a
     sf.write(root/'voice.wav',voice,rate)
+    narration_qa=check_narration_audio(root/'voice.wav')
     time=np.arange(rate*seconds)/rate
     music=sum(np.sin(2*np.pi*f*time)*.012 for f in [130.81,164.81,196])
     music*=np.minimum(1,time/.4)*np.minimum(1,(seconds-time)/.8)
@@ -69,8 +178,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     ass='[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,38,&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,0,0,0,0,100,100,0,0,3,12,0,2,110,110,205,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
-        words=phrase.split();chunks=[]
-        for i in range(0,len(words),7):chunks.append(' '.join(words[i:i+7]))
+        chunks=balanced_caption_chunks(phrase)
         total=sum(len(c.split()) for c in chunks);offset=0
         for chunk in chunks:
             chunk_duration=duration*len(chunk.split())/total
@@ -85,37 +193,48 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         try:
             with Image.open(path) as source:
                 if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
-                photo=ImageOps.exif_transpose(source).convert('RGB')
+                photo=crop_uniform_photo_margin(ImageOps.exif_transpose(source).convert('RGB'))
                 if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
-                fitted_photos.append(ImageOps.contain(photo,(800,800),Image.Resampling.LANCZOS))
+                fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
                 if min(photo.size)>=1400:
                     w,h=photo.size
                     detail=photo.crop((round(w*.175),round(h*.175),round(w*.825),round(h*.825)))
-                    detail_photos.append(ImageOps.contain(detail,(800,800),Image.Resampling.LANCZOS))
+                    detail_photos.append(ImageOps.contain(detail,(888,888),Image.Resampling.LANCZOS))
                 else:detail_photos.append(None)
         except (ValueError,OSError):
             if path==image_path:raise
     if not fitted_photos:raise ValueError('A real product photo is required.')
+    storyboard = build_scene_storyboard(sales_plan, len(fitted_photos), [d is not None for d in detail_photos])
+    (root/'scene_storyboard.json').write_text(json.dumps(storyboard,indent=2),encoding='utf-8')
     def text(d,xy,value,size=44,color=ink):
         box=d.textbbox(xy,value,font=font(size))
         if not (90<=box[0] and box[2]<=990 and 120<=box[1] and box[3]<=1635):raise ValueError('Text failed the safe-margin check.')
         d.text(xy,value,font=font(size),fill=color)
     boundaries=[0]+[start-.05 for start in starts[1:]]+[seconds]
+    stage_labels = {'hook': 'A CLOSER LOOK', 'product': 'MEET THE PRODUCT', 'benefit': 'SELLER-LISTED DETAILS', 'routine': 'IN YOUR ROUTINE', 'buying_details': 'BEFORE YOU BUY', 'cta': 'SEE THE LISTING'}
     def frame(t):
         scene=min(len(phrases)-1,max(0,bisect.bisect_right(boundaries,t)-1))
         local=(t-boundaries[scene])/(boundaries[scene+1]-boundaries[scene])
         im=Image.new('RGB',(1080,1920),bg);d=ImageDraw.Draw(im)
-        text(d,(96,145),'A CLOSER LOOK',25)
-        for i,line in enumerate(title_lines):text(d,(96,245+i*68),line,52)
+        stage = storyboard[scene]['stage']
+        text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
+        # Use the full product title only for the opening shot, preventing
+        # five nearly identical title cards.
+        if scene == 0:
+            for i,line in enumerate(title_lines):
+                text(d,(96,245+i*68),line,52)
+        else:
+            scene_heading = {'product':'See the actual product', 'benefit':'Review listed features', 'routine':'Picture your setup', 'buying_details':'Check fit and options', 'cta':'Explore product details'}.get(stage,'Product overview')
+            text(d,(96,245),scene_heading,48)
         # A sizeable, alternating push/pull across real listing photos.
         # The whole product stays within the panel at every frame.
-        photo_index=scene % len(fitted_photos)
-        fitted=(detail_photos[photo_index] if scene in {1,2} and detail_photos[photo_index] is not None else fitted_photos[photo_index])
+        photo_index=storyboard[scene]['photo_index']
+        fitted=(detail_photos[photo_index] if storyboard[scene]['photo_treatment']=='real_photo_detail_crop' else fitted_photos[photo_index])
         width,height,x,y=scene_geometry(fitted.size,scene,local)
         moving=fitted.resize((width,height),Image.Resampling.LANCZOS)
         im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
-        labels=sales_plan['captions'][scene]
+        labels=storyboard[scene]['caption']
         label_lines=wrap(labels,36)
         if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
         for row,line in enumerate(label_lines):text(d,(96,1410+row*45),line,36)
@@ -141,8 +260,9 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
+    quality['narration_audio']=narration_qa
     quality['marketing_approval']='NOT_APPROVED: source and complete video need visual review'
-    quality.update(narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out

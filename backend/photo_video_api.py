@@ -99,7 +99,7 @@ def worker(record,payload,directory):
         benefit=facts.pop('benefit','')
         record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,120,**facts)
         record['sales_plan']['requested_seconds']=payload.seconds
-        record['seconds']=60
+        record['seconds']=payload.seconds
         save(record,directory)
         update('Choosing the clearest photo from this product listing')
         from backend.photo_quality import resolution_variants,choose_photos
@@ -120,8 +120,14 @@ def worker(record,payload,directory):
                                    'message':'Render checks do not establish marketing approval. Check product identity, edge markings, focus, composition and the complete video.'}
         save(record,directory)
         out=render(image,directory,payload.name,payload.benefit,payload.product_url,record['seconds'],payload.style,update,sales_plan=record['sales_plan'],extra_images=extra_photos)
-        record['seconds']=json.loads((directory/'quality.json').read_text())['duration'] if (directory/'quality.json').is_file() else record['seconds']
-        record.update(status='succeeded',message=('Video rendered — visual marketing review required' if record['sales_plan'].get('mode') == 'benefit_led' else 'Product overview rendered — benefit details unavailable; visual review required'),video_url=f"/api/v1/photo-videos/{record['id']}/video")
+        quality_data=json.loads((directory/'quality.json').read_text()) if (directory/'quality.json').is_file() else {}
+        record['seconds']=quality_data.get('duration',record['seconds'])
+        record['requested_seconds']=payload.seconds
+        record['duration_extended']=record['seconds']>payload.seconds
+        record['narration_qa']=quality_data.get('narration_audio',{})
+        record['scene_count']=quality_data.get('scene_count')
+        record['marketing_review']['status']='NEEDS_VISUAL_REVIEW'
+        record.update(status='succeeded',message=(('Video length extended to '+str(record['seconds'])+' seconds to keep narration complete. ' if record['duration_extended'] else '')+('Video rendered — visual marketing review required' if record['sales_plan'].get('mode') == 'benefit_led' else 'Product overview rendered — benefit details unavailable; visual review required')),video_url=f"/api/v1/photo-videos/{record['id']}/video")
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
     finally:
