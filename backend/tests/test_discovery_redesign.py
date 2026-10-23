@@ -193,14 +193,14 @@ def test_simultaneous_discovery_requests_never_return_duplicates(isolated):
     assert len(set(results))==3
 
 
-def test_history_expiration_allows_new_cycle(tmp_path,monkeypatch):
+def test_history_expiration_does_not_recycle_winner(tmp_path,monkeypatch):
     from backend import winner_history
     monkeypatch.setattr(winner_history.time,'time',lambda:100)
     history=WinnerHistory('browser',tmp_path/'history.sqlite3')
     keys=identity_keys('Desk Lamp','https://shop.example/lamp')
     assert history.claim(keys)
     monkeypatch.setattr(winner_history.time,'time',lambda:100+winner_history.WINDOW_SECONDS+1)
-    assert history.claim(keys)
+    assert not history.claim(keys)
 
 
 def test_deadline_does_not_wait_for_slow_background_work():

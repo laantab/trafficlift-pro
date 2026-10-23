@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-WINDOW_SECONDS = 30 * 86400
+WINDOW_SECONDS = 30 * 86400  # Category rotation only; winning products never expire
 
 
 def identity_keys(name, url):
@@ -49,12 +49,11 @@ class WinnerHistory:
 
     def seen(self):
         with self.connect() as db:
-            return {row[0] for row in db.execute('SELECT identity FROM discovery_seen WHERE scope=? AND expires>?', (self.scope, time.time()))}
+            return {row[0] for row in db.execute('SELECT identity FROM discovery_seen WHERE scope=?', (self.scope,))}
 
     def next_cursor(self):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            db.execute('DELETE FROM discovery_seen WHERE expires<=?', (time.time(),))
             db.execute('DELETE FROM discovery_rotation WHERE touched<?', (time.time()-WINDOW_SECONDS,))
             row = db.execute('SELECT cursor FROM discovery_rotation WHERE scope=?', (self.scope,)).fetchone()
             cursor = row[0] if row else 0
@@ -66,8 +65,8 @@ class WinnerHistory:
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             placeholders = ','.join('?' for _ in keys)
-            if db.execute(f'SELECT 1 FROM discovery_seen WHERE scope=? AND expires>? AND identity IN ({placeholders})', (self.scope, time.time(), *keys)).fetchone():
+            if db.execute(f'SELECT 1 FROM discovery_seen WHERE scope=? AND identity IN ({placeholders})', (self.scope, *keys)).fetchone():
                 return False
             for key in keys:
-                db.execute('INSERT OR REPLACE INTO discovery_seen VALUES (?,?,?)', (self.scope, key, time.time()+WINDOW_SECONDS))
+                db.execute('INSERT OR REPLACE INTO discovery_seen VALUES (?,?,?)', (self.scope, key, time.time()+WINDOW_SECONDS))  # legacy expires field retained for old databases
             return True
