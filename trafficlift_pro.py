@@ -762,8 +762,10 @@ app.include_router(photo_video_router)
 
 @app.get("/", include_in_schema=False)
 async def root():
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/docs", status_code=302)
+    """Open the customer dashboard; keep developer API docs at /docs."""
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    return FileResponse(Path(__file__).resolve().with_name("index.html"), media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
