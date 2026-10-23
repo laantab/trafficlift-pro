@@ -24,6 +24,43 @@ def guard(request):
     origin=request.headers.get('origin')
     if origin and origin!=f'{request.url.scheme}://{request.url.netloc}':raise HTTPException(403,'Open the free studio on this computer to render videos.')
 
+def video_guard(request):
+    """Keep the loopback mode intact; cloud rendering must be explicitly enabled.
+
+    Cloud video creation uses a separate quota on persistent storage. Sensitive
+    research-connection endpoints continue using the loopback-only guard.
+    """
+    if os.environ.get('TRAFFICLIFT_HOSTED_VIDEO') != '1':
+        return guard(request)
+    origin = request.headers.get('origin')
+    if origin and origin.rstrip('/') != str(request.base_url).rstrip('/'):
+        raise HTTPException(403, 'Open TrafficLift at its official website to render.')
+    # Do not trust an arbitrary X-Forwarded-For value as an authorization token.
+    # The quota is global, so IP spoofing cannot raise total daily usage.
+
+
+def reserve_hosted_render():
+    """Atomically bound daily hosted costs across threads and restarts."""
+    if os.environ.get('TRAFFICLIFT_HOSTED_VIDEO') != '1':
+        return
+    import sqlite3
+    path = storage() / 'hosted_quota.sqlite3'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    limit = min(20, max(1, int(os.getenv('TRAFFICLIFT_HOSTED_DAILY_LIMIT', '3'))))
+    day = time.strftime('%Y-%m-%d', time.gmtime())
+    try:
+        with sqlite3.connect(path, timeout=5) as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('CREATE TABLE IF NOT EXISTS daily_renders (day TEXT PRIMARY KEY, count INTEGER NOT NULL)')
+            row = db.execute('SELECT count FROM daily_renders WHERE day=?', (day,)).fetchone()
+            if row and row[0] >= limit:
+                raise HTTPException(429, 'Today’s video capacity has been reached. Please return tomorrow.')
+            db.execute('INSERT INTO daily_renders(day,count) VALUES(?,1) ON CONFLICT(day) DO UPDATE SET count=count+1', (day,))
+            db.execute('DELETE FROM daily_renders WHERE day<?', (day,))
+    except sqlite3.Error as exc:
+        raise HTTPException(503, 'Video capacity accounting is temporarily unavailable.') from exc
+
+
 class VideoRequest(BaseModel):
     name:str=Field(min_length=1,max_length=90)
     image_url:str=Field(max_length=2048)
@@ -143,7 +180,7 @@ def studio(request:Request):
 
 @router.get('/api/v1/photo-videos')
 def history(request:Request):
-    guard(request)
+    video_guard(request)
     records=[]
     paths=list(storage().glob('*/job.json'))
     legacy=os.environ.get('TRAFFICLIFT_LEGACY_VIDEO_DIR')
@@ -157,7 +194,7 @@ def history(request:Request):
 
 @router.post('/api/v1/photo-videos',status_code=202)
 def create(payload:VideoRequest,request:Request):
-    guard(request)
+    video_guard(request)
     if not payload.name.strip():raise HTTPException(400,'Product name is required.')
     from backend.discovery import _looks_like_article
     if _looks_like_article(payload.name, ''):
@@ -173,6 +210,11 @@ def create(payload:VideoRequest,request:Request):
     if shutil.disk_usage(root).free<250*1024*1024:raise HTTPException(409,'Not enough disk space. Free at least 250 MB before rendering.')
     if not lock.acquire(blocking=False):raise HTTPException(409,'A video is already running. Wait for it to finish.')
     try:
+        reserve_hosted_render()
+    except Exception:
+        lock.release()
+        raise
+    try:
         job_id=uuid.uuid4().hex;directory=root/job_id;directory.mkdir()
         record={'id':job_id,'name':payload.name,'created_at':time.time(),'seconds':payload.seconds,'status':'queued','message':'Getting photo','video_url':None,'product_url':payload.product_url,'sales_plan':sales_plan}
         save(record,directory)
@@ -183,11 +225,11 @@ def create(payload:VideoRequest,request:Request):
 
 @router.get('/api/v1/photo-videos/{job_id}')
 def get_job(job_id:str,request:Request):
-    guard(request);return {'video':read_record(job_id)}
+    video_guard(request);return {'video':read_record(job_id)}
 
 @router.get('/api/v1/photo-videos/{job_id}/video')
 def download(job_id:str,request:Request):
-    guard(request);record=read_record(job_id)
+    video_guard(request);record=read_record(job_id)
     if record['status']!='succeeded':raise HTTPException(409,'This video has not passed its checks.')
     path=record_path(job_id).parent/'video.mp4'
     if not path.is_file():raise HTTPException(404,'Saved video file is missing.')
