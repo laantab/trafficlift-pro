@@ -2541,6 +2541,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             fetch(window.__lastPinDataUrl)
                 .then(r => r.blob())
                 .then(blob => {
+                    if (!blob || blob.size < 1024 || !blob.type.startsWith('image/')) {
+                        throw new Error('The pin image export was empty or invalid.');
+                    }
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = blobUrl;
@@ -2548,7 +2551,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
-                    window.URL.revokeObjectURL(blobUrl);
+                    // Browsers may not start reading the download until the next
+                    // event-loop turn. Revoking immediately can yield an empty
+                    // or failed file (especially on slower/mobile browsers).
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 30000);
                     showToast('', 'Pin downloaded (1000x1500, 2:3).', 'success');
                 })
                 .catch(err => {
