@@ -25,6 +25,8 @@ def provision():
         temporary.write_text(json.dumps({"state": state, "detail": detail,
              "checked_at": datetime.now(timezone.utc).isoformat()}))
         temporary.replace(status_file)
+        import logging
+        logging.getLogger("trafficlift.hosted_video").info("Hosted video preparation: %s", state)
 
     try:
         status("preparing", "Installing checksummed voice assets")
