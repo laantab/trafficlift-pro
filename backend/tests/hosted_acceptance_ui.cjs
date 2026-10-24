@@ -7,12 +7,13 @@ function element(id) {
   if (!elements.has(id)) {
     const hidden = new Set(['hidden']);
     elements.set(id, {
-      id, value: '', textContent: '',
+      id, value: '', textContent: '', childNodes: [],
       classList: {
         add: x => hidden.add(x), remove: x => hidden.delete(x),
         contains: x => hidden.has(x),
       },
-      replaceChildren() {}, append() {},
+      replaceChildren() {this.childNodes = []},
+      append(...nodes) {this.childNodes.push(...nodes)},
     });
   }
   return elements.get(id);
@@ -49,6 +50,8 @@ const code = source.slice(
   source.indexOf('    function getLocalVideoBridge()')
 );
 assert(code.includes('async function loadHostedAcceptanceSample()'));
+assert(source.includes('id="hostedVideoAcceptanceReview"'));
+assert(source.includes('href="/api/v1/video-owner-acceptance/mp4"'));
 vm.runInContext(code, context);
 (async () => {
   assert(!element('hostedVideoOwnerAccess').classList.contains('hidden'));
