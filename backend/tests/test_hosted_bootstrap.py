@@ -37,3 +37,33 @@ def test_preparation_failure_is_not_reported_ready(monkeypatch, tmp_path):
         assert provision() is False
     status=json.loads((tmp_path / "provision-status.json").read_text())
     assert status["state"]=="failed"
+
+
+def test_optin_server_mp4_smoke_records_success(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_PREPARE", "1")
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_SMOKE", "1")
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_MODEL_DIR", str(tmp_path))
+    with patch("scripts.install_hosted_voice_assets.install"), \
+         patch("static_ffmpeg.add_paths"), \
+         patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
+         patch("subprocess.run", return_value=SimpleNamespace(returncode=0,stdout="PASS",stderr="")) as run:
+        assert provision() is True
+    assert run.call_count == 3
+    status=json.loads((tmp_path / "provision-status.json").read_text())
+    assert status["state"]=="ready"
+    assert "MP4 acceptance passed" in status["detail"]
+
+
+def test_optin_server_mp4_failure_fails_closed(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_PREPARE", "1")
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_SMOKE", "1")
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_MODEL_DIR", str(tmp_path))
+    with patch("scripts.install_hosted_voice_assets.install"), \
+         patch("static_ffmpeg.add_paths"), \
+         patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
+         patch("subprocess.run", side_effect=[SimpleNamespace(returncode=0), SimpleNamespace(returncode=0), SimpleNamespace(returncode=1,stderr="MP4 failed",stdout="")]):
+        assert provision() is False
+    status=json.loads((tmp_path / "provision-status.json").read_text())
+    assert status["state"]=="failed"
