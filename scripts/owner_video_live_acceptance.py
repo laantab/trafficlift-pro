@@ -93,12 +93,15 @@ def verify(session, access_code, *, payload=None, resume=None, output=None,
 
     downloaded = session.get(BASE + "/api/v1/photo-videos/" + job_id + "/video",
                              timeout=(20, 180), stream=True, allow_redirects=False)
-    _check(downloaded, 200, "MP4 download")
-    if not downloaded.headers.get("Content-Type", "").lower().startswith("video/mp4"):
-        raise AcceptanceError("Download is not an MP4 response")
-    output.parent.mkdir(parents=True, exist_ok=True)
+    # A streamed response must be closed even when headers are rejected or
+    # the output directory cannot be created. Otherwise failed acceptance
+    # retries can retain open connections to the private MP4 endpoint.
     temp_path = None
     try:
+        _check(downloaded, 200, "MP4 download")
+        if not downloaded.headers.get("Content-Type", "").lower().startswith("video/mp4"):
+            raise AcceptanceError("Download is not an MP4 response")
+        output.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".partial", delete=False) as file:
             temp_path = Path(file.name)
             size = 0
