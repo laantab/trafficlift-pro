@@ -10,12 +10,12 @@ function element(id) {
  return elements.get(id);
 }
 const winner={name:'Sunset Projection Lamp',image_url:'https://example.com/lamp.jpg',url:'https://example.com/lamp'};
-let submitted;
+let submitted; let createCount=0; let historyJobs=[]; let statusJob=null; let statusChecks=0;
 const context={document:{getElementById:element,createElement:()=>element('created-'+Math.random())},restoreCurrentWinner:()=>winner,buildWinnerVideoPrompt:()=> 'prompt',syncVideoModelOptions(){},updateVideoPromptCount(){},lucide:{createIcons(){}},showToast(){},URL,Date,AbortSignal,apiUrl:p=>p,setTimeout:fn=>{fn();return 1},fetch:async(path,opts={})=>{
  let data;
- if(path==='/api/v1/photo-videos'&&opts.method==='POST'){submitted=JSON.parse(opts.body);data={video:{id:'a'.repeat(32)}};}
- else if(path==='/api/v1/photo-videos')data={videos:[]};
- else data={video:{status:'succeeded',message:'Video checked and ready',video_url:'/api/v1/photo-videos/'+'a'.repeat(32)+'/video',product_url:winner.url}};
+ if(path==='/api/v1/photo-videos'&&opts.method==='POST'){createCount++;submitted=JSON.parse(opts.body);data={video:{id:'a'.repeat(32)}};}
+ else if(path==='/api/v1/photo-videos')data={videos:historyJobs};
+ else {statusChecks++;data={video:statusJob||{status:'succeeded',message:'Video checked and ready',video_url:'/api/v1/photo-videos/'+'a'.repeat(32)+'/video',product_url:winner.url}};}
  return {ok:true,json:async()=>data};
 }};
 vm.createContext(context);
@@ -34,6 +34,37 @@ vm.runInContext(funcs+'\n'+open,context);
  assert(!element('videoResult').classList.contains('hidden'));assert.equal(element('videoResult').childNodes.length,5);
  assert.equal(element('videoResult').childNodes[1].src,'/api/v1/photo-videos/'+'a'.repeat(32)+'/video');
  assert.equal(element('videoResult').childNodes[2].textContent,'Download draft MP4');
+
+ // A reload may interrupt polling while the backend job continues. Reattach to
+ // the saved job ID rather than spending another quota slot or rendering twice.
+ const pending={id:'b'.repeat(32),name:'Saved lamp video',created_at:1700000000,status:'running'};
+ historyJobs=[pending];
+ await context.loadFreeVideoHistory();
+ let rows=element('freeVideoHistory').childNodes;
+ assert.equal(rows.length,1);
+ const resume=rows[0].childNodes[1];
+ assert.equal(resume.textContent,' Resume progress');
+ const originalCreates=createCount;
+ statusJob={status:'succeeded',message:'Recovered video ready',
+   video_url:'/api/v1/photo-videos/'+pending.id+'/video',product_url:winner.url};
+ historyJobs=[{...pending,...statusJob}];
+ await resume.onclick();
+ assert.equal(createCount,originalCreates,'resuming must not POST a new render');
+ assert(statusChecks>=2,'saved status endpoint should be polled');
+ assert.equal(element('videoStatus').textContent,'Recovered video ready');
+ assert.equal(element('videoResult').childNodes[2].href,
+   '/api/v1/photo-videos/'+pending.id+'/video');
+ assert(!element('videoResult').classList.contains('hidden'));
+ // Failed resumed jobs must not leave the previous video's download visible.
+ historyJobs=[pending];
+ statusJob={status:'failed',message:'Source photo could not be downloaded'};
+ await context.loadFreeVideoHistory();
+ rows=element('freeVideoHistory').childNodes;
+ await rows[0].childNodes[1].onclick();
+ assert.equal(createCount,originalCreates);
+ assert.equal(element('videoStatus').textContent,'Source photo could not be downloaded');
+ assert(element('videoResult').classList.contains('hidden'));
+ assert.equal(element('videoResult').childNodes.length,0);
  const failed=element('failed');context.showFreeVideo({status:'failed',video_url:'/bad'},failed);assert.equal(failed.childNodes.length,0);
- console.log('PASS: preview, defaults, current-product payload, progress completion, checked playback/download, failed-output withholding');
+ console.log('PASS: new video, saved-job resume without duplicate POST, recovered MP4, failed-output withholding');
 })().catch(e=>{console.error(e);process.exitCode=1});

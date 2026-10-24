@@ -40,7 +40,7 @@ const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',i
   return {video:{status:'succeeded',video_url:'/video',message:'Ready'}};
  };
  b.context.setTimeout=fn=>fn();b.context.showFreeVideo=()=>{};b.context.loadFreeVideoHistory=async()=>{};
- await b.context.submitFreeVideo({textContent:''},{});
+ await b.context.submitFreeVideo({textContent:''},{replaceChildren(){},classList:{add(){}}});
  assert(submitted,'Blank benefit must reach the video API');assert.equal(submitted.benefit,'');
  assert.equal(submitted.image_url,winner.image_url);assert.equal(submitted.seconds,15);
  // A saved campaign reopens through one GET, restoring its product and settings.
