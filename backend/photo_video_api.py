@@ -42,10 +42,51 @@ def video_guard(request):
     if len(configured) < 32:
         raise HTTPException(503, 'Hosted video access is not configured.')
     supplied = request.headers.get('x-trafficlift-video-token', '')
-    if not secrets.compare_digest(supplied, configured):
+    cookie = getattr(request, 'cookies', {}).get('trafficlift_video_session', '')
+    if not secrets.compare_digest(supplied, configured) and not valid_video_session(cookie, configured):
         raise HTTPException(401, 'Video access requires authorization.')
     # An eventual account/session system can replace this temporary operator-only
     # gate. Never embed this secret in index.html or distribute it to customers.
+
+
+
+def valid_video_session(cookie: str, secret: str) -> bool:
+    """Stateless, expiring, signed operator session. Never expose the secret."""
+    import secrets, hmac, hashlib
+    try:
+        timestamp, signature = cookie.split('.', 1)
+        issued = int(timestamp)
+        if not 0 <= time.time() - issued < 8 * 60 * 60:
+            return False
+        expected = hmac.new(secret.encode(), ('video-session:' + timestamp).encode(), hashlib.sha256).hexdigest()
+        return secrets.compare_digest(signature, expected)
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+class OwnerVideoLogin(BaseModel):
+    access_code: SecretStr
+
+
+@router.post('/api/v1/video-owner-login')
+def owner_video_login(payload: OwnerVideoLogin, request: Request):
+    """Temporary owner-only beta, not public customer accounts."""
+    from fastapi.responses import JSONResponse
+    import hmac, hashlib, secrets
+    if os.getenv('TRAFFICLIFT_HOSTED_VIDEO') != '1':
+        raise HTTPException(503, 'Hosted video is not yet enabled.')
+    origin = request.headers.get('origin', '')
+    if origin.rstrip('/') != str(request.base_url).rstrip('/'):
+        raise HTTPException(403, 'Open the official TrafficLift website.')
+    configured = os.getenv('TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN', '')
+    if len(configured) < 32 or not secrets.compare_digest(payload.access_code.get_secret_value(), configured):
+        raise HTTPException(401, 'Invalid access code.')
+    issued = str(int(time.time()))
+    sig = hmac.new(configured.encode(), ('video-session:' + issued).encode(), hashlib.sha256).hexdigest()
+    response = JSONResponse({'authorized': True, 'expires_in_seconds': 28800})
+    response.set_cookie('trafficlift_video_session', issued + '.' + sig,
+                        max_age=28800, httponly=True, secure=True, samesite='strict', path='/api/v1')
+    return response
 
 
 def reserve_hosted_render():
