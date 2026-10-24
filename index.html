@@ -1472,7 +1472,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
     // Hosted operator access is authenticated by a short-lived HttpOnly cookie.
     // Never persist access codes in localStorage, logs, links or video URLs.
-    const hostedVideoSite = location.hostname === 'trafficlift-pro.onrender.com';
+    const hostedVideoSite = typeof window !== 'undefined' && window.location.hostname === 'trafficlift-pro.onrender.com';
     if (hostedVideoSite) {
         document.getElementById('hostedVideoOwnerAccess')?.classList.remove('hidden');
         const note = document.getElementById('freeStudioInstructions');
