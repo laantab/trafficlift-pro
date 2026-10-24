@@ -28,6 +28,10 @@ _TRACKING_PARAMS = {
 
 def _title_tokens(name):
     ascii_name = unicodedata.normalize('NFKD', name.casefold()).encode('ascii', 'ignore').decode('ascii')
+    # Seller listings often join quantities to the unit: 18pc, 18pcs,
+    # 18-piece and 18 pieces describe the same pack, not new winners.
+    # Keep the number so 18-piece and 20-piece remain different products.
+    ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:pieces?|pcs?)\b', r'\1 piece', ascii_name)
     return [_TITLE_ALIASES.get(word, word) for word in re.findall(r'[a-z0-9]+', ascii_name)]
 
 
@@ -56,10 +60,10 @@ def identity_keys(name, url):
         # without merging unrelated products whose names share generic words.
         host = (p.hostname or '').lower().removeprefix('www.')
         if host == 'amazon.com' or host.endswith('.amazon.com'):
-            match = re.search(r'/(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)', p.path, re.I)
+            match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', p.path, re.I)
             if match:
                 keys.append('amazon-asin-' + match.group(1).lower())
-        elif host == 'walmart.com':
+        elif host == 'walmart.com' or host.endswith('.walmart.com'):
             match = re.search(r'/ip/(?:[^/]+/)?([0-9]{6,})(?:/|$)', p.path, re.I)
             if match:
                 keys.append('walmart-item-' + match.group(1))
