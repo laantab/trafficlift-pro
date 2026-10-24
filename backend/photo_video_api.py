@@ -3,7 +3,7 @@ from pathlib import Path
 import json, os, re, threading, time, uuid
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from backend.media_exports import EXPORT_LOCK, PLATFORMS, LockedExportResponse, make_export_bundle
 from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
@@ -260,7 +260,7 @@ def history(request:Request):
         if path.parent.name in seen:continue
         seen.add(path.parent.name)
         records.append(read_record(path.parent.name))
-    return {'videos':records}
+    return JSONResponse({'videos': records}, headers={'Cache-Control': 'private, no-store'})
 
 @router.post('/api/v1/photo-videos',status_code=202)
 def create(payload:VideoRequest,request:Request):
@@ -298,7 +298,8 @@ def create(payload:VideoRequest,request:Request):
 
 @router.get('/api/v1/photo-videos/{job_id}')
 def get_job(job_id:str,request:Request):
-    video_guard(request);return {'video':read_record(job_id)}
+    video_guard(request)
+    return JSONResponse({'video': read_record(job_id)}, headers={'Cache-Control': 'private, no-store'})
 
 @router.get('/api/v1/photo-videos/{job_id}/video')
 def download(job_id:str,request:Request):
@@ -307,7 +308,8 @@ def download(job_id:str,request:Request):
     path=record_path(job_id).parent/'video.mp4'
     if not path.is_file():raise HTTPException(404,'Saved video file is missing.')
     slug=re.sub(r'[^a-zA-Z0-9_-]+','-',record['name']).strip('-')[:60] or 'product'
-    return FileResponse(path,media_type='video/mp4',filename=f"{slug}-{job_id[:8]}.mp4")
+    return FileResponse(path,media_type='video/mp4',filename=f"{slug}-{job_id[:8]}.mp4",
+                        headers={'Cache-Control': 'private, no-store'})
 
 
 

@@ -86,19 +86,30 @@ def test_owner_login_create_status_history_and_mp4_download(monkeypatch, tmp_pat
             for _ in range(100):
                 response = owner.get(status_url)
                 assert response.status_code == 200
+                assert "no-store" in response.headers["cache-control"]
                 if response.json()["video"]["status"] == "succeeded":
                     break
                 time.sleep(0.02)
             else:
                 raise AssertionError("Fixture worker never completed")
 
-            assert any(job["id"] == job_id for job in owner.get("/api/v1/photo-videos").json()["videos"])
+            history = owner.get("/api/v1/photo-videos")
+            assert history.status_code == 200
+            assert "no-store" in history.headers["cache-control"]
+            assert "private" in history.headers["cache-control"]
+            assert any(job["id"] == job_id for job in history.json()["videos"])
             download_url = status_url + "/video"
             downloaded = owner.get(download_url)
             assert downloaded.status_code == 200
             assert downloaded.headers["content-type"].startswith("video/mp4")
             assert downloaded.content == fixture_mp4
             assert "attachment" in downloaded.headers["content-disposition"].lower()
+            assert "private" in downloaded.headers["cache-control"]
+            assert "no-store" in downloaded.headers["cache-control"]
+            partial = owner.get(download_url, headers={"Range": "bytes=0-5"})
+            assert partial.status_code == 206
+            assert partial.content == fixture_mp4[:6]
+            assert "no-store" in partial.headers["cache-control"]
 
             assert stranger.get(status_url).status_code == 401
             assert stranger.get(download_url).status_code == 401
