@@ -7,6 +7,29 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import unicodedata
+
+# Keep product sizes, quantities, model numbers and brand words intact.
+# These equivalences only cover common title spelling/packaging variations.
+_TITLE_ALIASES = {
+    'organiser': 'organizer', 'organisers': 'organizer',
+    'organizers': 'organizer', 'organizer': 'organizer',
+    'colour': 'color', 'colours': 'color', 'colors': 'color',
+    'pcs': 'piece', 'pc': 'piece', 'pieces': 'piece',
+    'lights': 'light', 'lamps': 'lamp', 'bottles': 'bottle',
+    'drawers': 'drawer', 'holders': 'holder', 'racks': 'rack',
+}
+_TRACKING_PARAMS = {
+    'ref', 'tag', 'fbclid', 'gclid', 'affiliate', 'affid',
+    'mc_cid', 'mc_eid', 'igshid', 'srsltid', 'clickid', 'click_id',
+    'campaign', 'campaignid', 'cid', 'spm', 'ascsubtag', 'subid',
+    'sub_id', 'irclickid', 'irgwc', 'gclsrc', 'twclid', 'msclkid',
+}
+
+def _title_tokens(name):
+    ascii_name = unicodedata.normalize('NFKD', name.casefold()).encode('ascii', 'ignore').decode('ascii')
+    return [_TITLE_ALIASES.get(word, word) for word in re.findall(r'[a-z0-9]+', ascii_name)]
+
 
 WINDOW_SECONDS = 30 * 86400  # Category rotation only; winning products never expire
 
@@ -15,9 +38,15 @@ def identity_keys(name, url):
     # Do not use Python hash(): its output changes across server processes.
     normalized = ' '.join(re.findall(r'[a-z0-9]+', name.lower()))
     keys = ['name-' + hashlib.sha256(normalized.encode()).hexdigest()[:24]]
+    tokens = _title_tokens(name)
+    # A conservative second key catches reordered titles, UK/US spelling,
+    # and piece/pc variants without conflating short generic names.
+    if len(tokens) >= 3 and len(set(tokens)) >= 3:
+        canonical_title = ' '.join(sorted(tokens))
+        keys.append('title-' + hashlib.sha256(canonical_title.encode()).hexdigest()[:24])
     p = urlsplit(url)
     query = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith('utm_')
-             and k.lower() not in {'ref', 'tag', 'fbclid', 'gclid', 'affiliate', 'affid'}]
+             and k.lower() not in _TRACKING_PARAMS]
     canonical = urlunsplit(('https', (p.hostname or '').lower().removeprefix('www.'),
                            p.path.rstrip('/'), urlencode(sorted(query)), ''))
     if p.hostname:

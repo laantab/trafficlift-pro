@@ -81,3 +81,37 @@ def test_local_default_kept_without_render_configuration(monkeypatch):
     monkeypatch.delenv('CAMPAIGNS_DB_PATH', raising=False)
     monkeypatch.delenv('RENDER_SERVICE_ID', raising=False)
     assert default_history_path() == __import__('pathlib').Path('data/discovery.sqlite3')
+
+
+def test_reordered_uk_spelling_and_piece_abbreviation_block_repeat(tmp_path):
+    history = WinnerHistory('returning-customer', path=tmp_path/'winners.db')
+    first = identity_keys('Criusia Drawer Organizer 18 Piece Set', 'https://seller.example/item-a?utm_source=ad')
+    second = identity_keys('18 pc Criusia Drawer Organiser Set', 'https://other.example/offer-b')
+    assert history.claim(first)
+    assert not history.claim(second)
+
+
+def test_tracking_click_ids_do_not_make_new_winner(tmp_path):
+    history = WinnerHistory('returning-customer', path=tmp_path/'winners.db')
+    one = identity_keys('Modern Desk Lamp', 'https://seller.example/products/lamp?clickid=one&msclkid=a')
+    two = identity_keys('Modern Desk Lamp', 'https://seller.example/products/lamp?clickid=two&msclkid=b')
+    assert history.claim(one)
+    assert not history.claim(two)
+
+
+def test_distinct_sizes_and_model_numbers_remain_distinct(tmp_path):
+    history = WinnerHistory('returning-customer', path=tmp_path/'winners.db')
+    assert history.claim(identity_keys('Acme Desk Lamp Model 100', 'https://shop.example/a'))
+    assert history.claim(identity_keys('Acme Desk Lamp Model 101', 'https://shop.example/b'))
+    assert history.claim(identity_keys('Acme Storage Rack 2 Pack', 'https://shop.example/c'))
+    assert history.claim(identity_keys('Acme Storage Rack 4 Pack', 'https://shop.example/d'))
+
+
+def test_history_is_per_browser_not_cross_device_account(tmp_path):
+    path = tmp_path/'winners.db'
+    one = identity_keys('18 Piece Drawer Organizer Set', 'https://seller.example/one')
+    two = identity_keys('18 pc Drawer Organiser Set', 'https://seller.example/two')
+    assert WinnerHistory('browser-one', path=path).claim(one)
+    assert not WinnerHistory('browser-one', path=path).claim(two)
+    # No customer account ID is currently passed to WinnerHistory.
+    assert WinnerHistory('browser-two', path=path).claim(two)
