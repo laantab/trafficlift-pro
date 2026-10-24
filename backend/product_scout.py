@@ -118,6 +118,12 @@ def _synthesize(
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 
+def _block_hosted_diagnostics():
+    """Developer probes must never spend research credits on public Render URLs."""
+    if os.getenv("RENDER_SERVICE_ID"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 @router.get("/diagnostics/raw-tavily")
 def diagnostics_raw_tavily(q: str = Query("phone stand", max_length=100)) -> dict:
     """Raw Tavily response — exposes what the real Tavily API actually
@@ -125,6 +131,7 @@ def diagnostics_raw_tavily(q: str = Query("phone stand", max_length=100)) -> dic
     `include_images: True` parameter is producing image URLs.
     Does NOT return the API key.
     """
+    _block_hosted_diagnostics()
     import os
     import requests
     from backend.live_research import TAVILY_ENDPOINT, DEFAULT_USER_AGENT
@@ -173,6 +180,7 @@ def diagnostics_research() -> dict:
     Useful for verifying that TAVILY_API_KEY (or alternative keys) is
     available without exposing the key itself.
     """
+    _block_hosted_diagnostics()
     import os
     from backend import live_research
 
@@ -213,6 +221,7 @@ def diagnostics_image_search(q: str = Query("phone stand", max_length=100)) -> d
     Does NOT return the API key. Used to diagnose why /find-winner returns
     404 with 'No photo-qualified winner found' on common product queries.
     """
+    _block_hosted_diagnostics()
     import time
     import requests
     from backend import live_research

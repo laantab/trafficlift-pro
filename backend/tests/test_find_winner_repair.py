@@ -4376,3 +4376,31 @@ def test_curated_image_queries_are_real_searchable_phrases():
                 f"{entry['name']!r}: {q!r}"
             )
 
+
+
+def test_production_diagnostics_do_not_spend_research_quota_or_disclose_provider_configuration(monkeypatch):
+    """Public diagnostic GETs must not trigger paid Tavily calls on Render.
+
+    Ordinary Find Winning Product remains public; only developer diagnostics
+    are disabled in hosted production. This regression makes no network calls.
+    """
+    from fastapi.testclient import TestClient
+    from trafficlift_pro import app
+    from backend import live_research
+    import requests
+
+    monkeypatch.setenv("RENDER_SERVICE_ID", "srv-production-test")
+    monkeypatch.setenv("TAVILY_API_KEY", "dummy-test-key")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Public diagnostics must not make provider requests")
+    monkeypatch.setattr(requests, "post", forbidden)
+    monkeypatch.setattr(live_research, "research_images", forbidden)
+
+    with TestClient(app) as client:
+        for path in (
+            "/api/v1/diagnostics/raw-tavily?q=lamp",
+            "/api/v1/diagnostics/image-search?q=lamp",
+            "/api/v1/diagnostics/research",
+        ):
+            response = client.get(path)
+            assert response.status_code == 404, (path, response.status_code)
