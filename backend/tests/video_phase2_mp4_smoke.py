@@ -68,10 +68,13 @@ def main():
         assert qa['duration']>=15 and qa['duration']<=120
         assert qa['narration_audio']['status']=='PASS'
         assert (root/'scene_storyboard.json').is_file()
-        # Keep only the final rendered asset/QA for an optional CI artifact.
-        dest=Path('/tmp/trafficlift-phase2-real-kokoro.mp4' if real_voice else '/tmp/trafficlift-phase2-smoke.mp4')
+        # CI retains its /tmp artifact convention; hosted acceptance uses an
+        # isolated persistent-disk staging directory supplied by the bootstrap.
+        output_dir = Path(os.getenv('TRAFFICLIFT_TEST_OUTPUT_DIR', '/tmp'))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        dest = output_dir / ('trafficlift-phase2-real-kokoro.mp4' if real_voice else 'trafficlift-phase2-smoke.mp4')
         dest.write_bytes(output.read_bytes())
-        Path('/tmp/trafficlift-phase2-quality.json').write_text(json.dumps(qa,indent=2))
+        (output_dir / 'trafficlift-phase2-quality.json').write_text(json.dumps(qa, indent=2))
         print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 5 scenes, 2 photos, decoded and motion-checked')
 
 
