@@ -41,10 +41,27 @@ def product_id(name, url):
     return 'discover-' + identity_keys(name, url)[0][5:]
 
 
+def default_history_path():
+    """Keep winner exclusions on the same durable disk as saved campaigns.
+
+    The old project-relative default was ephemeral on Render even when the
+    campaign DB used /var/data. Explicit overrides remain authoritative.
+    """
+    configured = os.getenv('TRAFFICLIFT_DISCOVERY_DB', '').strip()
+    if configured:
+        return Path(configured)
+    campaigns = os.getenv('CAMPAIGNS_DB_PATH', '').strip()
+    if campaigns:
+        return Path(campaigns).expanduser().resolve().parent / 'discovery.sqlite3'
+    if os.getenv('RENDER_SERVICE_ID') and Path('/var/data').is_dir():
+        return Path('/var/data/discovery.sqlite3')
+    return Path('data/discovery.sqlite3')
+
+
 class WinnerHistory:
     def __init__(self, scope, path=None):
         self.scope = hashlib.sha256(scope.encode()).hexdigest()
-        self.path = Path(path or os.getenv('TRAFFICLIFT_DISCOVERY_DB', 'data/discovery.sqlite3'))
+        self.path = Path(path) if path is not None else default_history_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS discovery_seen (scope TEXT, identity TEXT, expires REAL, PRIMARY KEY(scope, identity))')
