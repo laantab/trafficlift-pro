@@ -1472,7 +1472,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
     // Hosted operator access is authenticated by a short-lived HttpOnly cookie.
     // Never persist access codes in localStorage, logs, links or video URLs.
-    const hostedVideoSite = !['127.0.0.1','localhost'].includes(location.hostname);
+    const hostedVideoSite = location.hostname === 'trafficlift-pro.onrender.com';
     if (hostedVideoSite) {
         document.getElementById('hostedVideoOwnerAccess')?.classList.remove('hidden');
         const note = document.getElementById('freeStudioInstructions');
@@ -1496,7 +1496,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function freeVideoRequest(path, options = {}) {
-        const response = await fetch(apiUrl(path), {...options, signal: AbortSignal.timeout(30000)});
+        const url = hostedVideoSite ? location.origin + path : apiUrl(path);
+        const response = await fetch(url, {...options, signal: AbortSignal.timeout(30000)});
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Check the product fields and try again.');
         return data;
@@ -1506,9 +1507,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         resultEl.replaceChildren();
         const video = document.createElement('video');
         video.controls = true; video.playsInline = true; video.preload = 'metadata';
-        video.src = apiUrl(job.video_url); video.className = 'w-full max-h-[60vh]';
+        video.src = hostedVideoSite ? location.origin + job.video_url : apiUrl(job.video_url); video.className = 'w-full max-h-[60vh]';
         const download = document.createElement('a');
-        download.href = apiUrl(job.video_url); download.textContent = 'Download draft MP4';
+        download.href = hostedVideoSite ? location.origin + job.video_url : apiUrl(job.video_url); download.textContent = 'Download draft MP4';
         download.className = 'block mt-3 text-brand-400';
         const destination = document.createElement('a');
         destination.href = job.product_url; destination.target = '_blank'; destination.rel = 'noopener noreferrer';
