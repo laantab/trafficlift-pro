@@ -1577,7 +1577,25 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const reviewNotice=document.createElement('p');
         reviewNotice.className='mt-3 text-amber-300';
         reviewNotice.textContent=job.marketing_review?.message || 'Technical render checks passed. Review image clarity, product accuracy, framing and the complete video before publishing.';
-        resultEl.append(reviewNotice,video, download, destination, script); resultEl.classList.remove('hidden');
+        const kitNote = document.createElement('p');
+        kitNote.className = 'mt-3 text-xs text-slate-400';
+        kitNote.textContent = 'Platform kits reuse this same finished MP4 without rendering again. Each ZIP includes a posting draft, safe-zone review notes and optional timed captions. Review before publishing.';
+        const kitLinks = document.createElement('div');
+        kitLinks.className = 'flex flex-wrap gap-3 mt-2';
+        if (/^[0-9a-f]{32}$/.test(job.id || '')) {
+            for (const [platform, label] of [
+                ['tiktok', 'TikTok ZIP'], ['youtube-shorts', 'YouTube Shorts ZIP'], ['instagram-reels', 'Instagram Reels ZIP']
+            ]) {
+                const link = document.createElement('a');
+                const path = '/api/v1/photo-videos/' + encodeURIComponent(job.id) + '/exports/' + platform;
+                link.href = hostedVideoSite ? location.origin + path : apiUrl(path);
+                link.textContent = label;
+                link.className = 'text-brand-400 underline';
+                kitLinks.append(link);
+            }
+        }
+        resultEl.append(reviewNotice, video, download, destination, script, kitNote, kitLinks);
+        resultEl.classList.remove('hidden');
     }
     async function loadFreeVideoHistory() {
         const list = document.getElementById('freeVideoHistory');
