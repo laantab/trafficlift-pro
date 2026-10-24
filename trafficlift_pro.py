@@ -416,6 +416,25 @@ def stage_hosted_video_assets():
         threading.Thread(target=provision, name="hosted-video-preparation", daemon=True).start()
 
 
+@app.get("/api/v1/video-readiness", include_in_schema=False)
+def hosted_video_readiness():
+    """Read-only deployment readiness, without exposing local paths or secrets."""
+    import json
+    from pathlib import Path
+    from fastapi.responses import JSONResponse
+    if os.getenv("TRAFFICLIFT_HOSTED_VIDEO_PREPARE") != "1":
+        return {"state": "disabled", "customer_rendering_enabled": False}
+    status_file = Path(os.getenv("TRAFFICLIFT_HOSTED_MODEL_DIR", "/var/data/models")) / "provision-status.json"
+    try:
+        status = json.loads(status_file.read_text())
+        state = status.get("state", "unknown")
+    except (OSError, ValueError):
+        state = "preparing"
+    if state not in ("preparing", "ready", "failed"):
+        state = "unknown"
+    return {"state": state, "customer_rendering_enabled": os.getenv("TRAFFICLIFT_HOSTED_VIDEO") == "1"}
+
+
 @app.get("/api/v1/health")
 async def health_check():
     """Service health + AI backend status."""
