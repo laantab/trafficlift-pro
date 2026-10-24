@@ -22,6 +22,18 @@ def identity_keys(name, url):
                            p.path.rstrip('/'), urlencode(sorted(query)), ''))
     if p.hostname:
         keys.append('url-' + hashlib.sha256(canonical.encode()).hexdigest()[:24])
+        # Amazon product pages use several equivalent paths for one ASIN.
+        # Keep the merchant-scoped product ID separate from the full URL,
+        # without merging unrelated products whose names share generic words.
+        host = (p.hostname or '').lower().removeprefix('www.')
+        if host == 'amazon.com' or host.endswith('.amazon.com'):
+            match = re.search(r'/(?:dp|gp/product)/([a-z0-9]{10})(?:/|$)', p.path, re.I)
+            if match:
+                keys.append('amazon-asin-' + match.group(1).lower())
+        elif host == 'walmart.com':
+            match = re.search(r'/ip/(?:[^/]+/)?([0-9]{6,})(?:/|$)', p.path, re.I)
+            if match:
+                keys.append('walmart-item-' + match.group(1))
     return keys
 
 
