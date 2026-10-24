@@ -407,6 +407,15 @@ def _payload_to_scraped_product(payload: dict, fallback_url: str = "") -> Scrape
 # API Routes
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.on_event("startup")
+def stage_hosted_video_assets():
+    """Only prepare prerequisites; does not enable hosted video creation."""
+    if os.getenv("TRAFFICLIFT_HOSTED_VIDEO_PREPARE") == "1":
+        import threading
+        from backend.hosted_video_bootstrap import provision
+        threading.Thread(target=provision, name="hosted-video-preparation", daemon=True).start()
+
+
 @app.get("/api/v1/health")
 async def health_check():
     """Service health + AI backend status."""
