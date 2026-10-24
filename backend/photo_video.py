@@ -5,6 +5,11 @@ from backend.sales_script import build_sales_plan
 
 
 def dependencies():
+    # Hosted runtime can provision ffmpeg/ffprobe without privileged apt installs.
+    # Local Windows installations keep using their existing ffmpeg binaries.
+    if os.environ.get('TRAFFICLIFT_HOSTED_VIDEO') == '1':
+        import static_ffmpeg
+        static_ffmpeg.add_paths(weak=True)
     model = Path(os.environ.get('TRAFFICLIFT_VOICE_MODEL', 'models/kokoro-v1.0.int8.onnx'))
     voices = Path(os.environ.get('TRAFFICLIFT_VOICES', 'models/voices-v1.0.bin'))
     if not model.is_file() or not voices.is_file():

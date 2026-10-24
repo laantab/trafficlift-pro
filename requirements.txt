@@ -23,3 +23,11 @@ sqlalchemy==2.0.36
 # Local dev: loads variables from a .env file (no-op on Render where env
 # comes from the platform). Remove this line if you only deploy via Docker.
 python-dotenv==1.0.1
+
+# Hosted video runtime — packages alone do not enable public rendering.
+kokoro-onnx==0.6.1
+onnxruntime==1.30.0
+soundfile==0.14.0
+numpy>=2.0,<3
+Pillow>=12.0,<13
+static-ffmpeg==3.0
