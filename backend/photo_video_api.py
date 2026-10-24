@@ -4,6 +4,8 @@ import json, os, re, threading, time, uuid
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
+from starlette.background import BackgroundTask
+from backend.media_exports import EXPORT_LOCK, PLATFORMS, make_export_bundle
 from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
 from backend.photo_video import dependencies, render
@@ -308,6 +310,35 @@ def download(job_id:str,request:Request):
     slug=re.sub(r'[^a-zA-Z0-9_-]+','-',record['name']).strip('-')[:60] or 'product'
     return FileResponse(path,media_type='video/mp4',filename=f"{slug}-{job_id[:8]}.mp4")
 
+
+
+@router.get('/api/v1/photo-videos/{job_id}/exports/{platform}')
+def platform_export(job_id: str, platform: str, request: Request):
+    """Authenticated ZIP of the existing master and platform posting guidance."""
+    video_guard(request)
+    if platform not in PLATFORMS:
+        raise HTTPException(404, 'Unsupported video platform.')
+    record = read_record(job_id)
+    if record['status'] != 'succeeded':
+        raise HTTPException(409, 'This video has not passed its checks.')
+    if not EXPORT_LOCK.acquire(blocking=False):
+        raise HTTPException(429, 'Another platform kit is being prepared. Try again shortly.')
+    try:
+        try:
+            archive = make_export_bundle(record, record_path(job_id).parent, platform)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(503, str(exc)) from exc
+    finally:
+        EXPORT_LOCK.release()
+    slug = re.sub(r'[^a-zA-Z0-9_-]+', '-', record['name']).strip('-')[:48] or 'product'
+    return FileResponse(
+        archive, media_type='application/zip',
+        filename=f"{slug}-{platform}-{job_id[:8]}.zip",
+        headers={'Cache-Control': 'private, no-store'},
+        background=BackgroundTask(lambda: archive.unlink(missing_ok=True)),
+    )
 
 
 
