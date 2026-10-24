@@ -15,7 +15,19 @@ router=APIRouter()
 lock=threading.Lock()
 ROOT=Path(__file__).resolve().parents[1]
 
-def storage():return Path(os.environ.get('TRAFFICLIFT_VIDEO_DIR', str(ROOT/'video/studio'))).resolve()
+def storage():
+    """Use persistent storage for hosted jobs, even during bootstrap startup.
+
+    Provisioning runs in a background thread. Hosted requests must not race
+    its environment setup and accidentally write jobs to an ephemeral folder.
+    Local desktop studio keeps its existing project-relative default.
+    """
+    configured = os.environ.get('TRAFFICLIFT_VIDEO_DIR')
+    if configured:
+        return Path(configured).resolve()
+    if os.environ.get('TRAFFICLIFT_HOSTED_VIDEO') == '1':
+        return Path('/var/data/trafficlift-videos')
+    return (ROOT / 'video/studio').resolve()
 
 def guard(request):
     if os.environ.get('TRAFFICLIFT_FREE_VIDEO')!='1':raise HTTPException(503,'Free video studio is not enabled here. Open Start_Free_Video_Studio.bat on your PC.')
