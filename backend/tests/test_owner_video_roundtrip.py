@@ -70,6 +70,8 @@ def test_owner_login_create_status_history_and_mp4_download(monkeypatch, tmp_pat
                 headers={"origin": HOST},
             )
             assert login.status_code == 200
+            assert "private" in login.headers["cache-control"]
+            assert "no-store" in login.headers["cache-control"]
             assert "httponly" in login.headers["set-cookie"].lower()
             assert "secure" in login.headers["set-cookie"].lower()
 
@@ -79,6 +81,8 @@ def test_owner_login_create_status_history_and_mp4_download(monkeypatch, tmp_pat
                 headers={"origin": HOST},
             )
             assert created.status_code == 202, created.text
+            assert "private" in created.headers["cache-control"]
+            assert "no-store" in created.headers["cache-control"]
             job_id = created.json()["video"]["id"]
             assert len(job_id) == 32
 
@@ -144,13 +148,18 @@ def test_hosted_acceptance_download_is_owner_only(monkeypatch, tmp_path):
         assert info.status_code == 200
         assert info.json()["state"] == "passed"
         assert info.json()["sample_only"] is True
+        assert "private" in info.headers["cache-control"]
+        assert "no-store" in info.headers["cache-control"]
         downloaded = owner.get("/api/v1/video-owner-acceptance/mp4")
         assert downloaded.status_code == 200
         assert downloaded.content == sample
         assert downloaded.headers["content-type"].startswith("video/mp4")
         assert "no-store" in downloaded.headers["cache-control"]
         (acceptance / "receipt.json").unlink()
-        assert owner.get("/api/v1/video-owner-acceptance").json()["state"] == "not_run"
+        missing = owner.get("/api/v1/video-owner-acceptance")
+        assert missing.json()["state"] == "not_run"
+        assert "private" in missing.headers["cache-control"]
+        assert "no-store" in missing.headers["cache-control"]
         assert owner.get("/api/v1/video-owner-acceptance/mp4").status_code == 404
 
 

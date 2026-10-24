@@ -97,7 +97,8 @@ def owner_video_login(payload: OwnerVideoLogin, request: Request):
         raise HTTPException(401, 'Invalid access code.')
     issued = str(int(time.time()))
     sig = hmac.new(configured.encode(), ('video-session:' + issued).encode(), hashlib.sha256).hexdigest()
-    response = JSONResponse({'authorized': True, 'expires_in_seconds': 28800})
+    response = JSONResponse({'authorized': True, 'expires_in_seconds': 28800},
+                            headers={'Cache-Control': 'private, no-store'})
     response.set_cookie('trafficlift_video_session', issued + '.' + sig,
                         max_age=28800, httponly=True, secure=True, samesite='strict', path='/api/v1')
     return response
@@ -294,7 +295,8 @@ def create(payload:VideoRequest,request:Request):
     except Exception:
         active_job_id = None
         lock.release();raise
-    return {'video':record.copy()}
+    return JSONResponse({'video': record.copy()}, status_code=202,
+                        headers={'Cache-Control': 'private, no-store'})
 
 @router.get('/api/v1/photo-videos/{job_id}')
 def get_job(job_id:str,request:Request):
@@ -369,14 +371,15 @@ def owner_acceptance(request: Request):
     """Owner-only status of an actual on-server Kokoro/FFmpeg acceptance sample."""
     _, receipt = owner_acceptance_record(request)
     if not receipt:
-        return {'state': 'not_run', 'sample_only': True, 'download_url': None}
-    return {
+        return JSONResponse({'state': 'not_run', 'sample_only': True, 'download_url': None},
+                            headers={'Cache-Control': 'private, no-store'})
+    return JSONResponse({
         'state': 'passed',
         'checked_at': receipt.get('checked_at'),
         'video_size_bytes': receipt.get('video_size_bytes'),
         'sample_only': True,
         'download_url': '/api/v1/video-owner-acceptance/mp4',
-    }
+    }, headers={'Cache-Control': 'private, no-store'})
 
 
 @router.get('/api/v1/video-owner-acceptance/mp4')
