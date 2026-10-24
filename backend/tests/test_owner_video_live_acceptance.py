@@ -103,6 +103,33 @@ def test_reject_non_mp4_and_remove_partial_file(tmp_path):
     assert session.download.closed
 
 
+
+@pytest.mark.parametrize("status,content_type,expected", [
+    (503, "video/mp4", "MP4 download"),
+    (200, "text/html", "not an MP4"),
+])
+def test_rejected_download_closes_private_stream(tmp_path, status, content_type, expected):
+    """A failed MP4 response must not keep a streamed connection open."""
+    class BadDownloadSession(FakeSession):
+        def get(self, url, **kwargs):
+            if url.endswith("/video"):
+                self.download = Response(
+                    status,
+                    headers={"Cache-Control": "private, no-store", "Content-Type": content_type},
+                    content=MP4,
+                )
+                return self.download
+            return super().get(url, **kwargs)
+
+    session = BadDownloadSession(states=("succeeded",))
+    output = tmp_path / "rejected.mp4"
+    with pytest.raises(AcceptanceError, match=expected):
+        verify(session, "not-a-real-secret", resume=ID, output=output)
+    assert session.download.closed
+    assert not output.exists()
+    assert not list(tmp_path.glob("*.partial"))
+
+
 def test_failed_video_never_attempts_download(tmp_path):
     session = FakeSession(states=("failed",))
     with pytest.raises(AcceptanceError, match="render failed"):
