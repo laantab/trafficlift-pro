@@ -1592,11 +1592,40 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 if (job.status === 'succeeded') {
                     const button = document.createElement('button'); button.textContent = ' Open'; button.className = 'text-brand-400';
                     button.onclick = () => showFreeVideo(job, document.getElementById('videoResult')); row.append(button);
+                } else if (job.status === 'queued' || job.status === 'running') {
+                    // Reloading the page must not strand an existing render or start another.
+                    const button = document.createElement('button'); button.textContent = ' Resume progress'; button.className = 'text-brand-400';
+                    button.onclick = () => { void resumeFreeVideoJob(job.id, button); };
+                    row.append(button);
                 }
                 list.append(row);
             }
             if (!list.childNodes.length) list.textContent = 'Your finished videos will appear here.';
         } catch (error) { list.textContent = error.message; }
+    }
+    async function waitForFreeVideoJob(id, statusEl, resultEl) {
+        // Poll the existing job ID. Never submit a duplicate when the page reloads.
+        const until = Date.now() + 20 * 60 * 1000;
+        while (Date.now() < until) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const current = await freeVideoRequest('/api/v1/photo-videos/' + encodeURIComponent(id));
+            const job = current.video; statusEl.textContent = job.message || job.status;
+            if (job.status === 'failed') throw new Error(job.message || 'Video generation failed.');
+            if (job.status === 'succeeded') { showFreeVideo(job,resultEl); await loadFreeVideoHistory(); return; }
+        }
+        throw new Error('This video is still running. Check Past videos before starting another.');
+    }
+    async function resumeFreeVideoJob(id, button) {
+        if (button.disabled) return;
+        button.disabled = true;
+        const statusEl = document.getElementById('videoStatus');
+        try {
+            statusEl.textContent = 'Reconnecting to the saved video job…';
+            await waitForFreeVideoJob(id, statusEl, document.getElementById('videoResult'));
+        } catch (error) {
+            statusEl.textContent = error.message || String(error);
+            await loadFreeVideoHistory();
+        } finally { button.disabled = false; }
     }
     async function submitFreeVideo(statusEl, resultEl) {
         const winner = restoreCurrentWinner();
@@ -1615,16 +1644,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         statusEl.textContent = 'Preparing product facts and sales script';
         const data = await freeVideoRequest('/api/v1/photo-videos', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const id = data.video.id;
-        // A timeout does not cancel the worker or start another render.
-        const until = Date.now() + 20 * 60 * 1000;
-        while (Date.now() < until) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            const current = await freeVideoRequest('/api/v1/photo-videos/' + encodeURIComponent(id));
-            const job = current.video; statusEl.textContent = job.message;
-            if (job.status === 'failed') throw new Error(job.message);
-            if (job.status === 'succeeded') { showFreeVideo(job,resultEl); await loadFreeVideoHistory(); return; }
-        }
-        throw new Error('This video is still running. Check Past videos before starting another.');
+        await waitForFreeVideoJob(id, statusEl, resultEl);
     }
 
     function getLocalVideoBridge() {
