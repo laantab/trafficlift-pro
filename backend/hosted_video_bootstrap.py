@@ -43,7 +43,22 @@ def provision():
         for name in ("ffmpeg", "ffprobe"):
             subprocess.run([name, "-version"], check=True, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, timeout=30)
-        status("ready", "Voice assets and FFmpeg tools are installed")
+        if os.getenv("TRAFFICLIFT_HOSTED_VIDEO_SMOKE") == "1":
+            # Test on the hosted server itself; no customer request, no paid API.
+            # Keep cloud customer video disabled, even when this smoke runs.
+            status("preparing", "Rendering local server acceptance video")
+            import sys
+            env = dict(os.environ)
+            env["TRAFFICLIFT_TEST_REAL_KOKORO"] = "1"
+            result = subprocess.run(
+                [sys.executable, "-m", "backend.tests.video_phase2_mp4_smoke"],
+                env=env, capture_output=True, text=True, timeout=900,
+            )
+            if result.returncode:
+                raise RuntimeError("Hosted video smoke failed: " + (result.stderr or result.stdout)[-250:])
+            status("ready", "Real Kokoro server MP4 acceptance passed")
+        else:
+            status("ready", "Voice assets and FFmpeg tools are installed")
         return True
     except Exception as exc:
         status("failed", type(exc).__name__ + ": " + str(exc)[:250])
