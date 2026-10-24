@@ -150,3 +150,33 @@ def test_hosted_acceptance_is_unavailable_when_disabled(monkeypatch):
     with TestClient(app, base_url=HOST) as client:
         assert client.get("/api/v1/video-owner-acceptance").status_code == 503
         assert client.get("/api/v1/video-owner-acceptance/mp4").status_code == 503
+
+
+def test_interrupted_job_stays_failed_when_another_render_is_running(monkeypatch, tmp_path):
+    """A new job must not make an older interrupted job look active again."""
+    monkeypatch.setenv("TRAFFICLIFT_VIDEO_DIR", str(tmp_path))
+    monkeypatch.delenv("TRAFFICLIFT_LEGACY_VIDEO_DIR", raising=False)
+    stale_id, current_id = "a" * 32, "b" * 32
+    for job_id in (stale_id, current_id):
+        folder = tmp_path / job_id
+        folder.mkdir()
+        api.save({
+            "id": job_id, "name": "Test", "status": "running",
+            "message": "Rendering", "video_url": None,
+        }, folder)
+
+    assert api.lock.acquire(blocking=False)
+    monkeypatch.setattr(api, "active_job_id", current_id)
+    try:
+        stale = api.read_record(stale_id)
+        assert stale["status"] == "failed"
+        assert stale["video_url"] is None
+        assert json.loads((tmp_path / stale_id / "job.json").read_text())["status"] == "failed"
+        assert api.read_record(current_id)["status"] == "running"
+    finally:
+        api.lock.release()
+
+    monkeypatch.setattr(api, "active_job_id", None)
+    assert api.read_record(stale_id)["status"] == "failed"
+    assert api.read_record(current_id)["status"] == "failed"
+    assert json.loads((tmp_path / current_id / "job.json").read_text())["status"] == "failed"
