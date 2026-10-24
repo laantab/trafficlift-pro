@@ -15,7 +15,7 @@ const context={document:{getElementById:element,createElement:()=>element('creat
  let data;
  if(path==='/api/v1/photo-videos'&&opts.method==='POST'){createCount++;submitted=JSON.parse(opts.body);data={video:{id:'a'.repeat(32)}};}
  else if(path==='/api/v1/photo-videos')data={videos:historyJobs};
- else {statusChecks++;data={video:statusJob||{status:'succeeded',message:'Video checked and ready',video_url:'/api/v1/photo-videos/'+'a'.repeat(32)+'/video',product_url:winner.url}};}
+ else {statusChecks++;data={video:statusJob||{id:'a'.repeat(32),status:'succeeded',message:'Video checked and ready',video_url:'/api/v1/photo-videos/'+'a'.repeat(32)+'/video',product_url:winner.url}};}
  return {ok:true,json:async()=>data};
 }};
 vm.createContext(context);
@@ -31,9 +31,14 @@ vm.runInContext(funcs+'\n'+open,context);
  element('freeVideoLength').value='15';element('freeVideoStyle').value='warm';element('freeProductFact').value='Warm glow.';
  await context.submitFreeVideo(element('videoStatus'),element('videoResult'));
  assert.equal(submitted.image_url,winner.image_url);assert.equal(submitted.benefit,'Warm glow.');assert.equal(submitted.seconds,15);
- assert(!element('videoResult').classList.contains('hidden'));assert.equal(element('videoResult').childNodes.length,5);
+ assert(!element('videoResult').classList.contains('hidden'));assert.equal(element('videoResult').childNodes.length,7);
  assert.equal(element('videoResult').childNodes[1].src,'/api/v1/photo-videos/'+'a'.repeat(32)+'/video');
  assert.equal(element('videoResult').childNodes[2].textContent,'Download draft MP4');
+ const kits=element('videoResult').childNodes[6].childNodes;
+ assert.equal(kits.length,3,'three kits only after successful render');
+ assert(kits[0].href.endsWith('/exports/tiktok'));
+ assert(kits[1].href.endsWith('/exports/youtube-shorts'));
+ assert(kits[2].href.endsWith('/exports/instagram-reels'));
 
  // A reload may interrupt polling while the backend job continues. Reattach to
  // the saved job ID rather than spending another quota slot or rendering twice.
@@ -45,7 +50,7 @@ vm.runInContext(funcs+'\n'+open,context);
  const resume=rows[0].childNodes[1];
  assert.equal(resume.textContent,' Resume progress');
  const originalCreates=createCount;
- statusJob={status:'succeeded',message:'Recovered video ready',
+ statusJob={id:pending.id,status:'succeeded',message:'Recovered video ready',
    video_url:'/api/v1/photo-videos/'+pending.id+'/video',product_url:winner.url};
  historyJobs=[{...pending,...statusJob}];
  await resume.onclick();
