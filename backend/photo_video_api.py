@@ -13,6 +13,7 @@ from local_video.trafficlift_video_bridge import _download_product_image, _valid
 
 router=APIRouter()
 lock=threading.Lock()
+active_job_id = None  # Only the job owned by this process may remain in progress.
 ROOT=Path(__file__).resolve().parents[1]
 
 def storage():
@@ -159,8 +160,11 @@ def read_record(job_id):
     try:data=json.loads(path.read_text())
     except (OSError,ValueError):raise HTTPException(503,'Video record temporarily unavailable.')
     # Interrupted jobs never appear finished after a restart.
-    if data['status'] not in {'succeeded','failed'} and not lock.locked():
-        data.update(status='failed',message='Render was interrupted. Start a new video.')
+    if data['status'] not in {'succeeded','failed'} and (not lock.locked() or active_job_id != job_id):
+        # A new job's lock must never resurrect an older, interrupted render.
+        # Persist the terminal failure so subsequent polls/restarts agree.
+        data.update(status='failed',message='Render was interrupted. Start a new video.',video_url=None)
+        save(data,path.parent)
     return data
 
 def save(record,directory):
@@ -179,6 +183,7 @@ def save(record,directory):
         except OSError:pass
 
 def worker(record,payload,directory):
+    global active_job_id
     def update(message):
         record.update(status='running',message=message);save(record,directory)
     try:
@@ -230,8 +235,11 @@ def worker(record,payload,directory):
     except Exception as exc:
         record.update(status='failed',message=str(exc)[-500:],video_url=None)
     finally:
-        try:save(record,directory)
-        finally:lock.release()
+        try:
+            save(record,directory)
+        finally:
+            active_job_id = None
+            lock.release()
 
 @router.get('/studio',response_class=HTMLResponse)
 def studio(request:Request):
@@ -256,6 +264,7 @@ def history(request:Request):
 
 @router.post('/api/v1/photo-videos',status_code=202)
 def create(payload:VideoRequest,request:Request):
+    global active_job_id
     video_guard(request)
     if not payload.name.strip():raise HTTPException(400,'Product name is required.')
     from backend.discovery import _looks_like_article
@@ -280,8 +289,10 @@ def create(payload:VideoRequest,request:Request):
         job_id=uuid.uuid4().hex;directory=root/job_id;directory.mkdir()
         record={'id':job_id,'name':payload.name,'created_at':time.time(),'seconds':payload.seconds,'status':'queued','message':'Getting photo','video_url':None,'product_url':payload.product_url,'sales_plan':sales_plan}
         save(record,directory)
+        active_job_id = job_id
         threading.Thread(target=worker,args=(record,payload,directory),daemon=True).start()
     except Exception:
+        active_job_id = None
         lock.release();raise
     return {'video':record.copy()}
 
