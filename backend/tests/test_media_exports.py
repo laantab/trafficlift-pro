@@ -1,7 +1,12 @@
 """Platform ZIP integration: owner-only, no paid calls and no extra render."""
+import asyncio
 import io
 import json
+import threading
 import zipfile
+
+import pytest
+from fastapi import HTTPException, Request
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -91,3 +96,44 @@ def test_hosted_mode_disabled_never_exposes_export(monkeypatch, tmp_path):
 
 def test_caption_converter_fails_closed_on_missing_file(tmp_path):
     assert captions_to_srt(tmp_path / "absent.ass") == ""
+
+
+@pytest.mark.parametrize("disconnect", [False, True])
+def test_export_slot_and_temp_file_survive_until_stream_end(monkeypatch, tmp_path, disconnect):
+    """Second kit must be rejected while first is streaming, even after ZIP build."""
+    _, job_id, mp4, _ = _setup(monkeypatch, tmp_path)
+    export_lock = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(api, "EXPORT_LOCK", export_lock)
+    path = f"/api/v1/photo-videos/{job_id}/exports/tiktok"
+    scope = {
+        "type": "http", "http_version": "1.1", "method": "GET",
+        "scheme": "https", "server": ("trafficlift-pro.onrender.com", 443),
+        "path": path, "client": ("testclient", 12345),
+        "headers": [(b"host", b"trafficlift-pro.onrender.com"),
+                    (b"x-trafficlift-video-token", SECRET.encode())],
+    }
+    request = Request(scope)
+    response = api.platform_export(job_id, "tiktok", request)
+    archive_path = response.path
+    assert archive_path.is_file()
+    assert not export_lock.acquire(blocking=False)
+    with pytest.raises(HTTPException) as blocked:
+        api.platform_export(job_id, "youtube-shorts", request)
+    assert blocked.value.status_code == 429
+
+    chunks = []
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+    async def send(message):
+        if disconnect:
+            raise RuntimeError("client disconnected")
+        chunks.append(message)
+    if disconnect:
+        with pytest.raises(RuntimeError, match="client disconnected"):
+            asyncio.run(response(scope, receive, send))
+    else:
+        asyncio.run(response(scope, receive, send))
+        assert any(message.get("body") for message in chunks)
+    assert not archive_path.exists(), "temporary ZIP must be removed"
+    assert export_lock.acquire(blocking=False), "slot must be released after stream or disconnect"
+    export_lock.release()

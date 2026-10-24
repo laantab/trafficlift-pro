@@ -11,6 +11,7 @@ import tempfile
 import threading
 import zipfile
 from pathlib import Path
+from fastapi.responses import FileResponse
 
 PLATFORMS = {
     "tiktok": {
@@ -131,3 +132,23 @@ def make_export_bundle(record, directory, platform):
         path.unlink(missing_ok=True)
         raise
     return path
+
+
+class LockedExportResponse(FileResponse):
+    """Keep the single-export slot until the ZIP is fully sent or aborted.
+
+    Cleanup in an ASGI finally block also covers client disconnects, unlike
+    releasing the slot immediately after archive creation.
+    """
+    def __init__(self, path, *, export_lock, **kwargs):
+        super().__init__(path, **kwargs)
+        self.export_lock = export_lock
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                Path(self.path).unlink(missing_ok=True)
+            finally:
+                self.export_lock.release()

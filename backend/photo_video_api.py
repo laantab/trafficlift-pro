@@ -4,8 +4,7 @@ import json, os, re, threading, time, uuid
 from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from starlette.background import BackgroundTask
-from backend.media_exports import EXPORT_LOCK, PLATFORMS, make_export_bundle
+from backend.media_exports import EXPORT_LOCK, PLATFORMS, LockedExportResponse, make_export_bundle
 from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
 from backend.photo_video import dependencies, render
@@ -323,22 +322,28 @@ def platform_export(job_id: str, platform: str, request: Request):
         raise HTTPException(409, 'This video has not passed its checks.')
     if not EXPORT_LOCK.acquire(blocking=False):
         raise HTTPException(429, 'Another platform kit is being prepared. Try again shortly.')
+    archive = None
     try:
+        archive = make_export_bundle(record, record_path(job_id).parent, platform)
+        slug = re.sub(r'[^a-zA-Z0-9_-]+', '-', record['name']).strip('-')[:48] or 'product'
+        # The response owns both the temporary ZIP and the export slot until
+        # streaming finishes (including aborted or disconnected downloads).
+        return LockedExportResponse(
+            archive, export_lock=EXPORT_LOCK, media_type='application/zip',
+            filename=f"{slug}-{platform}-{job_id[:8]}.zip",
+            headers={'Cache-Control': 'private, no-store'},
+        )
+    except Exception as exc:
         try:
-            archive = make_export_bundle(record, record_path(job_id).parent, platform)
-        except FileNotFoundError as exc:
+            if archive is not None:
+                archive.unlink(missing_ok=True)
+        finally:
+            EXPORT_LOCK.release()
+        if isinstance(exc, FileNotFoundError):
             raise HTTPException(404, str(exc)) from exc
-        except (OSError, ValueError) as exc:
+        if isinstance(exc, (OSError, ValueError)):
             raise HTTPException(503, str(exc)) from exc
-    finally:
-        EXPORT_LOCK.release()
-    slug = re.sub(r'[^a-zA-Z0-9_-]+', '-', record['name']).strip('-')[:48] or 'product'
-    return FileResponse(
-        archive, media_type='application/zip',
-        filename=f"{slug}-{platform}-{job_id[:8]}.zip",
-        headers={'Cache-Control': 'private, no-store'},
-        background=BackgroundTask(lambda: archive.unlink(missing_ok=True)),
-    )
+        raise
 
 
 
