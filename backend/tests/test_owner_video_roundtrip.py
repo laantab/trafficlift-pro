@@ -5,6 +5,7 @@ fixture bytes. Real Kokoro/FFmpeg composition has its own separate smoke test.
 No external APIs, real rendering, or hosted configuration are used here.
 """
 import time
+import json
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -106,3 +107,46 @@ def test_owner_login_create_status_history_and_mp4_download(monkeypatch, tmp_pat
     finally:
         if api.lock.locked():
             api.lock.release()
+
+
+def test_hosted_acceptance_download_is_owner_only(monkeypatch, tmp_path):
+    """Only the authenticated owner can inspect/download a genuine smoke receipt."""
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO", "1")
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN", SECRET)
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_MODEL_DIR", str(tmp_path))
+    acceptance = tmp_path / "owner-acceptance"
+    acceptance.mkdir()
+    sample = b"hosted-real-render-sample" * 1000
+    (acceptance / "real-kokoro.mp4").write_bytes(sample)
+    (acceptance / "receipt.json").write_text(json.dumps({
+        "state": "passed", "checked_at": "2026-10-24T12:00:00Z",
+        "video_size_bytes": len(sample), "sample_only": True,
+    }))
+    app = FastAPI()
+    app.include_router(api.router)
+    with TestClient(app, base_url=HOST) as owner, TestClient(app, base_url=HOST) as stranger:
+        assert stranger.get("/api/v1/video-owner-acceptance").status_code == 401
+        assert stranger.get("/api/v1/video-owner-acceptance/mp4").status_code == 401
+        assert owner.post("/api/v1/video-owner-login", json={"access_code": SECRET},
+                          headers={"origin": HOST}).status_code == 200
+        info = owner.get("/api/v1/video-owner-acceptance")
+        assert info.status_code == 200
+        assert info.json()["state"] == "passed"
+        assert info.json()["sample_only"] is True
+        downloaded = owner.get("/api/v1/video-owner-acceptance/mp4")
+        assert downloaded.status_code == 200
+        assert downloaded.content == sample
+        assert downloaded.headers["content-type"].startswith("video/mp4")
+        assert "no-store" in downloaded.headers["cache-control"]
+        (acceptance / "receipt.json").unlink()
+        assert owner.get("/api/v1/video-owner-acceptance").json()["state"] == "not_run"
+        assert owner.get("/api/v1/video-owner-acceptance/mp4").status_code == 404
+
+
+def test_hosted_acceptance_is_unavailable_when_disabled(monkeypatch):
+    monkeypatch.delenv("TRAFFICLIFT_HOSTED_VIDEO", raising=False)
+    app = FastAPI()
+    app.include_router(api.router)
+    with TestClient(app, base_url=HOST) as client:
+        assert client.get("/api/v1/video-owner-acceptance").status_code == 503
+        assert client.get("/api/v1/video-owner-acceptance/mp4").status_code == 503

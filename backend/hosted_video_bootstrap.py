@@ -44,18 +44,48 @@ def provision():
             subprocess.run([name, "-version"], check=True, stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, timeout=30)
         if os.getenv("TRAFFICLIFT_HOSTED_VIDEO_SMOKE") == "1":
-            # Test on the hosted server itself; no customer request, no paid API.
-            # Keep cloud customer video disabled, even when this smoke runs.
+            # A real narrated MP4, not a mocked HTTP fixture. Save the sample
+            # on the existing disk for authenticated owner download and review.
             status("preparing", "Rendering local server acceptance video")
             import sys
-            env = dict(os.environ)
-            env["TRAFFICLIFT_TEST_REAL_KOKORO"] = "1"
-            result = subprocess.run(
-                [sys.executable, "-m", "backend.tests.video_phase2_mp4_smoke"],
-                env=env, capture_output=True, text=True, timeout=900,
-            )
-            if result.returncode:
-                raise RuntimeError("Hosted video smoke failed: " + (result.stderr or result.stdout)[-250:])
+            import tempfile
+            acceptance_dir = home / "owner-acceptance"
+            receipt_path = acceptance_dir / "receipt.json"
+            receipt_path.unlink(missing_ok=True)  # never reuse a stale pass
+            with tempfile.TemporaryDirectory(prefix="hosted-smoke-", dir=home) as smoke_tmp:
+                env = dict(os.environ)
+                env["TRAFFICLIFT_TEST_REAL_KOKORO"] = "1"
+                env["TRAFFICLIFT_TEST_OUTPUT_DIR"] = smoke_tmp
+                result = subprocess.run(
+                    [sys.executable, "-m", "backend.tests.video_phase2_mp4_smoke"],
+                    env=env, capture_output=True, text=True, timeout=900,
+                )
+                if result.returncode:
+                    raise RuntimeError("Hosted video smoke failed: " + (result.stderr or result.stdout)[-250:])
+                sample = Path(smoke_tmp) / "trafficlift-phase2-real-kokoro.mp4"
+                quality_file = Path(smoke_tmp) / "trafficlift-phase2-quality.json"
+                if not sample.is_file() or sample.stat().st_size <= 10000 or not quality_file.is_file():
+                    raise RuntimeError("Hosted video smoke produced no verified MP4 and QA report")
+                quality = json.loads(quality_file.read_text())
+                if (quality.get("status") != "PASS"
+                        or quality.get("motion", {}).get("status") != "PASS"
+                        or quality.get("narration_audio", {}).get("status") != "PASS"):
+                    raise RuntimeError("Hosted video smoke quality checks did not pass")
+                acceptance_dir.mkdir(parents=True, exist_ok=True)
+                for source, name in ((sample, "real-kokoro.mp4"), (quality_file, "quality.json")):
+                    destination = acceptance_dir / name
+                    partial = acceptance_dir / (name + ".partial")
+                    shutil.copyfile(source, partial)
+                    partial.replace(destination)
+                receipt = {
+                    "state": "passed",
+                    "checked_at": datetime.now(timezone.utc).isoformat(),
+                    "video_size_bytes": sample.stat().st_size,
+                    "sample_only": True,
+                }
+                partial_receipt = acceptance_dir / "receipt.partial"
+                partial_receipt.write_text(json.dumps(receipt))
+                partial_receipt.replace(receipt_path)
             status("ready", "Real Kokoro server MP4 acceptance passed")
         else:
             status("ready", "Voice assets and FFmpeg tools are installed")
