@@ -1595,7 +1595,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 } else if (job.status === 'queued' || job.status === 'running') {
                     // Reloading the page must not strand an existing render or start another.
                     const button = document.createElement('button'); button.textContent = ' Resume progress'; button.className = 'text-brand-400';
-                    button.onclick = () => { void resumeFreeVideoJob(job.id, button); };
+                    button.onclick = () => resumeFreeVideoJob(job.id, button);
                     row.append(button);
                 }
                 list.append(row);
@@ -1605,6 +1605,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
     async function waitForFreeVideoJob(id, statusEl, resultEl) {
         // Poll the existing job ID. Never submit a duplicate when the page reloads.
+        resultEl.replaceChildren(); resultEl.classList.add('hidden');
         const until = Date.now() + 20 * 60 * 1000;
         while (Date.now() < until) {
             await new Promise(resolve => setTimeout(resolve, 2000));
