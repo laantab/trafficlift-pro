@@ -42,7 +42,7 @@ def video_guard(request):
     if len(configured) < 32:
         raise HTTPException(503, 'Hosted video access is not configured.')
     supplied = request.headers.get('x-trafficlift-video-token', '')
-    cookie = request.cookies.get('trafficlift_video_session', '')
+    cookie = getattr(request, 'cookies', {}).get('trafficlift_video_session', '')
     if not secrets.compare_digest(supplied, configured) and not valid_video_session(cookie, configured):
         raise HTTPException(401, 'Video access requires authorization.')
     # An eventual account/session system can replace this temporary operator-only
