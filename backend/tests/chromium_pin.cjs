@@ -40,6 +40,17 @@ const { createCanvas } = require('@napi-rs/canvas');
     assert(!result.headline.includes('Mainstays'),'Listing title leaked to pin');
     assert(!result.headline.includes('…')&&!result.headline.includes('...'),'Headline truncated');
     assert(result.darkPixels>25000,'Hero subject not visible');
+    // Exercise the actual browser download, not just the canvas preview.
+    const downloadEvent=page.waitForEvent('download');
+    await page.evaluate(()=>downloadPinImage());
+    const download=await downloadEvent;
+    assert.match(download.suggestedFilename(),/^pinterest-.*-1000x1500\\.jpg$/);
+    const saved=fs.readFileSync(await download.path());
+    assert(saved.length>10000,'Downloaded JPEG is unexpectedly empty');
+    assert.equal(saved[0],0xff);assert.equal(saved[1],0xd8);
+    const savedImage=new (require('@napi-rs/canvas').Image)();
+    savedImage.src=saved;
+    assert.equal(savedImage.width,1000);assert.equal(savedImage.height,1500);
     fs.writeFileSync('/tmp/trafficlift-chromium-lamp.jpg',Buffer.from(result.jpeg.split(',')[1],'base64'));
     console.log('PASS: real Chromium renders full 1000x1500 pin, claim-safe lamp headline, and visible product photo');
   } finally {await browser.close();}
