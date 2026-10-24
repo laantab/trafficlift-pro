@@ -1483,6 +1483,22 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('hostedVideoOwnerAccess')?.classList.remove('hidden');
         const note = document.getElementById('freeStudioInstructions');
         if (note) note.textContent = 'Hosted narration beta: unlock owner access below, then create and download a draft MP4.';
+        // An existing HttpOnly session survives reloads; never ask the browser for its secret.
+        void restoreHostedOwnerSession();
+    }
+    async function restoreHostedOwnerSession() {
+        if (!hostedVideoSite) return;
+        try {
+            // This owner-protected route succeeds for a valid cookie even when no sample exists.
+            await freeVideoRequest('/api/v1/video-owner-acceptance');
+        } catch (_) {
+            // No valid session, hosted mode disabled, or network unavailable: keep login locked.
+            return;
+        }
+        document.getElementById('videoOwnerAccessStatus').textContent = 'Existing owner session restored securely.';
+        document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
+        await loadFreeVideoHistory();
+        await loadHostedAcceptanceSample();
     }
     async function unlockHostedOwnerVideo() {
         const field = document.getElementById('videoOwnerAccessCode');
