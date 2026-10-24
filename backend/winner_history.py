@@ -70,12 +70,17 @@ def identity_keys(name, url):
         elif host == 'target.com' or host.endswith('.target.com'):
             # Target's search-result links may omit or rewrite the product
             # slug while retaining the /-/A-<TCIN> product identifier.
-            # A ?preselect= child can be a distinct size/pack SKU; do not
-            # claim the parent's identity for an explicitly selected child.
+            # Target's ?preselect=<child TCIN> selects a specific variant.
+            # Claim the child's stable TCIN (also used by its direct listing),
+            # never the parent TCIN. This blocks relisted child URLs without
+            # conflating other sizes, packs, or the unselected parent.
             match = re.search(r'/p/(?:[^/]+/)?-/A-([0-9]{6,})(?:/|$)', p.path, re.I)
-            preselected = any(k.lower() == 'preselect' and v
-                              for k, v in parse_qsl(p.query))
-            if match and not preselected:
+            preselected = next((v for k, v in parse_qsl(p.query)
+                                if k.lower() == 'preselect' and v), None)
+            if preselected:
+                if re.fullmatch(r'[0-9]{6,}', preselected):
+                    keys.append('target-tcin-' + preselected)
+            elif match:
                 keys.append('target-tcin-' + match.group(1))
     return keys
 
