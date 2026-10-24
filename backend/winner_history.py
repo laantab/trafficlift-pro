@@ -67,6 +67,16 @@ def identity_keys(name, url):
             match = re.search(r'/ip/(?:[^/]+/)?([0-9]{6,})(?:/|$)', p.path, re.I)
             if match:
                 keys.append('walmart-item-' + match.group(1))
+        elif host == 'target.com' or host.endswith('.target.com'):
+            # Target's search-result links may omit or rewrite the product
+            # slug while retaining the /-/A-<TCIN> product identifier.
+            # A ?preselect= child can be a distinct size/pack SKU; do not
+            # claim the parent's identity for an explicitly selected child.
+            match = re.search(r'/p/(?:[^/]+/)?-/A-([0-9]{6,})(?:/|$)', p.path, re.I)
+            preselected = any(k.lower() == 'preselect' and v
+                              for k, v in parse_qsl(p.query))
+            if match and not preselected:
+                keys.append('target-tcin-' + match.group(1))
     return keys
 
 
