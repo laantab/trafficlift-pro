@@ -26,3 +26,28 @@ def test_other_browser_has_its_own_history(tmp_path):
     path=tmp_path/"db.sqlite"
     assert WinnerHistory("browser-a",path=path).claim(["sample-key"])
     assert WinnerHistory("browser-b",path=path).claim(["sample-key"])
+
+
+def test_amazon_product_duplicate_across_listing_paths(tmp_path):
+    from backend.winner_history import identity_keys, WinnerHistory
+    history = WinnerHistory("returning-browser", path=tmp_path/"history.db")
+    first = identity_keys("Example Stainless Desk Lamp", "https://www.amazon.com/dp/B08EXAMP12?tag=affiliate")
+    second = identity_keys("Example LED Desk Light with USB", "https://amazon.com/gp/product/B08EXAMP12/ref=something")
+    assert history.claim(first)
+    assert not history.claim(second)
+
+
+def test_walmart_listing_names_can_change_without_repeat(tmp_path):
+    from backend.winner_history import identity_keys, WinnerHistory
+    history = WinnerHistory("returning-browser", path=tmp_path/"history.db")
+    one = identity_keys("Example Metal Rack", "https://www.walmart.com/ip/Rack-Organizer/123456789")
+    two = identity_keys("Adjustable Storage Rack", "https://www.walmart.com/ip/123456789?athbdg=1")
+    assert history.claim(one)
+    assert not history.claim(two)
+
+
+def test_different_asins_and_items_not_collapsed(tmp_path):
+    from backend.winner_history import identity_keys, WinnerHistory
+    history = WinnerHistory("returning-browser", path=tmp_path/"history.db")
+    assert history.claim(identity_keys("Example first model", "https://amazon.com/dp/B08EXAMP12"))
+    assert history.claim(identity_keys("Example second model", "https://amazon.com/dp/B08EXAMP13"))
