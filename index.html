@@ -1166,6 +1166,12 @@
                         <input id="videoOwnerAccessCode" type="password" autocomplete="off" placeholder="Private owner access code" class="w-full bg-slate-950 rounded-lg p-2 text-slate-100">
                         <button type="button" onclick="unlockHostedOwnerVideo()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Unlock Video Studio</button>
                         <p id="videoOwnerAccessStatus" role="status" class="text-xs text-slate-400"></p>
+                        <div id="hostedVideoAcceptanceReview" class="hidden border-t border-slate-700 pt-3 space-y-2">
+                            <p class="text-xs text-slate-300">Owner review: genuine hosted Kokoro/FFmpeg acceptance sample. This is not a customer-created product video.</p>
+                            <button type="button" onclick="loadHostedAcceptanceSample()" class="rounded-lg bg-slate-800 px-3 py-2 text-xs">Check real hosted MP4 sample</button>
+                            <p id="hostedVideoAcceptanceStatus" role="status" class="text-xs text-slate-400"></p>
+                            <a id="hostedVideoAcceptanceDownload" href="/api/v1/video-owner-acceptance/mp4" download="trafficlift-owner-acceptance.mp4" class="hidden text-xs text-brand-400 underline">Download real Kokoro acceptance MP4</a>
+                        </div>
                     </div>
                     <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
@@ -1491,8 +1497,30 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 body:JSON.stringify({access_code:code})
             });
             note.textContent = 'Owner access unlocked for this browser session.';
+            document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
             await loadFreeVideoHistory();
+            await loadHostedAcceptanceSample();
         } catch (error) { note.textContent = error.message; }
+    }
+
+    async function loadHostedAcceptanceSample() {
+        if (!hostedVideoSite) return;
+        const status = document.getElementById('hostedVideoAcceptanceStatus');
+        const download = document.getElementById('hostedVideoAcceptanceDownload');
+        download.classList.add('hidden');
+        status.textContent = 'Checking the protected real-render receipt…';
+        try {
+            const receipt = await freeVideoRequest('/api/v1/video-owner-acceptance');
+            if (receipt.state === 'passed' && receipt.sample_only === true &&
+                receipt.download_url === '/api/v1/video-owner-acceptance/mp4') {
+                status.textContent = 'Real hosted MP4 sample passed technical checks. Download and review it before approving video quality.';
+                download.classList.remove('hidden');
+            } else {
+                status.textContent = 'No verified real hosted MP4 sample is available yet.';
+            }
+        } catch (error) {
+            status.textContent = 'Could not check the protected MP4 sample: ' + error.message;
+        }
     }
 
     async function freeVideoRequest(path, options = {}) {
