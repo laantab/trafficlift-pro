@@ -177,3 +177,33 @@ def test_exhausted_live_catalog_returns_no_fresh_winner(tmp_path, monkeypatch):
     assert error.value.status_code == 404
     assert 'Previous products remain excluded' in str(error.value.detail)
     assert not WinnerHistory('returning-browser').claim(identity_keys(name, url))
+
+
+def test_target_listing_tcin_blocks_relisted_winner_without_collapsing_variants(tmp_path):
+    """Target product URLs can change slugs, titles and referral query tags.
+
+    Target's /p/<slug>/-/A-<item> and /p/-/A-<item> routes should share
+    a durable identity. A preselected child variant is not necessarily
+    the same SKU as its parent, so do not attach the parent's ID to it.
+    """
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys(
+        'Compact Bamboo Drawer Divider',
+        'https://www.target.com/p/bamboo-drawer-divider/-/A-91234567?ref=tgt_adv',
+    )
+    relisted = identity_keys(
+        'Expandable Kitchen Storage Organizer',
+        'https://target.com/p/-/A-91234567?utm_source=pin',
+    )
+    assert history.claim(first)
+    assert not history.claim(relisted), 'A changed Target slug and title must not recycle a winner'
+    assert history.claim(identity_keys(
+        'Metal Shelf Bracket Model B', 'https://target.com/p/-/A-91234568'
+    )), 'Different Target product IDs must remain eligible'
+    assert 'target-tcin-91234567' not in identity_keys(
+        'Drawer Divider Child Variant',
+        'https://target.com/p/-/A-91234567?preselect=91234569',
+    ), 'Parent identity must not collapse a separately preselected child variant'
+    assert 'target-tcin-91234567' not in identity_keys(
+        'Unrelated Seller', 'https://not-target.com/p/-/A-91234567',
+    )
