@@ -139,3 +139,41 @@ def test_mobile_amazon_path_and_walmart_subdomain_preserve_retailer_ids(tmp_path
                                            'https://www.walmart.com/ip/123456789?utm_source=ad'))
     assert history.claim(identity_keys('LED Reading Light Model Two',
                                        'https://amazon.com/dp/B08EXAMP13'))
+
+
+def test_referral_tracking_does_not_recommend_same_product_after_title_change(tmp_path):
+    """Referrer tags must not create a new winner when the listing title changes."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    original = identity_keys('Compact Desk Lamp Model A',
+                             'https://seller.example/products/desk-lamp?ref_=homepage&aff_id=123')
+    relisted = identity_keys('Rechargeable Reading Light Model A',
+                             'https://seller.example/products/desk-lamp?ref_=email&aff_id=456')
+    assert history.claim(original)
+    assert not history.claim(relisted)
+
+
+def test_exhausted_live_catalog_returns_no_fresh_winner(tmp_path, monkeypatch):
+    """A previously claimed item must not be recycled on an exhausted search."""
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from backend import discovery, discovery_engine, live_research
+
+    monkeypatch.setenv('TRAFFICLIFT_DISCOVERY_DB', str(tmp_path / 'winners.db'))
+    name = 'Compact Desk Lamp Model A'
+    url = 'https://seller.example/products/desk-lamp?ref_=email'
+    history = WinnerHistory('returning-browser')
+    assert history.claim(identity_keys(name, url))
+    candidate = SimpleNamespace(id='candidate-1', name=name, url=url)
+    envelope = SimpleNamespace(research_status='live',
+                               research_sources=[{'title': name, 'url': url}],
+                               research_errors=[])
+    monkeypatch.setattr(live_research, 'research', lambda *a, **kw: envelope)
+    monkeypatch.setattr(discovery, '_build_candidates_from_envelope',
+                        lambda *a, **kw: [candidate])
+    monkeypatch.setattr(discovery_engine, 'bounded_map',
+                        lambda func, values, seconds: [func(value) for value in values])
+    with __import__('pytest').raises(HTTPException) as error:
+        discovery_engine._discover_batch(client_id='returning-browser', seed=1)
+    assert error.value.status_code == 404
+    assert 'Previous products remain excluded' in str(error.value.detail)
+    assert not WinnerHistory('returning-browser').claim(identity_keys(name, url))
