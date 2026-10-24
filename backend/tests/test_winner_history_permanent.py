@@ -115,3 +115,27 @@ def test_history_is_per_browser_not_cross_device_account(tmp_path):
     assert not WinnerHistory('browser-one', path=path).claim(two)
     # No customer account ID is currently passed to WinnerHistory.
     assert WinnerHistory('browser-two', path=path).claim(two)
+
+
+def test_compact_piece_quantities_are_one_winner_but_distinct_counts_remain(tmp_path):
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys('Criusia Drawer Organizer 18pc Set', 'https://shop-a.example/item/one')
+    variant = identity_keys('18-piece Criusia Drawer Organiser Set', 'https://shop-b.example/item/two')
+    distinct = identity_keys('Criusia Drawer Organizer 20pcs Set', 'https://shop-c.example/item/three')
+    assert history.claim(first)
+    assert not history.claim(variant), 'Joined count/unit must not bypass permanent history'
+    assert history.claim(distinct), 'Different pack quantity is a different product'
+
+
+def test_mobile_amazon_path_and_walmart_subdomain_preserve_retailer_ids(tmp_path):
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys('LED Reading Light Model One',
+                                       'https://amazon.com/dp/B08EXAMP12?tag=affiliate'))
+    assert not history.claim(identity_keys('Rechargeable Desk Light Model One',
+                                           'https://m.amazon.com/gp/aw/d/B08EXAMP12?ref_=abc'))
+    assert history.claim(identity_keys('Steel Storage Rack Model 42',
+                                       'https://m.walmart.com/ip/Storage-Rack/123456789?athbdg=1'))
+    assert not history.claim(identity_keys('Metal Shelving Rack Model 42',
+                                           'https://www.walmart.com/ip/123456789?utm_source=ad'))
+    assert history.claim(identity_keys('LED Reading Light Model Two',
+                                       'https://amazon.com/dp/B08EXAMP13'))
