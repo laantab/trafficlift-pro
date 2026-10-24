@@ -261,7 +261,9 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
                                  'market_signal_sources': candidate['market_signals'],
                                  'demand_evidence_status': candidate['demand_evidence_status'],
                                  'source_recency': 'Retrieved now; publication age and actual sales not independently verified',
-                                 'history_window_days': 30, 'elapsed_seconds': round(time.monotonic()-started,3)})
+                                 'winner_history_policy': ('permanent_per_browser' if history else 'request_only'),
+                                  'history_window_days': None, 'category_rotation_window_days': 30,
+                                  'elapsed_seconds': round(time.monotonic()-started,3)})
         return winner
     raise HTTPException(404, 'No new product passed this research batch. '
                         f'Candidates: {len(candidates)}; checked: {len(attempts)}; '

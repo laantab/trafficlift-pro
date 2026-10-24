@@ -20,7 +20,7 @@ _TITLE_ALIASES = {
     'drawers': 'drawer', 'holders': 'holder', 'racks': 'rack',
 }
 _TRACKING_PARAMS = {
-    'ref', 'tag', 'fbclid', 'gclid', 'affiliate', 'affid',
+    'ref', 'ref_', 'refid', 'tag', 'fbclid', 'gclid', 'affiliate', 'affid', 'aff_id',
     'mc_cid', 'mc_eid', 'igshid', 'srsltid', 'clickid', 'click_id',
     'campaign', 'campaignid', 'cid', 'spm', 'ascsubtag', 'subid',
     'sub_id', 'irclickid', 'irgwc', 'gclsrc', 'twclid', 'msclkid',
