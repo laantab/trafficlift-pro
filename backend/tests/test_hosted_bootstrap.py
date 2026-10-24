@@ -44,15 +44,29 @@ def test_optin_server_mp4_smoke_records_success(monkeypatch, tmp_path):
     monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_PREPARE", "1")
     monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_SMOKE", "1")
     monkeypatch.setenv("TRAFFICLIFT_HOSTED_MODEL_DIR", str(tmp_path))
+    def fake_run(command, **kwargs):
+        if "-m" in command:
+            output = Path(kwargs["env"]["TRAFFICLIFT_TEST_OUTPUT_DIR"])
+            (output / "trafficlift-phase2-real-kokoro.mp4").write_bytes(b"real-smoke-fixture" * 1000)
+            (output / "trafficlift-phase2-quality.json").write_text(json.dumps({
+                "status": "PASS", "motion": {"status": "PASS"},
+                "narration_audio": {"status": "PASS"},
+            }))
+        return SimpleNamespace(returncode=0, stdout="PASS", stderr="")
+
     with patch("scripts.install_hosted_voice_assets.install"), \
          patch("static_ffmpeg.add_paths"), \
          patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
-         patch("subprocess.run", return_value=SimpleNamespace(returncode=0,stdout="PASS",stderr="")) as run:
+         patch("subprocess.run", side_effect=fake_run) as run:
         assert provision() is True
     assert run.call_count == 3
     status=json.loads((tmp_path / "provision-status.json").read_text())
     assert status["state"]=="ready"
     assert "MP4 acceptance passed" in status["detail"]
+    receipt=json.loads((tmp_path / "owner-acceptance" / "receipt.json").read_text())
+    assert receipt["state"] == "passed"
+    assert receipt["sample_only"] is True
+    assert (tmp_path / "owner-acceptance" / "real-kokoro.mp4").stat().st_size > 10000
 
 
 def test_optin_server_mp4_failure_fails_closed(monkeypatch, tmp_path):
