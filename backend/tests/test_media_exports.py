@@ -24,7 +24,7 @@ def _setup(monkeypatch, tmp_path, status="succeeded"):
     mp4 = b"original-master-mp4-fixture" * 40
     (folder / "video.mp4").write_bytes(mp4)
     (folder / "captions.ass").write_text(
-        "[Events]\\nDialogue: 0,0:00:01.20,0:00:02.50,Default,,0,0,0,,Hello\\Nworld!\\n",
+        "[Events]\nDialogue: 0,0:00:01.20,0:00:02.50,Default,,0,0,0,,Hello\\Nworld!\n",
         encoding="utf-8",
     )
     record = {
@@ -62,7 +62,7 @@ def test_three_authenticated_kits_copy_one_master_without_rendering(monkeypatch,
                 assert manifest["safe_zone_approval"] == "MANUAL_REVIEW_REQUIRED"
                 assert "seller listing" in archive.read("post.txt").decode()
                 assert "00:00:01,200 --> 00:00:02,500" in archive.read("captions.srt").decode()
-                assert "Hello\\nworld!" in archive.read("captions.srt").decode()
+                assert "Hello\nworld!" in archive.read("captions.srt").decode()
         assert owner.get(f"/api/v1/photo-videos/{job_id}/exports/unknown").status_code == 404
         assert owner.get("/api/v1/photo-videos/not-a-job/exports/tiktok").status_code == 404
         assert (folder / "video.mp4").read_bytes() == mp4
