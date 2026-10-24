@@ -35,8 +35,17 @@ def video_guard(request):
     origin = request.headers.get('origin')
     if origin and origin.rstrip('/') != str(request.base_url).rstrip('/'):
         raise HTTPException(403, 'Open TrafficLift at its official website to render.')
-    # Do not trust an arbitrary X-Forwarded-For value as an authorization token.
-    # The quota is global, so IP spoofing cannot raise total daily usage.
+    # Same-origin headers are not authentication: direct HTTP clients can omit or
+    # forge Origin. A hosted renderer must not become a public compute endpoint.
+    import secrets
+    configured = os.getenv('TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN', '')
+    if len(configured) < 32:
+        raise HTTPException(503, 'Hosted video access is not configured.')
+    supplied = request.headers.get('x-trafficlift-video-token', '')
+    if not secrets.compare_digest(supplied, configured):
+        raise HTTPException(401, 'Video access requires authorization.')
+    # An eventual account/session system can replace this temporary operator-only
+    # gate. Never embed this secret in index.html or distribute it to customers.
 
 
 def reserve_hosted_render():
