@@ -51,3 +51,33 @@ def test_different_asins_and_items_not_collapsed(tmp_path):
     history = WinnerHistory("returning-browser", path=tmp_path/"history.db")
     assert history.claim(identity_keys("Example first model", "https://amazon.com/dp/B08EXAMP12"))
     assert history.claim(identity_keys("Example second model", "https://amazon.com/dp/B08EXAMP13"))
+
+
+
+def test_default_history_path_uses_persistent_campaign_disk(tmp_path, monkeypatch):
+    from backend.winner_history import default_history_path
+    monkeypatch.delenv('TRAFFICLIFT_DISCOVERY_DB', raising=False)
+    monkeypatch.setenv('CAMPAIGNS_DB_PATH', str(tmp_path / 'campaigns.db'))
+    assert default_history_path() == tmp_path / 'discovery.sqlite3'
+    first = WinnerHistory('returning-customer')
+    assert first.path == tmp_path / 'discovery.sqlite3'
+    assert first.claim(['name-first-winner'])
+    # A new process/reload opens the same durable file and cannot recycle it.
+    assert not WinnerHistory('returning-customer').claim(['name-first-winner'])
+
+
+def test_explicit_history_path_takes_priority_over_campaign_disk(tmp_path, monkeypatch):
+    from backend.winner_history import default_history_path
+    explicit = tmp_path / 'separate' / 'winners.db'
+    monkeypatch.setenv('TRAFFICLIFT_DISCOVERY_DB', str(explicit))
+    monkeypatch.setenv('CAMPAIGNS_DB_PATH', str(tmp_path / 'campaigns.db'))
+    assert default_history_path() == explicit
+    assert WinnerHistory('client').path == explicit
+
+
+def test_local_default_kept_without_render_configuration(monkeypatch):
+    from backend.winner_history import default_history_path
+    monkeypatch.delenv('TRAFFICLIFT_DISCOVERY_DB', raising=False)
+    monkeypatch.delenv('CAMPAIGNS_DB_PATH', raising=False)
+    monkeypatch.delenv('RENDER_SERVICE_ID', raising=False)
+    assert default_history_path() == __import__('pathlib').Path('data/discovery.sqlite3')
