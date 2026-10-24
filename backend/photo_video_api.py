@@ -300,6 +300,49 @@ def download(job_id:str,request:Request):
 
 
 
+
+def owner_acceptance_record(request: Request):
+    """Read a persisted real-render receipt only after owner authentication."""
+    if os.getenv('TRAFFICLIFT_HOSTED_VIDEO') != '1':
+        raise HTTPException(503, 'Hosted owner video is not enabled.')
+    video_guard(request)
+    directory = Path(os.getenv('TRAFFICLIFT_HOSTED_MODEL_DIR', '/var/data/models')) / 'owner-acceptance'
+    try:
+        receipt = json.loads((directory / 'receipt.json').read_text())
+    except (OSError, ValueError):
+        return directory, None
+    if receipt.get('state') != 'passed' or not (directory / 'real-kokoro.mp4').is_file():
+        return directory, None
+    return directory, receipt
+
+
+@router.get('/api/v1/video-owner-acceptance')
+def owner_acceptance(request: Request):
+    """Owner-only status of an actual on-server Kokoro/FFmpeg acceptance sample."""
+    _, receipt = owner_acceptance_record(request)
+    if not receipt:
+        return {'state': 'not_run', 'sample_only': True, 'download_url': None}
+    return {
+        'state': 'passed',
+        'checked_at': receipt.get('checked_at'),
+        'video_size_bytes': receipt.get('video_size_bytes'),
+        'sample_only': True,
+        'download_url': '/api/v1/video-owner-acceptance/mp4',
+    }
+
+
+@router.get('/api/v1/video-owner-acceptance/mp4')
+def owner_acceptance_mp4(request: Request):
+    """Review a genuine hosted compositor sample; never a customer video."""
+    directory, receipt = owner_acceptance_record(request)
+    if not receipt:
+        raise HTTPException(404, 'No verified hosted acceptance sample is available.')
+    return FileResponse(directory / 'real-kokoro.mp4', media_type='video/mp4',
+                        filename='trafficlift-owner-acceptance.mp4',
+                        headers={'Cache-Control': 'private, no-store'})
+
+
+
 class ResearchKeyRequest(BaseModel):
     api_key: SecretStr
 
