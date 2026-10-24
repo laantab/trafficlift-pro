@@ -207,3 +207,43 @@ def test_target_listing_tcin_blocks_relisted_winner_without_collapsing_variants(
     assert 'target-tcin-91234567' not in identity_keys(
         'Unrelated Seller', 'https://not-target.com/p/-/A-91234567',
     )
+
+
+def test_target_preselected_child_relisting_does_not_repeat(tmp_path):
+    """A Target child SKU stays the same across changed parent slugs and titles."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys(
+        'Blue Expandable Drawer Divider',
+        'https://www.target.com/p/divider-original/-/A-91234567?preselect=91234569&utm_source=pin',
+    )
+    relisted = identity_keys(
+        'Kitchen Organizer Adjustable Blue',
+        'https://target.com/p/-/A-91234567?preselect=91234569&ref=affiliate',
+    )
+    assert history.claim(first)
+    assert not history.claim(relisted), 'The same preselected Target child SKU cannot win twice'
+    assert not history.claim(identity_keys(
+        'New Title For Direct Child Listing',
+        'https://target.com/p/-/A-91234569',
+    )), 'A direct link to the same child TCIN must also be excluded'
+    assert history.claim(identity_keys(
+        'Different Green Child Variant',
+        'https://target.com/p/-/A-91234567?preselect=91234570',
+    )), 'A distinct preselected child remains eligible'
+    assert history.claim(identity_keys(
+        'Unselected Parent Product',
+        'https://target.com/p/-/A-91234567',
+    )), 'A separately selected child must not claim the parent product'
+
+
+def test_target_preselect_does_not_claim_parent_or_non_target_host():
+    selected = identity_keys(
+        'Blue Drawer Divider',
+        'https://target.com/p/-/A-91234567?preselect=91234569',
+    )
+    assert 'target-tcin-91234569' in selected
+    assert 'target-tcin-91234567' not in selected
+    assert 'target-tcin-91234569' not in identity_keys(
+        'Blue Drawer Divider',
+        'https://unrelated.example/p/-/A-91234567?preselect=91234569',
+    )
