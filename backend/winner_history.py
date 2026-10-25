@@ -119,11 +119,18 @@ def identity_keys(name, url):
         # even if the merchant also renames the product and URL slug.
         # Only accept a root or single locale prefix, never arbitrary paths.
         if re.fullmatch(r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/[^/]+/?', canonical_path, re.I):
-            variants = [v for k, v in parse_qsl(p.query) if k.lower() == 'variant']
-            if len(variants) == 1 and re.fullmatch(r'[0-9]{8,20}', variants[0]):
-                merchant_variant = f'{host}:{variants[0]}'
-                keys.append('shopify-variant-' + hashlib.sha256(
-                    merchant_variant.encode()).hexdigest()[:24])
+            # A seller redirect may append the same variant selector twice
+            # (sometimes with different parameter capitalization). Those
+            # identical values still name one SKU; do not let the duplicate
+            # query keys bypass the merchant-scoped permanent winner history.
+            # Conflicting values are ambiguous: never choose one arbitrarily.
+            variants = {v for k, v in parse_qsl(p.query) if k.lower() == 'variant'}
+            if len(variants) == 1:
+                variant = next(iter(variants))
+                if re.fullmatch(r'[0-9]{8,20}', variant):
+                    merchant_variant = f'{host}:{variant}'
+                    keys.append('shopify-variant-' + hashlib.sha256(
+                        merchant_variant.encode()).hexdigest()[:24])
         if host == 'amazon.com' or host.endswith('.amazon.com'):
             match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', canonical_path, re.I)
             if match:
