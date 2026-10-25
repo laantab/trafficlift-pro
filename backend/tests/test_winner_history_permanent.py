@@ -448,3 +448,24 @@ def test_compact_measurement_relisting_cannot_recycle_winner(tmp_path):
     assert history.claim(second)
     assert not history.claim(identity_keys('Hydration Bottle 500 ml', 'https://seller.example/bottle-new'))
     assert history.claim(identity_keys('Hydration Bottle 750 ml', 'https://seller.example/bottle-large'))
+
+
+def test_existing_compact_and_spaced_history_keys_remain_effective(tmp_path):
+    """Old SQLite hashes cannot be rewritten; new claims must recognize both.
+
+    Simulate a winner recorded before measurement aliases existed, without
+    inserting any of the new alternate keys into the historical database.
+    """
+    import hashlib
+    path = tmp_path / 'legacy-history.db'
+    history = WinnerHistory('returning-browser', path=path)
+    for old_title, new_title in (
+        ('cafe travel mug 12oz', 'Cafe Travel Mug 12 oz'),
+        ('hydration bottle 500 ml', 'Hydration Bottle 500ml'),
+    ):
+        old_key = 'name-folded-' + hashlib.sha256(old_title.encode()).hexdigest()[:24]
+        with sqlite3.connect(path) as db:
+            db.execute('INSERT INTO discovery_seen VALUES (?,?,?)', (history.scope, old_key, 1))
+        assert not WinnerHistory('returning-browser', path=path).claim(
+            identity_keys(new_title, 'https://seller.example/changed-' + old_title.replace(' ', '-'))
+        ), 'Pre-upgrade permanent history must still exclude measurement relistings'
