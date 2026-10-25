@@ -23,6 +23,11 @@ refreshed.rememberDiscoveredWinner({source:'discovery-curated',id:'saved-item',i
 assert.equal(refreshed.discoveryHistory().length,2);
 stored.set('trafficlift.discovery.history.v3','invalid json');
 assert.doesNotThrow(()=>browser().discoveryParams());
-stored.set('trafficlift.discovery.history.v3',JSON.stringify([{id:'old',keys:[],at:Date.now()-31*86400000}]));
-assert.equal(browser().discoveryHistory().length,0);
+// A 31-day-old winner must remain in browser exclusions. The server already
+// retains permanent history, but the browser must not silently discard it.
+stored.set('trafficlift.discovery.history.v3',JSON.stringify([{id:'old',keys:['name-old'],at:Date.now()-31*86400000}]));
+const oldWinner=browser();
+assert.equal(oldWinner.discoveryHistory().length,1,'old winners must not expire in local history');
+assert.equal(oldWinner.discoveryParams().get('exclude'),'old');
+assert.equal(oldWinner.discoveryParams().get('exclude_keys'),'name-old');
 console.log('PASS: refresh identity, exclusion history, fallback refusal, malformed storage, expiration');
