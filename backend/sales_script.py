@@ -15,10 +15,10 @@ def clean(value, limit=160):
     value = str(value or '')
     # Strip indexed research citations, Markdown headings and lightweight inline
     # markup before the text enters either narration or on-screen captions.
-    value = re.sub(r'\\[\\d+(?:\\s*[,;-]\\s*\\d+)*\\]', '', value)
-    value = re.sub(r'\\[([^\\]]+)\\]\\(https?://[^)]+\\)', r'\\1', value)
-    value = re.sub(r'(?m)^\\s{0,3}#{1,6}\\s+', '', value)
-    value = re.sub(r'(?m)^\\s*[-*]\\s+', '', value)
+    value = re.sub(r'\[\d+(?:\s*[,;-]\s*\d+)*\]', '', value)
+    value = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', value)
+    value = re.sub(r'(?m)^\s{0,3}#{1,6}\s+', '', value)
+    value = re.sub(r'(?m)^\s*[-*]\s+', '', value)
     value = re.sub(r'[*_`]+', '', value)
     value = ' '.join(value.split())
     if len(value) > limit or any(c in value for c in '{}\\<>|'):
