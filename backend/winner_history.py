@@ -91,7 +91,7 @@ def identity_keys(name, url):
     # Emit all historical folded spellings so pre-upgrade SQLite hashes
     # remain effective even when a retailer changes the listing URL.
     # Do not interpret numeric "2 in 1" feature descriptions as dimensions.
-    inch_pattern = r'\\b(\\d+)\\s*(?:inches|inch|in)\\b(?!\\s+\\d)'
+    inch_pattern = r'\b(\d+)\s*(?:inches|inch|in)\b(?!\s+\d)'
     if re.search(inch_pattern, folded_name):
         for spelling in ('in', 'inch', 'inches'):
             measurement_variants.add(re.sub(
