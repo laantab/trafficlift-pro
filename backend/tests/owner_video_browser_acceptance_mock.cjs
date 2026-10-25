@@ -97,7 +97,24 @@ function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeede
     assert.deepEqual(fs.readFileSync(created.output), MP4);
     assert.throws(() => optionsFromEnv(['--run'], env), /Output exists/);
 
-    // A forged ftyp header plus arbitrary bytes is not a playable MP4.\n    // The acceptance probe must not certify or publish this corrupt download.\n    const corruptOpts = optionsFromEnv(['--resume', ID], {\n      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',\n      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'corrupt.mp4'),\n    });\n    const corrupt = fixture({mp4Body: Buffer.concat([\n      Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(4096, 88),\n    ])});\n    await assert.rejects(\n      runBrowserAcceptance({...corruptOpts, timeoutMs: 20000}, corrupt),\n      /MP4.*(decode|invalid|playable)/i,\n      'an ftyp header with arbitrary bytes must never pass real browser MP4 acceptance',\n    );\n    assert.equal(corrupt.calls.created, 0, 'corrupt resume must not start a render');\n    assert.equal(fs.existsSync(corruptOpts.output), false, 'corrupt MP4 must not be published');\n\n    const resumed = optionsFromEnv(['--resume', ID], {
+    // A forged ftyp header plus arbitrary bytes is not a playable MP4.
+    // The acceptance probe must not certify or publish this corrupt download.
+    const corruptOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'corrupt.mp4'),
+    });
+    const corrupt = fixture({mp4Body: Buffer.concat([
+      Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(4096, 88),
+    ])});
+    await assert.rejects(
+      runBrowserAcceptance({...corruptOpts, timeoutMs: 20000}, corrupt),
+      /MP4.*(decode|invalid|playable)/i,
+      'an ftyp header with arbitrary bytes must never pass real browser MP4 acceptance',
+    );
+    assert.equal(corrupt.calls.created, 0, 'corrupt resume must not start a render');
+    assert.equal(fs.existsSync(corruptOpts.output), false, 'corrupt MP4 must not be published');
+
+    const resumed = optionsFromEnv(['--resume', ID], {
       TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
       TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'resumed.mp4'),
     });
