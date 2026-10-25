@@ -60,10 +60,7 @@ def _canonical_query_pairs(pairs):
         if lowered.startswith('utm_') or lowered in _TRACKING_PARAMS:
             continue
         if lowered in {'sku', 'variant'}:
-            # Retailer redirects sometimes URL-encode padding around a
-            # selector value. Boundary whitespace does not change a SKU, but
-            # interior whitespace can be meaningful (e.g. AB 12 vs AB12).
-            pair = (lowered, value.strip())
+            pair = (lowered, value)
             if pair in seen_selectors:
                 continue
             seen_selectors.add(pair)
@@ -187,7 +184,7 @@ def identity_keys(name, url):
             # identical values still name one SKU; do not let the duplicate
             # query keys bypass the merchant-scoped permanent winner history.
             # Conflicting values are ambiguous: never choose one arbitrarily.
-            variants = {v.strip() for k, v in query_pairs if k.lower() == 'variant'}
+            variants = {v for k, v in query_pairs if k.lower() == 'variant'}
             if len(variants) == 1:
                 variant = next(iter(variants))
                 if re.fullmatch(r'[0-9]{8,20}', variant):
