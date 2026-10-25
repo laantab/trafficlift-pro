@@ -307,3 +307,33 @@ def test_shopify_variant_selector_still_distinguishes_real_skus(tmp_path):
         'Rechargeable Desk Lamp Large',
         'https://seller.example/products/desk-lamp?variant=222&_pos=2&gad_source=2',
     ))
+
+
+def test_shopify_variant_relisted_under_new_slug_cannot_win_again(tmp_path):
+    """A Shopify variant ID is stable when the seller rewrites slug and title."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    original = identity_keys(
+        'Rechargeable Desk Lamp Small',
+        'https://seller.example/products/rechargeable-desk-lamp?variant=44332211&utm_source=ad',
+    )
+    renamed = identity_keys(
+        'Portable Reading Light Compact',
+        'https://seller.example/products/portable-reading-light?variant=44332211&_pos=4&gad_source=2',
+    )
+    assert history.claim(original)
+    assert not WinnerHistory('returning-browser', path=history.path).claim(renamed), (
+        'Changing a Shopify slug and title must not recycle the same variant'
+    )
+
+
+def test_shopify_variant_scope_preserves_other_merchants_and_skus(tmp_path):
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys(
+        'Desk Lamp Compact A', 'https://seller-a.example/products/desk-lamp?variant=44332211',
+    ))
+    assert history.claim(identity_keys(
+        'Desk Lamp Large B', 'https://seller-a.example/products/desk-lamp?variant=44332212',
+    )), 'Different variant on the same merchant remains eligible'
+    assert history.claim(identity_keys(
+        'Other Brand Desk Lamp', 'https://seller-b.example/products/desk-lamp?variant=44332211',
+    )), 'Another merchant must not be conflated'
