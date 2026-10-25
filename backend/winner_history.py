@@ -25,6 +25,9 @@ _TRACKING_PARAMS = {
     'mc_cid', 'mc_eid', 'igshid', 'srsltid', 'clickid', 'click_id',
     'campaign', 'campaignid', 'campaign_id', 'cid', 'spm', 'ascsubtag', 'subid',
     'sub_id', 'irclickid', 'irgwc', 'gclsrc', 'twclid', 'msclkid',
+    # Shopify search placement and Google Ads attribution do not select SKUs.
+    # Keep meaningful variant, size, sku, and model selectors in the URL.
+    '_pos', '_sid', '_ss', 'gad_source', 'gad_campaignid', 'gbraid', 'wbraid',
 }
 
 def _title_tokens(name):
