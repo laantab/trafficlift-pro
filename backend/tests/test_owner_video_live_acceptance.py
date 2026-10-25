@@ -223,13 +223,16 @@ def test_created_job_id_survives_status_network_interruption(tmp_path):
     assert resumed.posts == [BASE + "/api/v1/video-owner-login"]
 
 
-def test_http_acceptance_rejects_public_mp4_even_with_no_store(tmp_path):
+@pytest.mark.parametrize("cache_control", [
+    "public, no-store", "no-store", "public, private, no-store",
+])
+def test_http_acceptance_rejects_public_mp4_even_with_no_store(tmp_path, cache_control):
     """A private owner MP4 cannot pass acceptance with a public cache policy."""
     class PublicDownloadSession(FakeSession):
         def get(self, url, **kwargs):
             if url.endswith("/video"):
                 self.download = Response(
-                    headers={"Cache-Control": "public, no-store", "Content-Type": "video/mp4"},
+                    headers={"Cache-Control": cache_control, "Content-Type": "video/mp4"},
                     content=MP4,
                 )
                 return self.download
