@@ -115,7 +115,39 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     }
 
     const link = page.locator('#videoResult a').filter({hasText: 'Download draft MP4'});
-    await link.waitFor({state: 'visible', timeout: opts.timeoutMs});
+    // The browser UI polls the authenticated job status every two seconds.
+    // If the render fails or owner status access is lost, fail acceptance
+    // immediately instead of waiting 25 minutes for an MP4 link that cannot
+    // appear. Observe only existing GET responses; never create another job.
+    const statusUrl = BASE + '/api/v1/photo-videos/' + jobId;
+    let rejectStatusFailure;
+    const failedStatus = new Promise((_, reject) => { rejectStatusFailure = reject; });
+    const onStatusResponse = async response => {
+      if (response.url() !== statusUrl || response.request().method() !== 'GET') return;
+      if (response.status() !== 200) {
+        rejectStatusFailure(new Error('Owner video status returned HTTP ' + response.status()));
+        return;
+      }
+      try {
+        const data = await response.json();
+        if (data?.video?.status === 'failed') {
+          rejectStatusFailure(new Error('Owner video render failed; inspect Past videos'));
+        } else if (typeof data?.video?.status !== 'string') {
+          rejectStatusFailure(new Error('Owner video status response was malformed'));
+        }
+      } catch (_) {
+        rejectStatusFailure(new Error('Owner video status response was not valid JSON'));
+      }
+    };
+    page.on('response', onStatusResponse);
+    try {
+      await Promise.race([
+        link.waitFor({state: 'visible', timeout: opts.timeoutMs}),
+        failedStatus,
+      ]);
+    } finally {
+      page.off('response', onStatusResponse);
+    }
     const href = await link.getAttribute('href');
     if (href !== BASE + '/api/v1/photo-videos/' + jobId + '/video') {
       throw new Error('Browser download link is not the expected protected same-origin job');
