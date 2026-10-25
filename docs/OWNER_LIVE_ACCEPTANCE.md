@@ -13,12 +13,13 @@ only when owner-hosted video is already intentionally enabled and provisioned.
 
 Run `python scripts/owner_video_live_acceptance.py --preflight` to verify that
 the existing hosted health endpoint responds and unauthenticated video history,
-individual video status, and MP4 download are all denied with HTTP 401.
-The status and MP4 checks use a non-existent 32-character job ID and stream
-without saving any response body. This does **not** sign in, create a render,
-consume a video quota slot, download an MP4, or establish customer-launch
-readiness. It is safe to
-run before obtaining the private owner code.
+individual video status, master MP4 download, platform export ZIP, owner sample
+status, and owner sample MP4 are all denied with HTTP 401. Job checks use a
+non-existent 32-character job ID. Download checks stream without reading or
+saving any response body and always close the response. This does **not** sign
+in, create a render, consume a video quota slot, download an MP4 or ZIP, or
+establish customer-launch readiness. It is safe to run before obtaining the
+private owner code.
 
 ## Preconditions
 
