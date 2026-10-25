@@ -406,3 +406,24 @@ def test_discovery_endpoint_requires_browser_identity(monkeypatch):
     response = TestClient(app).get("/api/v1/discover-winner")
     assert response.status_code == 422
     assert "browser" in str(response.json().get("detail", "")).lower()
+
+
+def test_short_unicode_title_relisting_is_not_a_fresh_winner(tmp_path):
+    """A two-word accented product name must match its ASCII relisting.
+
+    Two-word names have no sorted-title alias key; changing the listing URL
+    currently bypasses the old ASCII-only primary name identity.
+    """
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    original = identity_keys('Café Mug', 'https://shop.example/products/cafe-mug-old')
+    relisted = identity_keys('Cafe Mug', 'https://shop.example/products/cafe-mug-new?utm_source=pin')
+    assert history.claim(original)
+    assert not WinnerHistory('returning-browser', path=history.path).claim(relisted), (
+        'Accent-folded relistings must not recycle the same winner'
+    )
+
+
+def test_unicode_title_identity_does_not_collapse_distinct_sizes(tmp_path):
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys('Café Mug 12oz', 'https://shop.example/a'))
+    assert history.claim(identity_keys('Cafe Mug 16oz', 'https://shop.example/b'))
