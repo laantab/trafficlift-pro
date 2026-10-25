@@ -112,9 +112,17 @@ def identity_keys(name, url):
         alt_tokens = alternate.split()
         if len(alt_tokens) >= 3 and len(set(alt_tokens)) >= 3:
             keys.append('title-' + hashlib.sha256(' '.join(sorted(alt_tokens)).encode()).hexdigest()[:24])
-    p = urlsplit(url)
+    # Decimal/hex HTML entities contain '#', which urlsplit otherwise treats
+    # as the start of a fragment. Decode ampersand separators in the query
+    # portion *before* URL splitting, never in the product path.
+    raw_p = urlsplit(url)
+    if '?' in url:
+        prefix, query_tail = url.split('?', 1)
+        p = urlsplit(prefix + '?' + _HTML_QUERY_AMPERSAND.sub('&', query_tail))
+    else:
+        p = raw_p
     canonical_path = _canonical_product_path(p.path)
-    query_pairs = parse_qsl(_HTML_QUERY_AMPERSAND.sub('&', p.query))
+    query_pairs = parse_qsl(p.query)
     query = [(k, v) for k, v in query_pairs if not k.lower().startswith('utm_')
              and k.lower() not in _TRACKING_PARAMS]
     host_name = (p.hostname or '').lower().removeprefix('www.')
@@ -127,10 +135,10 @@ def identity_keys(name, url):
         # all newly claimed winners store the normalized key going forward.
         # Also retain the pre-upgrade raw-entity URL hash for existing
         # permanent records saved before HTML query normalization.
-        legacy_query = [(k, v) for k, v in parse_qsl(p.query)
+        legacy_query = [(k, v) for k, v in parse_qsl(raw_p.query)
                         if not k.lower().startswith('utm_')
                         and k.lower() not in _TRACKING_PARAMS]
-        legacy = urlunsplit(('https', host_name, p.path.rstrip('/'),
+        legacy = urlunsplit(('https', host_name, raw_p.path.rstrip('/'),
                              urlencode(sorted(legacy_query)), ''))
         if legacy != canonical:
             keys.append('url-' + hashlib.sha256(legacy.encode()).hexdigest()[:24])
