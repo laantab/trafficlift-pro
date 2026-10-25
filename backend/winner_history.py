@@ -59,7 +59,7 @@ def _canonical_query_pairs(pairs):
         lowered = key.lower()
         if lowered.startswith('utm_') or lowered in _TRACKING_PARAMS:
             continue
-        if lowered in {'sku', 'variant'}:
+        if lowered in {'sku', 'variant', 'preselect'}:
             # Retailer redirects sometimes URL-encode padding around a
             # selector value. Boundary whitespace does not change a SKU, but
             # interior whitespace can be meaningful (e.g. AB 12 vs AB12).
@@ -210,12 +210,18 @@ def identity_keys(name, url):
             # never the parent TCIN. This blocks relisted child URLs without
             # conflating other sizes, packs, or the unselected parent.
             match = re.search(r'/p/(?:[^/]+/)?-/A-([0-9]{6,})(?:/|$)', canonical_path, re.I)
-            preselected = next((v for k, v in query_pairs
-                                if k.lower() == 'preselect' and v), None)
-            if preselected:
-                if re.fullmatch(r'[0-9]{6,}', preselected):
-                    keys.append('target-tcin-' + preselected)
-            elif match:
+            # Target child IDs can be padded or repeated by redirects.
+            # Normalize boundary whitespace, but never choose arbitrarily
+            # between conflicting child selectors: that could mark a
+            # different variant as already won. An ambiguous selection
+            # must not fall back to claiming the parent TCIN either.
+            preselected = {v.strip() for k, v in query_pairs
+                           if k.lower() == 'preselect' and v.strip()}
+            if len(preselected) == 1:
+                child = next(iter(preselected))
+                if re.fullmatch(r'[0-9]{6,}', child):
+                    keys.append('target-tcin-' + child)
+            elif not preselected and match:
                 keys.append('target-tcin-' + match.group(1))
     return keys
 
