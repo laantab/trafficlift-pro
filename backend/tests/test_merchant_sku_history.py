@@ -123,3 +123,48 @@ def test_presentation_query_does_not_merge_distinct_skus_or_child_options(tmp_pa
     assert not any(key.startswith("merchant-sku-") for key in child), (
         "Unknown child-variant selectors must still disable broad SKU identity"
     )
+
+
+def test_html_escaped_product_title_cannot_recycle_after_url_change(tmp_path):
+    """Retailer HTML-escaped ampersands must not create a fresh winner."""
+    path = tmp_path / "seen.db"
+    old = identity_keys(
+        "Premium Bamboo &amp; Steel Drawer Organizer",
+        "https://shop.example/products/bamboo-steel-original?utm_source=first",
+    )
+    relisted = identity_keys(
+        "Premium Bamboo & Steel Drawer Organizer",
+        "https://shop.example/products/updated-storage-shelf?utm_source=second",
+    )
+    assert WinnerHistory("returning-browser", path=path).claim(old)
+    assert not WinnerHistory("returning-browser", path=path).claim(relisted)
+
+
+def test_html_escaped_title_reverse_direction_and_distinct_quantity(tmp_path):
+    """Both spellings share identity; genuinely different packs remain eligible."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    assert history.claim(identity_keys(
+        "Premium Bamboo & Steel Drawer Organizer 2 Pack",
+        "https://shop.example/products/original-2",
+    ))
+    assert not history.claim(identity_keys(
+        "Premium Bamboo &amp; Steel Drawer Organizer 2 Pack",
+        "https://shop.example/products/renamed-2",
+    ))
+    assert history.claim(identity_keys(
+        "Premium Bamboo &amp; Steel Drawer Organizer 4 Pack",
+        "https://shop.example/products/other-4",
+    ))
+
+
+def test_preupgrade_html_escaped_history_hash_still_blocks_plain_title(tmp_path):
+    """Older SQLite rows only contain hashes, so old 'amp' tokens must match."""
+    import hashlib
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    old_folded = "premium bamboo amp steel drawer organizer"
+    old_key = "name-folded-" + hashlib.sha256(old_folded.encode()).hexdigest()[:24]
+    assert history.claim([old_key])
+    assert not WinnerHistory("returning-browser", path=history.path).claim(identity_keys(
+        "Premium Bamboo & Steel Drawer Organizer",
+        "https://shop.example/products/brand-new-slug",
+    ))
