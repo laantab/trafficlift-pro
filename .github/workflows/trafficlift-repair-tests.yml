@@ -66,6 +66,8 @@ jobs:
           name: chromium-lamp-pin
           path: /tmp/trafficlift-chromium-lamp.jpg
           if-no-files-found: ignore
+      - name: Verify protected owner browser-to-MP4 acceptance with Chromium fixtures
+        run: node backend/tests/owner_video_browser_acceptance_mock.cjs
       - name: Check Pinterest editorial quality safeguards
         run: node backend/tests/pinterest_editor_ui.cjs
       - name: Check persistent discovery browser history

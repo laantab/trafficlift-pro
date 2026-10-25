@@ -54,3 +54,33 @@ Resume does not create another render or consume a new daily slot.
 Chromium user-interface test. The downloaded MP4 still requires human visual,
 audio, caption, product-accuracy, rights, and platform safe-zone review.
 A successful run does not by itself establish customer-launch readiness.
+
+
+## Real Chromium owner website-to-MP4 acceptance (opt-in)
+
+The separate `scripts/owner_video_browser_acceptance.cjs` drives the **actual
+hosted browser page**, rather than just HTTP requests: it opens the Video
+modal, enters the private owner access code into the password field, uses
+the session cookie, creates **one** video, watches the production browser
+status code, clicks **Download draft MP4**, and checks the downloaded bytes.
+It also verifies anonymous history is denied, the owner cookie has Secure,
+HttpOnly and SameSite=Strict, and the MP4 link is same-origin. No screenshots,
+traces, HAR, owner credentials or customer MP4 files are uploaded to CI.
+
+On a trusted computer with Node.js, install the browser test dependency and
+Chromium using `npm install --no-save --no-package-lock playwright@1.56.1`
+and `npx playwright install chromium`. Set the same private environment
+variables listed above, then run
+`node scripts/owner_video_browser_acceptance.cjs --run`.
+To resume an existing job **without starting another render**, run
+`node scripts/owner_video_browser_acceptance.cjs --resume <32-character-job-id>`.
+The optional `TRAFFICLIFT_ACCEPTANCE_OUTPUT` selects a new output filename;
+an existing file is never overwritten. An interrupted creation prints only
+its non-secret job ID before waiting, so resume rather than clicking Run again.
+
+The browser fixture regression runs in CI without credentials, external
+requests, a real render, or quota usage. **It is not proof of production
+acceptance.** The live Chromium command requires the private owner access
+code and a rights-cleared product photo; it must be explicitly run by an
+authorized operator. Review the saved MP4's video, audio, captions, claims,
+photo rights and platform framing before any customer-launch claim.
