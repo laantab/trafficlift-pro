@@ -37,6 +37,24 @@ def _job_id(value):
     return value
 
 
+def preflight(session):
+    """Read-only hosted check: health is live and owner video history is private.
+
+    Uses a fresh unauthenticated session; never logs in, renders, or downloads.
+    """
+    health = session.get(BASE + "/api/v1/health", timeout=20, allow_redirects=False)
+    if health.status_code != 200:
+        raise AcceptanceError(
+            f"Hosted health check: expected HTTP 200, got {health.status_code}"
+        )
+    denied = session.get(BASE + "/api/v1/photo-videos", timeout=20, allow_redirects=False)
+    if denied.status_code != 401:
+        raise AcceptanceError(
+            "Unauthenticated video history did not return HTTP 401"
+        )
+    return {"health": "ok", "owner_history": "protected"}
+
+
 def verify(session, access_code, *, payload=None, resume=None, output=None,
            timeout=1800, interval=5, now=time.monotonic, sleep=time.sleep):
     """Verify auth, create/resume, poll, and stream a real MP4 to disk.
@@ -128,6 +146,7 @@ def verify(session, access_code, *, payload=None, resume=None, output=None,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--preflight", action="store_true", help="Read-only hosted health and owner privacy check; no access code or render")
     group.add_argument("--run", action="store_true", help="Create ONE new owner-only video; consumes one quota slot")
     group.add_argument("--resume", metavar="JOB_ID", help="Check/download an existing video; no new render")
     parser.add_argument("--output", default="trafficlift-owner-verified.mp4")
@@ -135,6 +154,14 @@ def main():
     args = parser.parse_args()
     if args.timeout < 1 or args.timeout > 3600:
         parser.error("--timeout must be between 1 and 3600 seconds")
+    if args.preflight:
+        try:
+            with requests.Session() as session:
+                preflight(session)
+        except (AcceptanceError, requests.RequestException, ValueError) as exc:
+            parser.exit(1, "Owner video preflight failed: " + str(exc)[:240] + "\\n")
+        print("Owner video preflight passed: hosted health OK; private video history denied (HTTP 401); no render started")
+        return
     code = os.environ.get("TRAFFICLIFT_OWNER_ACCESS_CODE", "")
     payload = None
     if args.run:
