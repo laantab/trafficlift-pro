@@ -55,3 +55,20 @@ def test_fact_is_not_replaced_by_invented_performance():
     result=plan()
     text=' '.join(result['phrases']).lower()
     assert 'leak' not in text and 'cold for' not in text and 'cup holder' not in text
+
+
+def test_seller_markdown_and_numeric_references_not_spoken_or_captioned():
+    from backend.sales_script import clean
+    assert clean('### Warranty & Support [12]') == 'Warranty & Support'
+    assert clean('**Clear organizers** [2, 3]') == 'Clear organizers'
+    assert clean('[Compare options](https://example.com/listing)') == 'Compare options'
+    assert clean('- Includes three organizers') == 'Includes three organizers'
+
+
+def test_seller_html_or_code_must_not_become_ad_copy():
+    from backend.sales_script import clean
+    import pytest
+    with pytest.raises(ValueError):
+        clean('<script>Example</script>')
+    with pytest.raises(ValueError):
+        clean('broken {template} value')
