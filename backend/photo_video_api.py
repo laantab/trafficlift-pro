@@ -161,11 +161,23 @@ def read_record(job_id):
     if not path.is_file():raise HTTPException(404,'Video not found.')
     try:data=json.loads(path.read_text())
     except (OSError,ValueError):raise HTTPException(503,'Video record temporarily unavailable.')
-    # Interrupted jobs never appear finished after a restart.
+    # Interrupted jobs never appear finished after a restart. A worker can
+    # save its terminal result and release the lock between our initial read
+    # and the lock check; never overwrite that newer success with "failed".
     if data['status'] not in {'succeeded','failed'} and (not lock.locked() or active_job_id != job_id):
+        try:
+            latest = json.loads(path.read_text())
+        except (OSError, ValueError):
+            raise HTTPException(503, 'Video record temporarily unavailable.')
+        if latest['status'] in {'succeeded', 'failed'}:
+            return latest
+        # A live worker may have claimed this job while we reread the record.
+        if lock.locked() and active_job_id == job_id:
+            return latest
         # Another render holding the lock does not make an interrupted job active.
-        data.update(status='failed',message='Render was interrupted. Start a new video.',video_url=None)
-        save(data,path.parent)
+        latest.update(status='failed',message='Render was interrupted. Start a new video.',video_url=None)
+        save(latest,path.parent)
+        return latest
     return data
 
 def save(record,directory):

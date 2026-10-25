@@ -124,6 +124,29 @@ def test_owner_login_create_status_history_and_mp4_download(monkeypatch, tmp_pat
             api.lock.release()
 
 
+
+def test_worker_finishing_during_status_read_does_not_erase_success(monkeypatch, tmp_path):
+    """A queued snapshot must not overwrite a worker's just-saved terminal record."""
+    job_id = "c" * 32
+    folder = tmp_path / job_id
+    folder.mkdir()
+    monkeypatch.setenv("TRAFFICLIFT_VIDEO_DIR", str(tmp_path))
+    monkeypatch.delenv("TRAFFICLIFT_LEGACY_VIDEO_DIR", raising=False)
+    queued = {"id": job_id, "status": "queued", "message": "Starting", "video_url": None}
+    api.save(queued, folder)
+
+    class WorkerFinishesAtLockCheck:
+        def locked(self):
+            api.save({**queued, "status": "succeeded", "message": "Done",
+                      "video_url": f"/api/v1/photo-videos/{job_id}/video"}, folder)
+            return False
+
+    monkeypatch.setattr(api, "lock", WorkerFinishesAtLockCheck())
+    monkeypatch.setattr(api, "active_job_id", job_id)
+    result = api.read_record(job_id)
+    assert result["status"] == "succeeded"
+    assert json.loads((folder / "job.json").read_text())["status"] == "succeeded"
+
 def test_hosted_acceptance_download_is_owner_only(monkeypatch, tmp_path):
     """Only the authenticated owner can inspect/download a genuine smoke receipt."""
     monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO", "1")
