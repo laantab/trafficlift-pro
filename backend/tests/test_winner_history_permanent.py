@@ -503,3 +503,45 @@ def test_percent_encoded_reserved_path_and_real_skus_remain_distinct(tmp_path):
     assert history.claim(identity_keys(
         'Lamp Variant Gamma', 'https://shop.example/products/desk%2Flamp?sku=gamma'
     ))
+
+
+def test_repeated_identical_shopify_variant_parameters_cannot_recycle_winner(tmp_path):
+    """Repeated case-varied ?variant values still identify one merchant SKU.
+
+    Search redirects and integrations can append the same variant selector
+    twice. This must not turn a previously claimed SKU into a new winner
+    when the listing title and slug also change.
+    """
+    path = tmp_path / "repeated-variant.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    original = identity_keys(
+        "Blue Compact Drawer Divider",
+        "https://seller.example/products/blue-divider?variant=44332211009988",
+    )
+    renamed = identity_keys(
+        "Expandable Storage Organizer",
+        "https://seller.example/en-us/products/storage-organizer"
+        "?Variant=44332211009988&variant=44332211009988&utm_source=ad",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=path).claim(renamed), (
+        "Duplicated identical Shopify variant selectors cannot reset winner history"
+    )
+    assert history.claim(identity_keys(
+        "Different Green Organizer",
+        "https://seller.example/products/green-organizer?variant=44332211009989",
+    )), "Different variant IDs must remain eligible"
+    assert history.claim(identity_keys(
+        "Another Merchant Organizer",
+        "https://another.example/products/organizer?variant=44332211009988",
+    )), "The same numeric variant on a different merchant is not the same SKU"
+
+
+def test_conflicting_shopify_variant_parameters_are_not_assumed_equivalent():
+    """Conflicting variant selectors are ambiguous; do not choose one arbitrarily."""
+    keys = identity_keys(
+        "Ambiguous Product",
+        "https://seller.example/products/organizer"
+        "?variant=44332211009988&variant=44332211009989",
+    )
+    assert not any(key.startswith("shopify-variant-") for key in keys)
