@@ -162,8 +162,10 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
         const data = await response.json();
         if (data?.video?.status === 'failed') {
           rejectStatusFailure(new Error('Owner video render failed; inspect Past videos'));
-        } else if (typeof data?.video?.status !== 'string') {
-          rejectStatusFailure(new Error('Owner video status response was malformed'));
+        } else if (!['queued', 'running', 'succeeded'].includes(data?.video?.status)) {
+          // The UI has no MP4 link for unknown/unsupported states. Do not
+          // wait the full 25-minute acceptance timeout for a dead job.
+          rejectStatusFailure(new Error('Unexpected owner video state; inspect Past videos'));
         }
       } catch (_) {
         rejectStatusFailure(new Error('Owner video status response was not valid JSON'));
