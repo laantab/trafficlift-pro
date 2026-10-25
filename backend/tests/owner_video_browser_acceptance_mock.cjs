@@ -29,7 +29,7 @@ const html = fs.readFileSync('index.html', 'utf8')
   .replace(/<script[^>]*src=[^>]*><\/script>/g, '')
   .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/, '');
 
-function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeeded', mp4Body = MP4} = {}) {
+function fixture({mp4CacheControl = 'private, no-store', creationCacheControl = 'private, no-store', videoStatus = 'succeeded', mp4Body = MP4} = {}) {
   const calls = {created: 0, downloaded: 0, loggedIn: 0, privateCookieSeen: false};
   const setupPage = async page => {
     await page.addInitScript(() => { window.lucide = {createIcons() {}}; });
@@ -65,7 +65,7 @@ function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeede
         const body = JSON.parse(req.postData());
         assert.equal(body.name, 'Licensed Product');
         assert.equal(body.image_url, 'https://images.example/product.jpg');
-        return json(202, {video: {id: ID}}, privateHeaders);
+        return json(202, {video: {id: ID}}, {...privateHeaders, 'Cache-Control': creationCacheControl});
       }
       if (p === '/api/v1/photo-videos/' + ID) {
         return hasCookie ? json(200, {video: {
@@ -112,6 +112,29 @@ function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeede
     assert(one.calls.downloaded >= 1);
     assert.deepEqual(fs.readFileSync(created.output), MP4);
     assert.throws(() => optionsFromEnv(['--run'], env), /Output exists/);
+
+    // Browser acceptance must not approve an owner creation response that
+    // a shared cache may store, or a fake directive containing "no-store".
+    // Previously /no-store/i accepted both without checking exact directives.
+    for (const [label, policy] of [
+      ['public', 'public, private, no-store'],
+      ['fake', 'private, x-no-store'],
+      ['contradictory', 'public, no-store'],
+    ]) {
+      const creationOpts = optionsFromEnv(['--run'], {
+        ...env,
+        TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'creation-' + label + '.mp4'),
+      });
+      const badCreation = fixture({creationCacheControl: policy});
+      await assert.rejects(
+        runBrowserAcceptance({...creationOpts, timeoutMs: 20000}, badCreation),
+        /Video creation.*private no-store/,
+        'owner creation must reject unsafe cache policy: ' + policy,
+      );
+      assert.equal(badCreation.calls.created, 1, 'only one fixture render POST');
+      assert.equal(badCreation.calls.downloaded, 0, 'reject unsafe creation before downloading MP4');
+      assert.equal(fs.existsSync(creationOpts.output), false, 'never publish an MP4 after unsafe creation');
+    }
 
     // A forged ftyp header plus arbitrary bytes is not a playable MP4.
     // The acceptance probe must not certify or publish this corrupt download.

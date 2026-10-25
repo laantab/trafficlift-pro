@@ -129,8 +129,15 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
       await page.locator('#videoSubmitBtn').click();
       const created = await createdPromise;
       if (created.status() !== 202) throw new Error('Owner video creation did not return HTTP 202');
-      if (!/no-store/i.test((await created.allHeaders())['cache-control'] || '')) {
-        throw new Error('Private creation response lacks no-store');
+      // Cache-Control is a directive set, not a substring. A contradictory
+      // public directive or invented x-no-store must never certify a private
+      // owner render creation response as safe to cache.
+      const creationHeaders = await created.allHeaders();
+      const creationDirectives = new Set((creationHeaders['cache-control'] || '')
+        .split(',').map(directive => directive.trim().split('=', 1)[0].toLowerCase()));
+      if (!creationDirectives.has('private') ||
+          !creationDirectives.has('no-store') || creationDirectives.has('public')) {
+        throw new Error('Video creation requires private no-store without public cache directives');
       }
       jobId = (await created.json()).video?.id;
       if (!JOB_ID.test(jobId || '')) throw new Error('Video creation returned an invalid job ID');
