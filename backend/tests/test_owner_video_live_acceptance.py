@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.owner_video_live_acceptance import AcceptanceError, verify
+from scripts.owner_video_live_acceptance import AcceptanceError, preflight, verify
 
 BASE = "https://trafficlift-pro.onrender.com"
 ID = "a" * 32
@@ -31,7 +31,8 @@ class Response:
 
 
 class FakeSession:
-    def __init__(self, *, unauthorized=401, login=200, states=("running", "succeeded"), mp4=MP4):
+    def __init__(self, *, unauthorized=401, login=200, states=("running", "succeeded"), mp4=MP4, health=200):
+        self.health = health
         self.unauthorized = unauthorized
         self.login = login
         self.states = iter(states)
@@ -42,6 +43,8 @@ class FakeSession:
     def get(self, url, **kwargs):
         assert url.startswith(BASE + "/api/v1/")
         assert kwargs["allow_redirects"] is False
+        if url.endswith("/health"):
+            return Response(self.health)
         if url.endswith("/photo-videos"):
             return Response(self.unauthorized)
         if url.endswith("/video"):
@@ -62,6 +65,22 @@ class FakeSession:
             return Response(self.login, headers={"Cache-Control": "private, no-store",
                                                 "Set-Cookie": COOKIE})
         return Response(202, data={"video": {"id": ID}})
+
+
+def test_readonly_preflight_checks_health_and_denied_history_without_login_or_render():
+    session = FakeSession()
+    assert preflight(session) == {"health": "ok", "owner_history": "protected"}
+    assert session.posts == []
+    assert session.download is None
+
+
+@pytest.mark.parametrize("health,unauthorized", [(503, 401), (200, 200), (302, 401)])
+def test_readonly_preflight_fails_closed_without_login_or_render(health, unauthorized):
+    session = FakeSession(health=health, unauthorized=unauthorized)
+    with pytest.raises(AcceptanceError):
+        preflight(session)
+    assert session.posts == []
+    assert session.download is None
 
 
 def test_live_probe_login_create_poll_and_save_real_mp4_signature(tmp_path):
