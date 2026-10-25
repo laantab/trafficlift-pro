@@ -1621,9 +1621,29 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!list.childNodes.length) list.textContent = 'Your finished videos will appear here.';
         } catch (error) { list.textContent = error.message; }
     }
-    // Only a non-secret job ID is retained in memory; never retain owner credentials.
-    // A network failure after HTTP 202 must not turn a retry into a second render.
-    let pendingHostedVideoJobId = null;
+    // Persist only the non-secret job ID in this browser tab. Reloading while a
+    // hosted render is running must resume that job instead of POSTing a second one.
+    // The owner access code stays exclusively in the HttpOnly session cookie.
+    const HOSTED_PENDING_VIDEO_KEY = 'tlp_pending_hosted_video_job';
+    function readPendingHostedVideoJobId() {
+        if (!hostedVideoSite) return null;
+        try {
+            const id = sessionStorage.getItem(HOSTED_PENDING_VIDEO_KEY);
+            return /^[0-9a-f]{32}$/.test(id || '') ? id : null;
+        } catch (_) { return null; }
+    }
+    let pendingHostedVideoJobId = readPendingHostedVideoJobId();
+    function setPendingHostedVideoJobId(id) {
+        pendingHostedVideoJobId = id;
+        if (!hostedVideoSite) return;
+        try {
+            if (id) sessionStorage.setItem(HOSTED_PENDING_VIDEO_KEY, id);
+            else sessionStorage.removeItem(HOSTED_PENDING_VIDEO_KEY);
+        } catch (_) {
+            // In-memory recovery remains available until reload; Past videos
+            // provides the owner-authenticated recovery path if storage is blocked.
+        }
+    }
     async function waitForFreeVideoJob(id, statusEl, resultEl) {
         // Poll the existing job ID. Never submit a duplicate when the page reloads.
         resultEl.replaceChildren(); resultEl.classList.add('hidden');
@@ -1633,12 +1653,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const current = await freeVideoRequest('/api/v1/photo-videos/' + encodeURIComponent(id));
             const job = current.video; statusEl.textContent = job.message || job.status;
             if (job.status === 'failed') {
-                if (pendingHostedVideoJobId === id) pendingHostedVideoJobId = null;
+                if (pendingHostedVideoJobId === id) setPendingHostedVideoJobId(null);
                 throw new Error(job.message || 'Video generation failed.');
             }
             if (job.status === 'succeeded') {
                 showFreeVideo(job,resultEl);
-                if (pendingHostedVideoJobId === id) pendingHostedVideoJobId = null;
+                if (pendingHostedVideoJobId === id) setPendingHostedVideoJobId(null);
                 await loadFreeVideoHistory(); return;
             }
         }
@@ -1682,7 +1702,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!/^[0-9a-f]{32}$/.test(id || '')) {
                 throw new Error('The hosted service returned an invalid job ID. Check Past videos before retrying.');
             }
-            pendingHostedVideoJobId = id;
+            setPendingHostedVideoJobId(id);
         }
         try {
             await waitForFreeVideoJob(id, statusEl, resultEl);
