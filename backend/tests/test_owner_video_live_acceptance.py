@@ -31,7 +31,8 @@ class Response:
 
 
 class FakeSession:
-    def __init__(self, *, unauthorized=401, login=200, states=("running", "succeeded"), mp4=MP4, health=200):
+    def __init__(self, *, unauthorized=401, login=200, states=("running", "succeeded"), mp4=MP4, health=200,
+                 status_public=401, mp4_public=401):
         self.health = health
         self.unauthorized = unauthorized
         self.login = login
@@ -39,14 +40,25 @@ class FakeSession:
         self.mp4 = mp4
         self.posts = []
         self.download = None
+        self.probe_download = None
+        self.logged_in = False
+        self.reads = []
+        self.status_public = status_public
+        self.mp4_public = mp4_public
 
     def get(self, url, **kwargs):
         assert url.startswith(BASE + "/api/v1/")
         assert kwargs["allow_redirects"] is False
+        self.reads.append(url)
         if url.endswith("/health"):
             return Response(self.health)
         if url.endswith("/photo-videos"):
             return Response(self.unauthorized)
+        if url.endswith("/video") and not self.logged_in:
+            self.probe_download = Response(self.mp4_public)
+            return self.probe_download
+        if url.endswith("/" + ID) and not self.logged_in:
+            return Response(self.status_public)
         if url.endswith("/video"):
             self.download = Response(
                 headers={"Cache-Control": "private, no-store", "Content-Type": "video/mp4"},
@@ -62,6 +74,7 @@ class FakeSession:
         assert kwargs["headers"]["Origin"] == BASE
         self.posts.append(url)
         if url.endswith("/video-owner-login"):
+            self.logged_in = self.login == 200
             return Response(self.login, headers={"Cache-Control": "private, no-store",
                                                 "Set-Cookie": COOKIE})
         return Response(202, data={"video": {"id": ID}})
@@ -69,18 +82,35 @@ class FakeSession:
 
 def test_readonly_preflight_checks_health_and_denied_history_without_login_or_render():
     session = FakeSession()
-    assert preflight(session) == {"health": "ok", "owner_history": "protected"}
+    assert preflight(session) == {
+        "health": "ok", "owner_history": "protected",
+        "owner_status": "protected", "owner_mp4": "protected",
+    }
+    assert session.reads == [
+        BASE + "/api/v1/health", BASE + "/api/v1/photo-videos",
+        BASE + "/api/v1/photo-videos/" + ID,
+        BASE + "/api/v1/photo-videos/" + ID + "/video",
+    ]
     assert session.posts == []
     assert session.download is None
+    assert session.probe_download.closed
 
 
-@pytest.mark.parametrize("health,unauthorized", [(503, 401), (200, 200), (302, 401)])
-def test_readonly_preflight_fails_closed_without_login_or_render(health, unauthorized):
-    session = FakeSession(health=health, unauthorized=unauthorized)
+@pytest.mark.parametrize("health,unauthorized,status_public,mp4_public", [
+    (503, 401, 401, 401), (200, 200, 401, 401), (302, 401, 401, 401),
+    (200, 401, 200, 401), (200, 401, 401, 200),
+    (200, 401, 404, 401), (200, 401, 401, 302),
+])
+def test_readonly_preflight_fails_closed_without_login_or_render(
+        health, unauthorized, status_public, mp4_public):
+    session = FakeSession(health=health, unauthorized=unauthorized,
+                          status_public=status_public, mp4_public=mp4_public)
     with pytest.raises(AcceptanceError):
         preflight(session)
     assert session.posts == []
     assert session.download is None
+    if session.probe_download is not None:
+        assert session.probe_download.closed
 
 
 def test_live_probe_login_create_poll_and_save_real_mp4_signature(tmp_path):
