@@ -2963,8 +2963,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const stored = JSON.parse(localStorage.getItem(DISCOVERY_HISTORY_KEY) || '[]');
             if (Array.isArray(stored)) items = stored;
         } catch (_) {}
+        // This bounded local cache must not expire winners after 30 days.
+        // The durable server ledger remains authoritative for all older picks.
         return items.filter(item => item && typeof item.id === 'string'
-            && Number.isFinite(item.at) && item.at > Date.now()-30*86400000
+            && Number.isFinite(item.at)
             && Array.isArray(item.keys)).slice(-100);
     }
     function rememberDiscoveredWinner(winner) {
