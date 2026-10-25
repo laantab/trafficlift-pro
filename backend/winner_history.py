@@ -86,6 +86,11 @@ def _title_tokens(name):
     # 18-piece and 18 pieces describe the same pack, not new winners.
     # Keep the number so 18-piece and 20-piece remain different products.
     ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:pieces?|pcs?)\b', r'\1 piece', ascii_name)
+    # Pack/count quantity labels can be joined to the number in listings:
+    # 12pk, 12-pack and 12 packs are the same quantity, not fresh winners.
+    # Do NOT equate 'ct' with count: in jewelry it can mean carat.
+    ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:packs?|pk)\b', r'\1 pack', ascii_name)
+    ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:counts?)\b', r'\1 count', ascii_name)
     return [_TITLE_ALIASES.get(word, word) for word in re.findall(r'[a-z0-9]+', ascii_name)]
 
 
@@ -120,6 +125,22 @@ def identity_keys(name, url):
         re.sub(r'\b(\d+)\s+(' + units + r')\b', r'\1\2', folded_name),
         re.sub(r'\b(\d+)(' + units + r')\b', r'\1 \2', folded_name),
     }
+    # Include old compact and plural folded spellings when checking permanent
+    # history: existing rows contain hashes, not the original listing names.
+    # Pack and count stay separate; 'ct' is intentionally NOT a count alias.
+    for unit, spellings in (
+        ('pack', ('pack', 'packs', 'pk')),
+        ('count', ('count', 'counts')),
+    ):
+        pattern = r'\b(\d+)\s+' + unit + r'\b'
+        if re.search(pattern, folded_name):
+            for spelling in spellings:
+                measurement_variants.add(re.sub(
+                    pattern, lambda match: f'{match.group(1)}{spelling}', folded_name
+                ))
+                measurement_variants.add(re.sub(
+                    pattern, lambda match: f'{match.group(1)} {spelling}', folded_name
+                ))
     # Seller titles interchange 12in, 12 inch, 12 inches, and 12-inch.
     # Emit all historical folded spellings so pre-upgrade SQLite hashes
     # remain effective even when a retailer changes the listing URL.
