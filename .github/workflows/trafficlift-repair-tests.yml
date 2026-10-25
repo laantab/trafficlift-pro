@@ -8,6 +8,22 @@ on:
       - "fix/**"
 
 jobs:
+  hosted-owner-security-preflight:
+    # Live read-only check from an external runner; no owner code, render or quota.
+    # Complements offline mocks and catches accidental public status/MP4 access.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install read-only preflight dependency
+        run: pip install requests
+      - name: Verify deployed owner video endpoints deny anonymous access
+        run: python scripts/owner_video_live_acceptance.py --preflight
+
   repair-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
