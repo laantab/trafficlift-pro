@@ -37,10 +37,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest tree-sitter tree-sitter-javascript numpy pillow soundfile
-      - name: Install FFmpeg and FFprobe for owner MP4 decode acceptance
+      - name: Verify FFmpeg and FFprobe for owner MP4 decode acceptance
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          # GitHub-hosted Ubuntu runners normally include both binaries.
+          # Avoid an unnecessary apt-index refresh that can stall the full
+          # release gate; never skip decoding tests if a binary is absent.
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
+            sudo apt-get -y install ffmpeg
+          fi
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
       - name: Run Find Winner regression suite
         run: |
           mkdir -p video

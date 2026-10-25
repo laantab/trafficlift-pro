@@ -739,3 +739,56 @@ def test_repeated_variant_query_on_non_shopify_path_cannot_recycle_winner(tmp_pa
         "Ambiguous Selector Listing",
         "https://seller.example/item?variant=blue-small&variant=blue-large",
     )), "Conflicting selector values must not be collapsed to one variant"
+
+
+def test_retailer_sku_padding_does_not_recycle_winner(tmp_path):
+    """URL encoders may add outer whitespace to a SKU, not a new product."""
+    path = tmp_path / "sku-whitespace.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    original = identity_keys(
+        "Compact Blue Desk Lamp",
+        "https://seller.example/offer?sku=AB-12&ref=first",
+    )
+    padded = identity_keys(
+        "Rechargeable LED Reading Light",
+        "https://seller.example/offer?SKU=%20AB-12%20&ttclid=other",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=path).claim(padded), (
+        "Padding around the same merchant SKU cannot reset permanent history"
+    )
+    assert history.claim(identity_keys(
+        "Large Reading Light",
+        "https://seller.example/offer?sku=AB-13",
+    )), "Different SKUs must remain eligible"
+    assert history.claim(identity_keys(
+        "Spaced Model Light",
+        "https://seller.example/offer?sku=AB%2012",
+    )), "Internal SKU spaces are meaningful and must not be removed"
+
+
+def test_shopify_variant_padding_does_not_recycle_winner(tmp_path):
+    """Whitespace around a numeric Shopify variant cannot hide its stable ID."""
+    path = tmp_path / "shopify-whitespace.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    original = identity_keys(
+        "Blue Compact Drawer Divider",
+        "https://seller.example/products/blue-divider?variant=44332211009988",
+    )
+    relisted = identity_keys(
+        "Expandable Storage Organizer",
+        "https://seller.example/en-us/products/storage-organizer"
+        "?Variant=%2044332211009988%20&utm_source=pin",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=path).claim(relisted), (
+        "Whitespace-padded Shopify variant must not reset permanent history"
+    )
+    assert history.claim(identity_keys(
+        "Different Green Organizer",
+        "https://seller.example/products/green-organizer?variant=44332211009989",
+    )), "Different Shopify variants must remain eligible"
+    assert history.claim(identity_keys(
+        "Other Merchant Organizer",
+        "https://other.example/products/organizer?variant=44332211009988",
+    )), "The same variant on another merchant is not the same SKU"
