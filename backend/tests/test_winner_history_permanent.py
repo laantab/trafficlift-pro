@@ -577,3 +577,47 @@ def test_ad_tracking_cleanup_keeps_real_sku_selectors(tmp_path):
         'Desk Light Large Green',
         'https://seller.example/products/lamp?sku=large-green&ttclid=second&_gl=1~b',
     )), 'Different SKUs remain eligible despite shared listing path'
+
+
+def test_inch_measurement_aliases_never_recycle_relisted_winner(tmp_path):
+    """12in, 12 inch, 12 inches, and 12-inch are one size despite URL changes."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'inches.db')
+    assert history.claim(identity_keys(
+        'Expandable Drawer Divider 12in', 'https://seller.example/old-listing'
+    ))
+    for title, url in (
+        ('Expandable Drawer Divider 12 inches', 'https://seller.example/relisted-one'),
+        ('Expandable Drawer Divider 12 inch', 'https://seller.example/relisted-two'),
+        ('Expandable Drawer Divider 12 in', 'https://seller.example/relisted-three'),
+        ('Expandable Drawer Divider 12-inch', 'https://seller.example/relisted-four'),
+    ):
+        assert not WinnerHistory('returning-browser', path=history.path).claim(
+            identity_keys(title, url)
+        ), f'An inch spelling change cannot create a fresh winner: {title}'
+    assert history.claim(identity_keys(
+        'Expandable Drawer Divider 16 inches', 'https://seller.example/large'
+    )), 'Different dimensions remain distinct'
+    assert history.claim(identity_keys(
+        'Expandable Drawer Divider 12 cm', 'https://seller.example/metric'
+    )), 'Different units are not equivalent'
+
+
+def test_preexisting_inch_spelling_hash_still_blocks_relisting(tmp_path):
+    """Retain aliases for old durable name-folded hashes, not just new claims."""
+    import hashlib
+    path = tmp_path / 'legacy-inch.db'
+    history = WinnerHistory('returning-browser', path=path)
+    old = 'folding shelf bracket 12in'
+    old_key = 'name-folded-' + hashlib.sha256(old.encode()).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute('INSERT INTO discovery_seen VALUES (?,?,?)', (history.scope, old_key, 1))
+    assert not WinnerHistory('returning-browser', path=path).claim(
+        identity_keys('Folding Shelf Bracket 12 inches', 'https://seller.example/new-url')
+    ), 'An old 12in winner must remain excluded after an inch-unit spelling change'
+
+
+def test_inch_alias_does_not_rewrite_two_in_one_product_phrase():
+    """A numeric '2 in 1' feature is not a two-inch measurement."""
+    phrase = identity_keys('Portable Blender 2 in 1', 'https://seller.example/one')
+    measurement = identity_keys('Portable Blender 2 inch 1', 'https://seller.example/two')
+    assert not set(phrase) & set(measurement)
