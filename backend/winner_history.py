@@ -87,6 +87,19 @@ def identity_keys(name, url):
         re.sub(r'\b(\d+)\s+(' + units + r')\b', r'\1\2', folded_name),
         re.sub(r'\b(\d+)(' + units + r')\b', r'\1 \2', folded_name),
     }
+    # Seller titles interchange 12in, 12 inch, 12 inches, and 12-inch.
+    # Emit all historical folded spellings so pre-upgrade SQLite hashes
+    # remain effective even when a retailer changes the listing URL.
+    # Do not interpret numeric "2 in 1" feature descriptions as dimensions.
+    inch_pattern = r'\\b(\\d+)\\s*(?:inches|inch|in)\\b(?!\\s+\\d)'
+    if re.search(inch_pattern, folded_name):
+        for spelling in ('in', 'inch', 'inches'):
+            measurement_variants.add(re.sub(
+                inch_pattern, lambda match: f'{match.group(1)} {spelling}', folded_name
+            ))
+        measurement_variants.add(re.sub(
+            inch_pattern, lambda match: f'{match.group(1)}in', folded_name
+        ))
     for alternate in sorted(measurement_variants - {folded_name}):
         if not alternate:
             continue
