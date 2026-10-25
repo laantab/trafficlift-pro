@@ -29,7 +29,8 @@ const html = fs.readFileSync('index.html', 'utf8')
   .replace(/<script[^>]*src=[^>]*><\/script>/g, '')
   .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/, '');
 
-function fixture({mp4CacheControl = 'private, no-store', creationCacheControl = 'private, no-store', videoStatus = 'succeeded', mp4Body = MP4} = {}) {
+function fixture({mp4CacheControl = 'private, no-store', creationCacheControl = 'private, no-store', videoStatus = 'succeeded', mp4Body = MP4,
+  readinessState = 'ready', hostedEnabled = true, readinessHttpStatus = 200} = {}) {
   const calls = {created: 0, downloaded: 0, loggedIn: 0, privateCookieSeen: false};
   const setupPage = async page => {
     await page.addInitScript(() => { window.lucide = {createIcons() {}}; });
@@ -43,6 +44,9 @@ function fixture({mp4CacheControl = 'private, no-store', creationCacheControl = 
       const privateHeaders = {'Cache-Control': 'private, no-store'};
       if (p === '/') return route.fulfill({status: 200, contentType: 'text/html', body: html});
       if (p === '/api/v1/health') return json(200, {status: 'ok'});
+      if (p === '/api/v1/video-readiness') return json(readinessHttpStatus, {
+        state: readinessState, customer_rendering_enabled: hostedEnabled,
+      });
       if (p === '/api/v1/video-owner-login' && req.method() === 'POST') {
         assert.equal(JSON.parse(req.postData()).access_code, 'fixture-owner-code');
         calls.loggedIn++;
@@ -134,6 +138,29 @@ function fixture({mp4CacheControl = 'private, no-store', creationCacheControl = 
       assert.equal(badCreation.calls.created, 1, 'only one fixture render POST');
       assert.equal(badCreation.calls.downloaded, 0, 'reject unsafe creation before downloading MP4');
       assert.equal(fs.existsSync(creationOpts.output), false, 'never publish an MP4 after unsafe creation');
+    }
+
+    // A live browser --run must not consume a scarce hosted render slot when
+    // readiness is unavailable, still preparing, or owner rendering is off.
+    // The standalone HTTP preflight is optional; this guard must run itself.
+    for (const [label, state, enabled, httpStatus] of [
+      ['preparing', 'preparing', true, 200],
+      ['disabled', 'ready', false, 200],
+      ['unavailable', 'ready', true, 503],
+    ]) {
+      const readinessOpts = optionsFromEnv(['--run'], {
+        ...env, TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'readiness-' + label + '.mp4'),
+      });
+      const unready = fixture({readinessState: state, hostedEnabled: enabled,
+        readinessHttpStatus: httpStatus});
+      await assert.rejects(
+        runBrowserAcceptance({...readinessOpts, timeoutMs: 20000}, unready),
+        /Hosted video.*not ready/,
+        'browser --run must stop before POST when readiness is ' + label,
+      );
+      assert.equal(unready.calls.created, 0, 'unready host must not create an owner render');
+      assert.equal(unready.calls.loggedIn, 0, 'unready host must fail before owner login');
+      assert.equal(fs.existsSync(readinessOpts.output), false, 'unready host must not publish an MP4');
     }
 
     // A forged ftyp header plus arbitrary bytes is not a playable MP4.
