@@ -28,6 +28,10 @@ _TRACKING_PARAMS = {
     # Shopify search placement and Google Ads attribution do not select SKUs.
     # Keep meaningful variant, size, sku, and model selectors in the URL.
     '_pos', '_sid', '_ss', 'gad_source', 'gad_campaignid', 'gbraid', 'wbraid',
+    # Official ad/analytics click attribution: TikTok click ID, Google's
+    # cross-domain linker, and Pinterest's promoted-traffic click identifier.
+    # Use exact keys only; never strip product-specific sku/variant/size fields.
+    'ttclid', '_gl', 'epik',
 }
 
 # RFC 3986 unreserved bytes are the same URL path characters whether a
