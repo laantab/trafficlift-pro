@@ -60,6 +60,23 @@ def identity_keys(name, url):
     if len(tokens) >= 3 and len(set(tokens)) >= 3:
         canonical_title = ' '.join(sorted(tokens))
         keys.append('title-' + hashlib.sha256(canonical_title.encode()).hexdigest()[:24])
+    # Retailers alternate "12oz" / "12 oz" and "500ml" / "500 ml" when
+    # relisting the same item. Add *both* spelling keys without replacing the
+    # existing hashes: old durable records created before this fix must still
+    # exclude the relisted product. Keep the quantity and unit so other sizes
+    # and model numbers are not accidentally treated as the same SKU.
+    units = r'(?:oz|ml|cm|mm|kg|lbs?)'
+    measurement_variants = {
+        re.sub(r'\\b(\\d+)\\s+(' + units + r')\\b', r'\\1\\2', folded_name),
+        re.sub(r'\\b(\\d+)(' + units + r')\\b', r'\\1 \\2', folded_name),
+    }
+    for alternate in sorted(measurement_variants - {folded_name}):
+        if not alternate:
+            continue
+        keys.append('name-folded-' + hashlib.sha256(alternate.encode()).hexdigest()[:24])
+        alt_tokens = alternate.split()
+        if len(alt_tokens) >= 3 and len(set(alt_tokens)) >= 3:
+            keys.append('title-' + hashlib.sha256(' '.join(sorted(alt_tokens)).encode()).hexdigest()[:24])
     p = urlsplit(url)
     query = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith('utm_')
              and k.lower() not in _TRACKING_PARAMS]
