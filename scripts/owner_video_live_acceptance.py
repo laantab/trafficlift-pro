@@ -134,10 +134,28 @@ def preflight(session):
             raise AcceptanceError("Unauthenticated owner sample MP4 did not return HTTP 401")
     finally:
         sample_mp4.close()
+
+    # Privacy alone does not prove the existing hosted engine is ready. A
+    # healthy web process with missing voice assets would otherwise pass this
+    # preflight and invite an owner to waste a scarce render slot.
+    readiness = session.get(BASE + "/api/v1/video-readiness",
+                            timeout=20, allow_redirects=False)
+    if readiness.status_code != 200:
+        raise AcceptanceError("Hosted video readiness did not return HTTP 200")
+    try:
+        details = readiness.json()
+    except (ValueError, TypeError) as exc:
+        raise AcceptanceError("Hosted video readiness was not valid JSON") from exc
+    if not isinstance(details, dict) or details.get("state") != "ready":
+        raise AcceptanceError("Hosted video prerequisites are not ready")
+    # This existing field describes the operator-only hosted render switch;
+    # it is NOT evidence that customer/public rendering is authorized.
+    if details.get("customer_rendering_enabled") is not True:
+        raise AcceptanceError("Hosted owner video rendering is disabled")
     return {"health": "ok", "owner_history": "protected",
             "owner_status": "protected", "owner_mp4": "protected",
             "owner_exports": "protected", "owner_sample_status": "protected",
-            "owner_sample_mp4": "protected"}
+            "owner_sample_mp4": "protected", "video_prerequisites": "ready"}
 
 
 def verify(session, access_code, *, payload=None, resume=None, output=None,
