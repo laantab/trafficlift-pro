@@ -276,3 +276,34 @@ def test_variant_and_sku_queries_remain_distinct_after_tracking_cleanup(tmp_path
     assert history.claim(identity_keys(
         'Blue Desk Lamp Model B', 'https://seller.example/products/lamp?sku=model-b&referrer=email',
     ))
+
+
+
+def test_shopify_search_and_google_ad_tracking_cannot_recycle_winner(tmp_path):
+    """Shopify search placement and Google ad attribution are not product variants."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys(
+        'Rechargeable Desk Lamp Model A',
+        'https://seller.example/products/desk-lamp?_pos=1&_sid=search-one&_ss=r'
+        '&gad_source=1&gad_campaignid=111&gbraid=click-one&utm_source=google',
+    )
+    relisted = identity_keys(
+        'Portable Reading Light Model A',
+        'https://seller.example/products/desk-lamp?_pos=4&_sid=search-two&_ss=c'
+        '&gad_source=5&gad_campaignid=222&wbraid=click-two&utm_source=pin',
+    )
+    assert history.claim(first)
+    assert not history.claim(relisted), 'Ad/search attribution must not reset winner history'
+
+
+def test_shopify_variant_selector_still_distinguishes_real_skus(tmp_path):
+    """Tracking cleanup must preserve a meaningful Shopify ?variant selector."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys(
+        'Rechargeable Desk Lamp Small',
+        'https://seller.example/products/desk-lamp?variant=111&_pos=1&gad_source=1',
+    ))
+    assert history.claim(identity_keys(
+        'Rechargeable Desk Lamp Large',
+        'https://seller.example/products/desk-lamp?variant=222&_pos=2&gad_source=2',
+    ))
