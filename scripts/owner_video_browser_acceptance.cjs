@@ -86,6 +86,25 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
       }, opts.winner);
     }
     await page.goto(BASE + '/', {waitUntil: 'domcontentloaded', timeout: 60000});
+    // The optional standalone HTTP preflight may not have been run. Before
+    // spending an owner-only render slot, fail closed on an unready host.
+    // Resume skips this gate: existing completed jobs remain downloadable.
+    if (opts.mode === '--run') {
+      const readiness = await page.evaluate(async () => {
+        try {
+          const response = await fetch('/api/v1/video-readiness',
+            {redirect: 'manual', cache: 'no-store'});
+          if (response.status !== 200) return null;
+          return await response.json();
+        } catch (_) {
+          return null;
+        }
+      });
+      if (readiness?.state !== 'ready' ||
+          readiness?.customer_rendering_enabled !== true) {
+        throw new Error('Hosted video is not ready; no owner render started');
+      }
+    }
     // Exercise the real owner browser UI, not just the HTTP API.
     if (opts.mode === '--run') {
       await page.locator('button[onclick="openVideoModal()"]').first().click();
