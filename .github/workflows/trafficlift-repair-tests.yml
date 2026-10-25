@@ -31,6 +31,8 @@ jobs:
         run: node backend/tests/photo_video_ui.cjs
       - name: Check protected owner acceptance MP4 browser UI
         run: node backend/tests/hosted_acceptance_ui.cjs
+      - name: Check hosted owner video retry does not duplicate renders
+        run: node backend/tests/hosted_owner_video_resume_ui.cjs
       - name: Install local DOM and canvas test dependencies
         run: npm install --no-save --no-package-lock jsdom@24 @napi-rs/canvas@0.1.96
       - name: Verify complete Pinterest image export in a DOM
