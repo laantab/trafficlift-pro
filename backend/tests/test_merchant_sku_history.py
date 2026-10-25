@@ -155,3 +155,16 @@ def test_html_escaped_title_reverse_direction_and_distinct_quantity(tmp_path):
         "Premium Bamboo &amp; Steel Drawer Organizer 4 Pack",
         "https://shop.example/products/other-4",
     ))
+
+
+def test_preupgrade_html_escaped_history_hash_still_blocks_plain_title(tmp_path):
+    """Older SQLite rows only contain hashes, so old 'amp' tokens must match."""
+    import hashlib
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    old_folded = "premium bamboo amp steel drawer organizer"
+    old_key = "name-folded-" + hashlib.sha256(old_folded.encode()).hexdigest()[:24]
+    assert history.claim([old_key])
+    assert not WinnerHistory("returning-browser", path=history.path).claim(identity_keys(
+        "Premium Bamboo & Steel Drawer Organizer",
+        "https://shop.example/products/brand-new-slug",
+    ))
