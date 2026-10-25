@@ -4,16 +4,32 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {execFileSync} = require('node:child_process');
 const {optionsFromEnv, runBrowserAcceptance} = require('../../scripts/owner_video_browser_acceptance.cjs');
 
 const ID = 'b'.repeat(32);
 const HOST = 'https://trafficlift-pro.onrender.com';
-const MP4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(4096, 88)]);
+// The success fixture must contain real decodable video AND audio, not merely
+// an ftyp signature. The corrupt fixture below preserves the former false pass.
+function createFixtureMp4() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trafficlift-valid-mp4-'));
+  try {
+    const file = path.join(dir, 'fixture.mp4');
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'color=c=blue:s=64x96:r=5:d=1',
+      '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono',
+      '-t', '1', '-c:v', 'mpeg4', '-q:v', '5', '-c:a', 'aac',
+      '-b:a', '32k', '-shortest', '-movflags', '+faststart', file],
+    {timeout: 20000, stdio: 'ignore'});
+    return fs.readFileSync(file);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+}
+const MP4 = createFixtureMp4();
 const html = fs.readFileSync('index.html', 'utf8')
   .replace(/<script[^>]*src=[^>]*><\/script>/g, '')
   .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/, '');
 
-function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeeded'} = {}) {
+function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeeded', mp4Body = MP4} = {}) {
   const calls = {created: 0, downloaded: 0, loggedIn: 0, privateCookieSeen: false};
   const setupPage = async page => {
     await page.addInitScript(() => { window.lucide = {createIcons() {}}; });
@@ -64,7 +80,7 @@ function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeede
         calls.downloaded++;
         return route.fulfill({status: 200, headers: {...privateHeaders, 'Cache-Control': mp4CacheControl,
           'Content-Type': 'video/mp4', 'Content-Disposition': 'attachment; filename="owner.mp4"'},
-          body: MP4});
+          body: mp4Body});
       }
       return json(404, {detail: 'fixture not found'});
     });
@@ -96,6 +112,23 @@ function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeede
     assert(one.calls.downloaded >= 1);
     assert.deepEqual(fs.readFileSync(created.output), MP4);
     assert.throws(() => optionsFromEnv(['--run'], env), /Output exists/);
+
+    // A forged ftyp header plus arbitrary bytes is not a playable MP4.
+    // The acceptance probe must not certify or publish this corrupt download.
+    const corruptOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'corrupt.mp4'),
+    });
+    const corrupt = fixture({mp4Body: Buffer.concat([
+      Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(4096, 88),
+    ])});
+    await assert.rejects(
+      runBrowserAcceptance({...corruptOpts, timeoutMs: 20000}, corrupt),
+      /MP4.*(decode|invalid|playable)/i,
+      'an ftyp header with arbitrary bytes must never pass real browser MP4 acceptance',
+    );
+    assert.equal(corrupt.calls.created, 0, 'corrupt resume must not start a render');
+    assert.equal(fs.existsSync(corruptOpts.output), false, 'corrupt MP4 must not be published');
 
     const resumed = optionsFromEnv(['--resume', ID], {
       TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',

@@ -4,6 +4,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const {spawnSync} = require('node:child_process');
 const { chromium } = require('playwright');
 
 const BASE = 'https://trafficlift-pro.onrender.com';
@@ -41,6 +42,35 @@ function optionsFromEnv(args, env = process.env) {
     opts.benefit = env.TRAFFICLIFT_ACCEPTANCE_BENEFIT || '';
   }
   return opts;
+}
+
+// A valid ftyp marker alone does not establish a playable download. Check both
+// streams and decode the complete file before accepting an owner MP4. Never
+// print ffmpeg output: a malformed file may contain untrusted metadata.
+function verifyDecodedMp4(filename) {
+  const run = (tool, args, timeout) => spawnSync(tool, args, {
+    encoding: 'utf8', timeout, maxBuffer: 256 * 1024, windowsHide: true,
+  });
+  const probe = run('ffprobe', ['-v', 'error', '-show_entries',
+    'format=duration:stream=codec_type,width,height', '-of', 'json', filename], 30000);
+  if (probe.error || probe.status !== 0) {
+    throw new Error('MP4 invalid: ffprobe could not inspect the downloaded file');
+  }
+  let media;
+  try { media = JSON.parse(probe.stdout); } catch (_) {
+    throw new Error('MP4 invalid: ffprobe returned unreadable metadata');
+  }
+  const streams = Array.isArray(media.streams) ? media.streams : [];
+  if (!streams.some(s => s.codec_type === 'video' && s.width > 0 && s.height > 0) ||
+      !streams.some(s => s.codec_type === 'audio') ||
+      !(Number(media.format?.duration) > 0)) {
+    throw new Error('MP4 invalid: video, audio or duration is missing');
+  }
+  const decode = run('ffmpeg', ['-nostdin', '-v', 'error', '-xerror',
+    '-i', filename, '-map', '0:v:0', '-map', '0:a:0', '-f', 'null', '-'], 180000);
+  if (decode.error || decode.status !== 0) {
+    throw new Error('MP4 invalid: complete video/audio decode failed');
+  }
 }
 
 async function runBrowserAcceptance(opts, {setupPage} = {}) {
@@ -189,6 +219,7 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     if (header.toString('ascii', 4, 8) !== 'ftyp') {
       throw new Error('Browser downloaded bytes without an MP4 ftyp signature');
     }
+    verifyDecodedMp4(partial);
     // renameSync overwrites a file created between existsSync and publish.
     // The partial and destination share a directory/filesystem; linkSync
     // atomically fails with EEXIST instead of replacing another owner's MP4.
@@ -227,4 +258,4 @@ if (require.main === module) {
   })();
 }
 
-module.exports = {optionsFromEnv, runBrowserAcceptance};
+module.exports = {optionsFromEnv, runBrowserAcceptance, verifyDecodedMp4};
