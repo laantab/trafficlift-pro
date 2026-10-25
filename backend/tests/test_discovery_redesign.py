@@ -102,7 +102,7 @@ def test_exclusions_apply_before_image_work(isolated,monkeypatch):
     excluded=product_id('Orbit Desk Lamp','https://seller0.example/products/0')
     tried=[]
     monkeypatch.setattr('backend.discovery._find_image_for_candidate',lambda card,**kw:tried.append(card.name) or 'https://images.example/product.jpg')
-    winner=engine.discover(exclude_ids={excluded},seed=4)
+    winner=engine.discover(client_id='regression-browser-exclusions',exclude_ids={excluded},seed=4)
     assert 'Orbit Desk Lamp' not in tried
     assert winner['id']!=excluded
 
@@ -259,7 +259,7 @@ def test_auto_batches_do_not_multiply_paid_calls(monkeypatch):
     def batch(**kwargs):
         attempts.append(kwargs);raise HTTPException(404,'No concrete product')
     monkeypatch.setattr(engine,'_discover_batch',batch)
-    with pytest.raises(HTTPException):engine.discover()
+    with pytest.raises(HTTPException):engine.discover(client_id='regression-browser-batches')
     assert len(attempts)==1
 
 
@@ -269,7 +269,7 @@ def test_auto_batches_stop_on_provider_failure(monkeypatch):
     def batch(**kwargs):
         attempts.append(kwargs);raise HTTPException(503,'Provider unavailable')
     monkeypatch.setattr(engine,'_discover_batch',batch)
-    with pytest.raises(HTTPException) as error:engine.discover()
+    with pytest.raises(HTTPException) as error:engine.discover(client_id='regression-browser-provider')
     assert error.value.status_code==503
     assert len(attempts)==1
 
@@ -280,6 +280,6 @@ def test_auto_batches_respect_shared_time_limit(monkeypatch):
     monkeypatch.setattr(engine.time,'monotonic',Mock(side_effect=[0,0,61]))
     batch=Mock(side_effect=HTTPException(404,'No concrete product'))
     monkeypatch.setattr(engine,'_discover_batch',batch)
-    with pytest.raises(HTTPException) as error:engine.discover()
+    with pytest.raises(HTTPException) as error:engine.discover(client_id='regression-browser-timeout')
     assert batch.call_count==1
     assert 'after 1 research batch' in error.value.detail
