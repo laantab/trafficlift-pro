@@ -34,6 +34,11 @@ _TRACKING_PARAMS = {
     'ttclid', '_gl', 'epik',
 }
 
+# Scraped product URLs sometimes contain HTML-escaped query separators.
+# Decode only ampersand entities in the QUERY, not paths, product values, or
+# arbitrary HTML entities (which could merge genuinely different SKUs).
+_HTML_QUERY_AMPERSAND = re.compile(r'&(?:amp|#0*38|#x0*26);', re.I)
+
 # RFC 3986 unreserved bytes are the same URL path characters whether a
 # retailer percent-encodes them or not. Never decode reserved separators
 # (especially %2F): doing so could merge different products or routes.
@@ -109,7 +114,8 @@ def identity_keys(name, url):
             keys.append('title-' + hashlib.sha256(' '.join(sorted(alt_tokens)).encode()).hexdigest()[:24])
     p = urlsplit(url)
     canonical_path = _canonical_product_path(p.path)
-    query = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith('utm_')
+    query_pairs = parse_qsl(_HTML_QUERY_AMPERSAND.sub('&', p.query))
+    query = [(k, v) for k, v in query_pairs if not k.lower().startswith('utm_')
              and k.lower() not in _TRACKING_PARAMS]
     host_name = (p.hostname or '').lower().removeprefix('www.')
     canonical = urlunsplit(('https', host_name, canonical_path,
@@ -119,8 +125,13 @@ def identity_keys(name, url):
         # Preserve the pre-upgrade identity for an already stored encoded URL.
         # Historical hashes alone cannot recover a *different* old encoding;
         # all newly claimed winners store the normalized key going forward.
+        # Also retain the pre-upgrade raw-entity URL hash for existing
+        # permanent records saved before HTML query normalization.
+        legacy_query = [(k, v) for k, v in parse_qsl(p.query)
+                        if not k.lower().startswith('utm_')
+                        and k.lower() not in _TRACKING_PARAMS]
         legacy = urlunsplit(('https', host_name, p.path.rstrip('/'),
-                             urlencode(sorted(query)), ''))
+                             urlencode(sorted(legacy_query)), ''))
         if legacy != canonical:
             keys.append('url-' + hashlib.sha256(legacy.encode()).hexdigest()[:24])
         # Amazon product pages use several equivalent paths for one ASIN.
@@ -141,7 +152,7 @@ def identity_keys(name, url):
             # identical values still name one SKU; do not let the duplicate
             # query keys bypass the merchant-scoped permanent winner history.
             # Conflicting values are ambiguous: never choose one arbitrarily.
-            variants = {v for k, v in parse_qsl(p.query) if k.lower() == 'variant'}
+            variants = {v for k, v in query_pairs if k.lower() == 'variant'}
             if len(variants) == 1:
                 variant = next(iter(variants))
                 if re.fullmatch(r'[0-9]{8,20}', variant):
@@ -164,7 +175,7 @@ def identity_keys(name, url):
             # never the parent TCIN. This blocks relisted child URLs without
             # conflating other sizes, packs, or the unselected parent.
             match = re.search(r'/p/(?:[^/]+/)?-/A-([0-9]{6,})(?:/|$)', canonical_path, re.I)
-            preselected = next((v for k, v in parse_qsl(p.query)
+            preselected = next((v for k, v in query_pairs
                                 if k.lower() == 'preselect' and v), None)
             if preselected:
                 if re.fullmatch(r'[0-9]{6,}', preselected):
