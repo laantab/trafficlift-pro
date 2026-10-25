@@ -162,7 +162,14 @@ def verify(session, access_code, *, payload=None, resume=None, output=None,
                 file.write(chunk)
             if size < 1024 or len(header) < 12 or header[4:8] != b"ftyp":
                 raise AcceptanceError("Downloaded bytes are not a plausible MP4")
-        temp_path.replace(output)
+        # The output may have appeared while streaming. Path.replace would
+        # silently overwrite another operator's MP4 on POSIX and Windows.
+        # The partial file is in the same directory, so a hard link publishes
+        # it atomically only if the destination does not already exist.
+        try:
+            os.link(temp_path, output)
+        except FileExistsError as exc:
+            raise AcceptanceError("Output already exists; choose a different --output path") from exc
         return {"job_id": job_id, "bytes": size, "file": str(output)}
     finally:
         downloaded.close()
