@@ -159,7 +159,7 @@ def main():
             with requests.Session() as session:
                 preflight(session)
         except (AcceptanceError, requests.RequestException, ValueError) as exc:
-            parser.exit(1, "Owner video preflight failed: " + str(exc)[:240] + "\\n")
+            parser.exit(1, "Owner video preflight failed: " + str(exc)[:240] + "\n")
         print("Owner video preflight passed: hosted health OK; private video history denied (HTTP 401); no render started")
         return
     code = os.environ.get("TRAFFICLIFT_OWNER_ACCESS_CODE", "")
