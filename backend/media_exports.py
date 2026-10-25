@@ -67,6 +67,71 @@ def captions_to_srt(path):
     return "\n".join(cues)
 
 
+def safe_zone_review_html(platform):
+    """Local, non-interactive review of the copied master; no render or network.
+
+    Shaded bands are illustrative caution regions, NOT official measured
+    pixel-safe zones. Actual UI changes with captions, device and app version.
+    Only static platform configuration is interpolated, never product data.
+    """
+    from html import escape
+
+    config = PLATFORMS[platform]
+    page = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__LABEL__ — local safe-zone review</title>
+<style>
+  body { background: #121722; color: #f6f7fb; font: 16px/1.5 system-ui, sans-serif;
+         max-width: 780px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 1.45rem; }
+  .preview { position: relative; width: min(360px, 90vw); aspect-ratio: 9 / 16;
+             margin: 20px auto; background: #000; border: 2px solid #e1e7ef;
+             --right: 18%; --bottom: 24%; }
+  .preview.tiktok { --right: 18%; --bottom: 24%; }
+  .preview.youtube-shorts { --right: 18%; --bottom: 21%; }
+  .preview.instagram-reels { --right: 18%; --bottom: 27%; }
+  video { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .caution { position: absolute; pointer-events: none;
+             background: rgba(255, 160, 30, 0.18);
+             border: 1px dashed rgba(255, 193, 78, 0.9); }
+  .top { top: 0; left: 0; right: 0; height: 9%; }
+  .right { right: 0; top: 9%; bottom: var(--bottom); width: var(--right); }
+  .bottom { bottom: 0; left: 0; right: 0; height: var(--bottom); }
+  .notice { border-left: 4px solid #ffc46b; padding: 12px; background: #283040; }
+  a { color: #a9d8ff; }
+</style>
+</head>
+<body>
+<h1>__LABEL__ — safe-zone review</h1>
+<p class="notice">Illustrative caution overlays only, <strong>not official measured
+safe zones</strong>. Right and bottom controls and caption areas vary by device,
+caption length and app version. Manual in-app preview and approval are required.</p>
+<p>Extract this ZIP before opening this file. Play the exact copied
+<code>video.mp4</code> below; no upload, remote assets or additional rendering.</p>
+<div class="preview __PLATFORM__">
+  <video src="video.mp4" controls playsinline preload="metadata"
+         aria-label="Finished vertical MP4 master"></video>
+  <div class="caution top" aria-hidden="true"></div>
+  <div class="caution right" aria-hidden="true"></div>
+  <div class="caution bottom" aria-hidden="true"></div>
+</div>
+<p>Platform-specific review: __GUIDANCE__</p>
+<p>Check burned-in captions, product visibility, image rights, facts,
+commercial disclosures and audio licensing before publication.
+<a href="__SOURCE__" rel="noopener noreferrer">Official platform guidance</a>.
+This review is not certification or publication.</p>
+</body>
+</html>
+"""
+    return (page.replace("__LABEL__", escape(config["label"]))
+                .replace("__PLATFORM__", escape(platform))
+                .replace("__GUIDANCE__", escape(config["safe_zone"]))
+                .replace("__SOURCE__", escape(config["source"], quote=True)))
+
+
 def make_export_bundle(record, directory, platform):
     """Return a temporary ZIP path. Caller must remove it after FileResponse."""
     if platform not in PLATFORMS:
@@ -101,6 +166,7 @@ def make_export_bundle(record, directory, platform):
         "expected_master": "1080x1920 vertical H.264 video with AAC audio",
         "captions": "Already burned into the master MP4; captions.srt is an optional transcript when available.",
         "safe_zone": config["safe_zone"],
+        "safe_zone_preview": "safe_zone_review.html",
         "safe_zone_approval": "MANUAL_REVIEW_REQUIRED",
         "marketing_approval": "MANUAL_REVIEW_REQUIRED",
         "specification_reference": config["source"],
@@ -124,6 +190,7 @@ def make_export_bundle(record, directory, platform):
         with zipfile.ZipFile(path, "w", allowZip64=True) as archive:
             archive.write(master, "video.mp4", compress_type=zipfile.ZIP_STORED)
             archive.writestr("post.txt", notes, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("safe_zone_review.html", safe_zone_review_html(platform), compress_type=zipfile.ZIP_DEFLATED)
             archive.writestr("manifest.json", json.dumps(manifest, indent=2), compress_type=zipfile.ZIP_DEFLATED)
             srt = captions_to_srt(directory / "captions.ass")
             if srt:
