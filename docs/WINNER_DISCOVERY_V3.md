@@ -27,24 +27,27 @@ names and canonical URLs (without common affiliate/tracking parameters) prevent
 exact-title and same-URL repeats. Full-name candidate deduplication preserves
 different models with shared brand prefixes.
 
-An anonymous random browser ID scopes SQLite history. Accepted identity keys
-are atomically claimed for thirty days, including across worker processes;
+An anonymous random browser ID scopes SQLite history. A missing ID is rejected
+before research, rather than bypassing the no-repeat ledger. Accepted identity
+keys are atomically claimed permanently, including across worker processes;
 two concurrent requests cannot reserve the same product. Browser storage keeps
 the last hundred results and sends their IDs/keys across refreshes. It refuses
 legacy saved-list results and repeats returned by a mismatched backend.
 History is recorded when a winner is accepted, before Pinterest generation,
 so a downstream pin failure cannot make discovery recycle that product.
 
-History does not span other browsers/devices. Clearing browser storage creates
-a new identity. Name changes and different retailer URLs without common model
+History does not span other browsers/devices. Clearing or blocking browser
+storage can create a new identity; an ID provided by the browser does not prove
+that it will survive a future reload. This is browser-scoped protection, not
+account-wide customer identity or a guarantee across private browsing sessions. Name changes and different retailer URLs without common model
 identifiers may describe the same physical product; semantic SKU matching is
 not claimed. HTTP response loss can reserve a product the user never saw.
 
 ## Runtime
 
 Set TRAFFICLIFT_DISCOVERY_DB to a SQLite file on the service's persistent disk,
-for example /var/data/discovery.sqlite3. Default: data/discovery.sqlite3.
-Without durable hosting storage, browser history still survives refreshes but
+for example /var/data/discovery.sqlite3. Default: /var/data/discovery.sqlite3 on Render when the disk is mounted;
+local default: data/discovery.sqlite3. Without durable hosting storage, browser history still survives refreshes but
 server history/category rotation can reset on redeployment. Multi-host service
 instances need shared database storage; local SQLite covers workers on one host.
 

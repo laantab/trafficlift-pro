@@ -90,6 +90,11 @@ def market_signals(sources):
 
 def discover(*, exclude_ids=None, exclude_keys=None, client_id=None, seed=None):
     """One click continues through empty free-research batches, within 60s."""
+    # An omitted ID used to silently disable the durable winner ledger. Reject
+    # the request before research consumes provider quota or returns a repeat.
+    # The browser one-click flow already supplies its persisted client ID.
+    if not client_id:
+        raise HTTPException(422, "A persistent browser identity is required for Find Winning Product. Enable site storage and reload; no previous winner was substituted.")
     import os
     if os.environ.get('TRAFFICLIFT_FREE_VIDEO') == '1' and not live_research._is_tavily_configured():
         raise HTTPException(503, 'RESEARCH_CONNECTION_MISSING: This running studio has no Tavily key loaded. Connect research in TrafficLift; restarting or repeating this search will not help.')
