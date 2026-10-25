@@ -37,6 +37,12 @@ _TRACKING_PARAMS = {
     'dclid', 'li_fat_id',
 }
 
+# These query fields change the retailer's *presentation*, not which item an
+# unambiguous merchant SKU identifies. Only exempt them from the broad-SKU
+# safety guard; retain them in URL keys for sites without a reliable SKU.
+# Unknown selectors (size, color, option_id, etc.) remain variant-sensitive.
+_SKU_PRESENTATION_PARAMS = {'view', 'sort_by'}
+
 # Scraped product URLs sometimes contain HTML-escaped query separators.
 # Decode only ampersand entities in the QUERY, not paths, product values, or
 # arbitrary HTML entities (which could merge genuinely different SKUs).
@@ -194,6 +200,7 @@ def identity_keys(name, url):
             if key.lower() != 'sku'
             and not key.lower().startswith('utm_')
             and key.lower() not in _TRACKING_PARAMS
+            and key.lower() not in _SKU_PRESENTATION_PARAMS
         ]
         # Entity-like and reserved separators in a product path can identify
         # different routes even when a query SKU happens to match. Keep those
