@@ -25,7 +25,7 @@ def test_encoded_amazon_route_does_not_recycle_same_asin(tmp_path):
     history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
     assert history.claim(identity_keys(
         "Portable Reading Light",
-        "https://amazon.com/dp/B08EXAMP12",
+        "https://amazon.com/gp/product/B08EXAMP12",
     ))
     assert not history.claim(identity_keys(
         "USB Desk Illumination Device",
