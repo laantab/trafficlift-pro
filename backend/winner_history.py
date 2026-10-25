@@ -1,5 +1,6 @@
 """Durable, browser-scoped discovery rotation and atomic repeat prevention."""
 import hashlib
+import html
 import os
 import re
 import sqlite3
@@ -110,7 +111,11 @@ def identity_keys(name, url):
     # Do not use Python hash(): its output changes across server processes.
     normalized = ' '.join(re.findall(r'[a-z0-9]+', name.lower()))
     keys = ['name-' + hashlib.sha256(normalized.encode()).hexdigest()[:24]]
-    tokens = _title_tokens(name)
+    # Retailer titles may arrive HTML-escaped ("&amp;") or decoded ("&").
+    # Keep the raw name hash above for existing rows, but share a decoded
+    # identity so a changed product URL cannot recycle the same item.
+    decoded_name = html.unescape(name)
+    tokens = _title_tokens(decoded_name)
     # Retain the legacy name key so existing ASCII winner records still match.
     # Also store a Unicode-folded key: the legacy ASCII regex drops accented
     # letters ("Café Mug" became "caf mug"), letting short renamed listings
@@ -124,6 +129,22 @@ def identity_keys(name, url):
     if len(tokens) >= 3 and len(set(tokens)) >= 3:
         canonical_title = ' '.join(sorted(tokens))
         keys.append('title-' + hashlib.sha256(canonical_title.encode()).hexdigest()[:24])
+    # Preserve older HTML-escaped title hashes: before normalization, an
+    # encoded ampersand introduced an extra "amp" token. Include both
+    # spellings on *either* incoming form so old SQLite rows still exclude
+    # relisted winners after the seller changes their product URL. Do not
+    # drop size, count, brand, or model tokens from these alternate keys.
+    legacy_spellings = {tuple(_title_tokens(name))}
+    if '&' in decoded_name:
+        legacy_spellings.add(tuple(_title_tokens(decoded_name.replace('&', '&amp;'))))
+    for old_tokens in sorted(legacy_spellings):
+        if not old_tokens or list(old_tokens) == tokens:
+            continue
+        old_folded = ' '.join(old_tokens)
+        keys.append('name-folded-' + hashlib.sha256(old_folded.encode()).hexdigest()[:24])
+        if len(old_tokens) >= 3 and len(set(old_tokens)) >= 3:
+            keys.append('title-' + hashlib.sha256(
+                ' '.join(sorted(old_tokens)).encode()).hexdigest()[:24])
     # Retailers alternate "12oz" / "12 oz" and "500ml" / "500 ml" when
     # relisting the same item. Add *both* spelling keys without replacing the
     # existing hashes: old durable records created before this fix must still
