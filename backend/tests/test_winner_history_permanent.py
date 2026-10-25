@@ -792,3 +792,35 @@ def test_shopify_variant_padding_does_not_recycle_winner(tmp_path):
         "Other Merchant Organizer",
         "https://other.example/products/organizer?variant=44332211009988",
     )), "The same variant on another merchant is not the same SKU"
+
+
+def test_target_preselect_padded_child_cannot_recycle_relisted_winner(tmp_path):
+    """A Target child TCIN survives URL-encoded padding and renamed parent pages."""
+    path = tmp_path / "target-preselect.sqlite3"
+    original = identity_keys(
+        "Blue Compact Drawer Organizer",
+        "https://www.target.com/p/blue-divider/-/A-91234567?preselect=91234569",
+    )
+    relisted = identity_keys(
+        "Expandable Storage Organizer",
+        "https://target.com/p/-/A-91234567?PRESELECT=%2091234569%20&utm_source=pin",
+    )
+    assert WinnerHistory("returning-browser", path=path).claim(original)
+    assert not WinnerHistory("returning-browser", path=path).claim(relisted), (
+        "Padding around a Target child TCIN must not reset permanent winner history"
+    )
+    assert WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "Different Green Storage Organizer",
+        "https://target.com/p/-/A-91234567?preselect=91234570",
+    )), "Different Target child variants must remain eligible"
+
+
+def test_target_conflicting_preselect_values_do_not_claim_arbitrary_child():
+    """Conflicting child selectors are ambiguous, not permission to claim first."""
+    keys = identity_keys(
+        "Ambiguous Target Child Listing",
+        "https://target.com/p/-/A-91234567?preselect=91234569&PRESELECT=91234570",
+    )
+    assert not any(key.startswith("target-tcin-") for key in keys), (
+        "Never choose an arbitrary child TCIN or parent for conflicting preselect values"
+    )
