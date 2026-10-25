@@ -138,6 +138,12 @@ def verify(session, access_code, *, payload=None, resume=None, output=None,
     temp_path = None
     try:
         _check(downloaded, 200, "MP4 download")
+        cache_directives = {
+            directive.strip().split("=", 1)[0].lower()
+            for directive in downloaded.headers.get("Cache-Control", "").split(",")
+        }
+        if "private" not in cache_directives or "public" in cache_directives:
+            raise AcceptanceError("MP4 download requires a private cache policy")
         if not downloaded.headers.get("Content-Type", "").lower().startswith("video/mp4"):
             raise AcceptanceError("Download is not an MP4 response")
         output.parent.mkdir(parents=True, exist_ok=True)
