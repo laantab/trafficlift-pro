@@ -32,7 +32,8 @@ class Response:
 
 class FakeSession:
     def __init__(self, *, unauthorized=401, login=200, states=("running", "succeeded"), mp4=MP4, health=200,
-                 status_public=401, mp4_public=401):
+                 status_public=401, mp4_public=401, export_public=401,
+                 sample_public=401, sample_mp4_public=401):
         self.health = health
         self.unauthorized = unauthorized
         self.login = login
@@ -45,6 +46,11 @@ class FakeSession:
         self.reads = []
         self.status_public = status_public
         self.mp4_public = mp4_public
+        self.export_public = export_public
+        self.sample_public = sample_public
+        self.sample_mp4_public = sample_mp4_public
+        self.probe_export = None
+        self.probe_sample_mp4 = None
 
     def get(self, url, **kwargs):
         assert url.startswith(BASE + "/api/v1/")
@@ -54,6 +60,14 @@ class FakeSession:
             return Response(self.health)
         if url.endswith("/photo-videos"):
             return Response(self.unauthorized)
+        if url.endswith("/exports/tiktok") and not self.logged_in:
+            self.probe_export = Response(self.export_public)
+            return self.probe_export
+        if url.endswith("/video-owner-acceptance/mp4") and not self.logged_in:
+            self.probe_sample_mp4 = Response(self.sample_mp4_public)
+            return self.probe_sample_mp4
+        if url.endswith("/video-owner-acceptance") and not self.logged_in:
+            return Response(self.sample_public)
         if url.endswith("/video") and not self.logged_in:
             self.probe_download = Response(self.mp4_public)
             return self.probe_download
@@ -85,32 +99,41 @@ def test_readonly_preflight_checks_health_and_denied_history_without_login_or_re
     assert preflight(session) == {
         "health": "ok", "owner_history": "protected",
         "owner_status": "protected", "owner_mp4": "protected",
+        "owner_exports": "protected", "owner_sample_status": "protected",
+        "owner_sample_mp4": "protected",
     }
     assert session.reads == [
         BASE + "/api/v1/health", BASE + "/api/v1/photo-videos",
         BASE + "/api/v1/photo-videos/" + ID,
         BASE + "/api/v1/photo-videos/" + ID + "/video",
+        BASE + "/api/v1/photo-videos/" + ID + "/exports/tiktok",
+        BASE + "/api/v1/video-owner-acceptance",
+        BASE + "/api/v1/video-owner-acceptance/mp4",
     ]
     assert session.posts == []
     assert session.download is None
     assert session.probe_download.closed
+    assert session.probe_export.closed
+    assert session.probe_sample_mp4.closed
 
 
-@pytest.mark.parametrize("health,unauthorized,status_public,mp4_public", [
-    (503, 401, 401, 401), (200, 200, 401, 401), (302, 401, 401, 401),
-    (200, 401, 200, 401), (200, 401, 401, 200),
-    (200, 401, 404, 401), (200, 401, 401, 302),
+@pytest.mark.parametrize("override", [
+    {"health": 503}, {"unauthorized": 200}, {"health": 302},
+    {"status_public": 200}, {"mp4_public": 200},
+    {"status_public": 404}, {"mp4_public": 302},
+    {"export_public": 200}, {"export_public": 302},
+    {"sample_public": 200}, {"sample_public": 404},
+    {"sample_mp4_public": 200}, {"sample_mp4_public": 302},
 ])
-def test_readonly_preflight_fails_closed_without_login_or_render(
-        health, unauthorized, status_public, mp4_public):
-    session = FakeSession(health=health, unauthorized=unauthorized,
-                          status_public=status_public, mp4_public=mp4_public)
+def test_readonly_preflight_fails_closed_without_login_or_render(override):
+    session = FakeSession(**override)
     with pytest.raises(AcceptanceError):
         preflight(session)
     assert session.posts == []
     assert session.download is None
-    if session.probe_download is not None:
-        assert session.probe_download.closed
+    for response in (session.probe_download, session.probe_export, session.probe_sample_mp4):
+        if response is not None:
+            assert response.closed
 
 
 def test_live_probe_login_create_poll_and_save_real_mp4_signature(tmp_path):

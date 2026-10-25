@@ -67,8 +67,34 @@ def preflight(session):
             raise AcceptanceError("Unauthenticated MP4 download did not return HTTP 401")
     finally:
         mp4.close()
+
+    # The platform posting ZIP is another private download surface. Keep
+    # streaming disabled for body reads and close even on an unexpected 200.
+    exported = session.get(probe_url + "/exports/tiktok", timeout=20,
+                           allow_redirects=False, stream=True)
+    try:
+        if exported.status_code != 401:
+            raise AcceptanceError("Unauthenticated video export did not return HTTP 401")
+    finally:
+        exported.close()
+
+    # The genuine Kokoro sample is owner-only too. This is a status check,
+    # not permission to publish the sample or render a new product video.
+    sample = session.get(BASE + "/api/v1/video-owner-acceptance",
+                         timeout=20, allow_redirects=False)
+    if sample.status_code != 401:
+        raise AcceptanceError("Unauthenticated owner sample status did not return HTTP 401")
+    sample_mp4 = session.get(BASE + "/api/v1/video-owner-acceptance/mp4",
+                             timeout=20, allow_redirects=False, stream=True)
+    try:
+        if sample_mp4.status_code != 401:
+            raise AcceptanceError("Unauthenticated owner sample MP4 did not return HTTP 401")
+    finally:
+        sample_mp4.close()
     return {"health": "ok", "owner_history": "protected",
-            "owner_status": "protected", "owner_mp4": "protected"}
+            "owner_status": "protected", "owner_mp4": "protected",
+            "owner_exports": "protected", "owner_sample_status": "protected",
+            "owner_sample_mp4": "protected"}
 
 
 def verify(session, access_code, *, payload=None, resume=None, output=None,
@@ -194,7 +220,7 @@ def main():
                 preflight(session)
         except (AcceptanceError, requests.RequestException, ValueError) as exc:
             parser.exit(1, "Owner video preflight failed: " + str(exc)[:240] + "\n")
-        print("Owner video preflight passed: hosted health OK; private video history, status and MP4 denied (HTTP 401); no render started")
+        print("Owner video preflight passed: hosted health OK; private video history, status, MP4, platform exports and owner sample endpoints denied (HTTP 401); no render started")
         return
     code = os.environ.get("TRAFFICLIFT_OWNER_ACCESS_CODE", "")
     payload = None
