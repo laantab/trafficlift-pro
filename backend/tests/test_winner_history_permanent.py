@@ -337,3 +337,35 @@ def test_shopify_variant_scope_preserves_other_merchants_and_skus(tmp_path):
     assert history.claim(identity_keys(
         'Other Brand Desk Lamp', 'https://seller-b.example/products/desk-lamp?variant=44332211',
     )), 'Another merchant must not be conflated'
+
+
+def test_missing_browser_identity_fails_closed_before_live_research(monkeypatch):
+    """A missing browser ID must never bypass permanent winner history."""
+    import pytest
+    from fastapi import HTTPException
+    from backend import discovery_engine, live_research
+
+    def forbidden_research(*args, **kwargs):
+        pytest.fail("No paid or free research should run without durable winner identity")
+
+    monkeypatch.setattr(live_research, "research", forbidden_research)
+    for missing in (None, ""):
+        with pytest.raises(HTTPException) as error:
+            discovery_engine.discover(client_id=missing)
+        assert error.value.status_code == 422
+        assert "browser" in str(error.value.detail).lower()
+
+
+def test_discovery_endpoint_requires_browser_identity(monkeypatch):
+    """Direct API callers cannot opt out of no-repeat history by omitting client_id."""
+    from fastapi.testclient import TestClient
+    from backend import live_research
+    from trafficlift_pro import app
+
+    def forbidden_research(*args, **kwargs):
+        raise AssertionError("Research must not start without a browser identity")
+
+    monkeypatch.setattr(live_research, "research", forbidden_research)
+    response = TestClient(app).get("/api/v1/discover-winner")
+    assert response.status_code == 422
+    assert "browser" in str(response.json().get("detail", "")).lower()
