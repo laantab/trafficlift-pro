@@ -43,9 +43,12 @@ GitHub Actions or a repository file:
 Run `python scripts/owner_video_live_acceptance.py --run --output owner-check.mp4`.
 The script first checks that unauthenticated history is denied, then signs in
 using the HttpOnly cookie, creates one job, polls status, and downloads the
-MP4. It verifies no-store headers, security cookie flags, MP4 content type,
-a plausible `ftyp` MP4 header, and nontrivial downloaded bytes. It rejects
-redirects and does not print the access code.
+MP4. Install local `ffprobe` and `ffmpeg` first. The script verifies no-store
+headers, security cookie flags, MP4 content type, a plausible `ftyp` header,
+real video/audio streams, positive duration, and full video/audio decoding
+before atomically publishing the download. It rejects redirects, corrupt
+downloads, and missing decoding tools without printing the access code or
+untrusted media metadata.
 
 If polling times out, note the job ID from the error and run
 `python scripts/owner_video_live_acceptance.py --resume <32-character-job-id> --output owner-check.mp4`.
