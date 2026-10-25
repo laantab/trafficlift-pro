@@ -78,9 +78,12 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     await page.locator('button[onclick="unlockHostedOwnerVideo()"]').click();
     const login = await loginResponsePromise;
     if (login.status() !== 200) throw new Error('Owner browser login was rejected');
-    const cookie = (await login.allHeaders())['set-cookie'] || '';
-    if (!/httponly/i.test(cookie) || !/secure/i.test(cookie) ||
-        !/samesite=strict/i.test(cookie)) {
+    // Inspect Chromium's actual cookie jar: browsers may hide Set-Cookie from
+    // response headers. The real server scopes this cookie to /api/v1.
+    const cookies = await context.cookies(BASE + '/api/v1/photo-videos');
+    const ownerCookie = cookies.find(cookie => cookie.name === 'trafficlift_video_session');
+    if (!ownerCookie || !ownerCookie.httpOnly || !ownerCookie.secure ||
+        ownerCookie.sameSite !== 'Strict') {
       throw new Error('Owner browser session cookie lacks required security flags');
     }
     await page.waitForFunction(() =>
