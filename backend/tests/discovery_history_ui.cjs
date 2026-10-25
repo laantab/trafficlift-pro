@@ -5,8 +5,8 @@ const end = html.indexOf('    async function findWinningProduct()', start);
 const code = html.slice(start,end);
 const stored = new Map();
 const storage = {getItem:key=>stored.get(key)||null, setItem:(key,value)=>stored.set(key,value)};
-function browser() {
- const context={window:{}, localStorage:storage, URLSearchParams, crypto:{randomUUID:()=> '12345678-1234-1234-1234-123456789012'}, Date};
+function browser(storageImpl=storage) {
+ const context={window:{}, localStorage:storageImpl, URLSearchParams, crypto:{randomUUID:()=> '12345678-1234-1234-1234-123456789012'}, Date};
  vm.createContext(context);vm.runInContext(code,context);return context;
 }
 let first=browser();
@@ -30,4 +30,11 @@ const oldWinner=browser();
 assert.equal(oldWinner.discoveryHistory().length,1,'old winners must not expire in local history');
 assert.equal(oldWinner.discoveryParams().get('exclude'),'old');
 assert.equal(oldWinner.discoveryParams().get('exclude_keys'),'name-old');
+// A browser with disabled site storage cannot maintain a durable identity.
+// Fail before research instead of silently issuing a new ID on every reload.
+const blocked={getItem(){throw new Error('blocked')},setItem(){throw new Error('blocked')}};
+assert.throws(()=>browser(blocked).discoveryParams(),/storage/i);
+// Some privacy modes silently discard writes instead of throwing.
+const discarded={getItem(){return null},setItem(){}};
+assert.throws(()=>browser(discarded).discoveryParams(),/storage/i);
 console.log('PASS: refresh identity, permanent browser exclusions, fallback refusal, malformed storage');
