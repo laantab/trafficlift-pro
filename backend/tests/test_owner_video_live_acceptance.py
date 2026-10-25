@@ -344,3 +344,32 @@ def test_live_acceptance_does_not_overwrite_output_created_during_download(tmp_p
     assert output.read_bytes() == b"another-operator-output"
     assert session.download.closed
     assert not list(tmp_path.glob("*.partial"))
+
+
+@pytest.mark.parametrize("cache_control", [
+    "public, no-store",
+    "private, no-store-false",
+    "private, x-no-store",
+])
+def test_owner_status_rejects_public_or_fake_no_store_cache_directives(tmp_path, cache_control):
+    """The authenticated status probe must not accept public or fake no-store.
+
+    Before the repair, a substring check accepted all three and proceeded to
+    download a private MP4, falsely reporting a secure owner acceptance.
+    """
+    class MisleadingStatusSession(FakeSession):
+        def get(self, url, **kwargs):
+            if url.endswith("/" + ID):
+                return Response(
+                    data={"video": {"status": "succeeded"}},
+                    headers={"Cache-Control": cache_control},
+                )
+            return super().get(url, **kwargs)
+
+    session = MisleadingStatusSession(states=("succeeded",))
+    output = tmp_path / "misleading-cache.mp4"
+    with pytest.raises(AcceptanceError, match="cache"):
+        verify(session, "not-a-real-secret", resume=ID, output=output)
+    assert session.posts == [BASE + "/api/v1/video-owner-login"]
+    assert session.download is None, "never download after unsafe status headers"
+    assert not output.exists()
