@@ -32,6 +32,9 @@ _TRACKING_PARAMS = {
     # cross-domain linker, and Pinterest's promoted-traffic click identifier.
     # Use exact keys only; never strip product-specific sku/variant/size fields.
     'ttclid', '_gl', 'epik',
+    # DoubleClick and LinkedIn first-party ad click IDs identify visits,
+    # not product variants. Keep exact keys; never strip sku/model selectors.
+    'dclid', 'li_fat_id',
 }
 
 # Scraped product URLs sometimes contain HTML-escaped query separators.
