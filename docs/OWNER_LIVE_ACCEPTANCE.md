@@ -9,6 +9,14 @@ probe against the existing official HTTPS Render host. It does not add routes,
 enable public rendering, modify hosting, or use paid video providers. Run it
 only when owner-hosted video is already intentionally enabled and provisioned.
 
+## Free read-only preflight (no access code needed)
+
+Run `python scripts/owner_video_live_acceptance.py --preflight` to verify that
+the existing hosted health endpoint responds and unauthenticated video history
+is denied. This does **not** sign in, create a render, consume a video quota
+slot, download an MP4, or establish customer-launch readiness. It is safe to
+run before obtaining the private owner code.
+
 ## Preconditions
 
 - The owner access code is available privately. **Never commit, paste into
