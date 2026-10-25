@@ -339,6 +339,43 @@ def test_shopify_variant_scope_preserves_other_merchants_and_skus(tmp_path):
     )), 'Another merchant must not be conflated'
 
 
+
+def test_shopify_localized_product_urls_keep_variant_history_across_relisting(tmp_path):
+    """Shopify Markets adds /en, /en-us, /fr-ca before /products/slug."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    original = identity_keys(
+        'Blue Expandable Desk Organizer',
+        'https://shop.example/en-us/products/desk-organizer?variant=44332211009988&utm_source=pin',
+    )
+    relisted = identity_keys(
+        'Compact Office Storage Rack',
+        'https://shop.example/fr-ca/products/office-rack?variant=44332211009988&gad_source=1',
+    )
+    assert history.claim(original)
+    assert not WinnerHistory('returning-browser', path=history.path).claim(relisted), (
+        'A localized storefront path and renamed listing must not recycle the same SKU'
+    )
+
+
+def test_shopify_localized_variant_history_keeps_other_skus_and_merchants(tmp_path):
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys(
+        'Blue Expandable Desk Organizer',
+        'https://shop.example/en/products/desk-organizer?variant=44332211009988',
+    ))
+    assert history.claim(identity_keys(
+        'Green Storage Rack',
+        'https://shop.example/fr/products/office-rack?variant=44332211009989',
+    )), 'Another variant on the same merchant remains eligible'
+    assert history.claim(identity_keys(
+        'Metal Storage Basket',
+        'https://another.example/en-us/products/office-rack?variant=44332211009988',
+    )), 'Shopify variant identifiers must be scoped to merchant host'
+    assert not any(key.startswith('shopify-variant-') for key in identity_keys(
+        'Unrelated Product', 'https://shop.example/blog/products/article?variant=44332211009988',
+    )), 'Non-product paths must not be treated as Shopify variant routes'
+
+
 def test_missing_browser_identity_fails_closed_before_live_research(monkeypatch):
     """A missing browser ID must never bypass permanent winner history."""
     import pytest
