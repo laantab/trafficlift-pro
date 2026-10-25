@@ -84,3 +84,42 @@ def test_unrecognized_query_selector_disables_broad_sku_key():
         "https://shop.example/products/organizer?sku=BASE-100&option_id=blue",
     )
     assert not any(key.startswith("merchant-sku-") for key in keys)
+
+
+def test_same_sku_relisting_with_presentation_query_cannot_repeat(tmp_path):
+    """Display modes and sorting do not create new products when SKU is stable."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    first = identity_keys(
+        "Rechargeable Desk Lamp Original Edition",
+        "https://shop.example/products/desk-lamp?sku=MODEL-A&view=quick&sort_by=price-ascending",
+    )
+    relisted = identity_keys(
+        "Portable LED Reading Light Updated",
+        "https://shop.example/products/reading-light?SKU=MODEL-A&view=full&sort_by=manual",
+    )
+    assert history.claim(first)
+    assert not WinnerHistory("returning-browser", path=history.path).claim(relisted), (
+        "Changing only display options, title and path must not recycle a merchant SKU"
+    )
+
+
+def test_presentation_query_does_not_merge_distinct_skus_or_child_options(tmp_path):
+    """Presentation keys are safe to ignore for SKU identity, variant keys are not."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    first = identity_keys(
+        "Adjustable Shelf Model One",
+        "https://shop.example/products/shelf?sku=BASE-100&view=quick",
+    )
+    different_sku = identity_keys(
+        "Adjustable Shelf Model Two",
+        "https://shop.example/products/other?sku=BASE-200&view=full",
+    )
+    child = identity_keys(
+        "Adjustable Shelf Model One Blue",
+        "https://shop.example/products/other?sku=BASE-100&option_id=blue&view=full",
+    )
+    assert history.claim(first)
+    assert history.claim(different_sku), "Different merchant SKUs must remain distinct"
+    assert not any(key.startswith("merchant-sku-") for key in child), (
+        "Unknown child-variant selectors must still disable broad SKU identity"
+    )
