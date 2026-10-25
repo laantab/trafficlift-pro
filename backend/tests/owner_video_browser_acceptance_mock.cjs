@@ -151,6 +151,20 @@ function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeede
       /Owner video render failed/,
       'a failed owner job must be reported promptly instead of timing out waiting for an MP4',
     );
+    // A malformed or unsupported job state must fail promptly rather than
+    // leave the operator waiting for a download link that will never appear.
+    const unknownOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'unknown.mp4'),
+    });
+    const unknown = fixture({videoStatus: 'canceled'});
+    await assert.rejects(
+      runBrowserAcceptance({...unknownOpts, timeoutMs: 7000}, unknown),
+      /Unexpected owner video state/,
+      'unsupported status must fail fast without waiting for an MP4 link',
+    );
+    assert.equal(unknown.calls.created, 0, 'unknown status must not start another render');
+    assert.equal(fs.existsSync(unknownOpts.output), false, 'unknown status must not publish an MP4');
     assert.equal(failed.calls.created, 0, 'failed resume must never start another render');
     assert.equal(fs.existsSync(failedOpts.output), false, 'failed render must not publish an MP4');
     const unsafe = fixture({mp4CacheControl: 'public, max-age=3600'});
