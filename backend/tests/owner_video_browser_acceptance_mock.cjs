@@ -13,7 +13,7 @@ const html = fs.readFileSync('index.html', 'utf8')
   .replace(/<script[^>]*src=[^>]*><\/script>/g, '')
   .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/, '');
 
-function fixture() {
+function fixture({mp4CacheControl = 'private, no-store'} = {}) {
   const calls = {created: 0, downloaded: 0, loggedIn: 0, privateCookieSeen: false};
   const setupPage = async page => {
     await page.addInitScript(() => { window.lucide = {createIcons() {}}; });
@@ -61,7 +61,7 @@ function fixture() {
       if (p === '/api/v1/photo-videos/' + ID + '/video') {
         if (!hasCookie) return json(401, {detail: 'owner only'}, privateHeaders);
         calls.downloaded++;
-        return route.fulfill({status: 200, headers: {...privateHeaders,
+        return route.fulfill({status: 200, headers: {...privateHeaders, 'Cache-Control': mp4CacheControl,
           'Content-Type': 'video/mp4', 'Content-Disposition': 'attachment; filename="owner.mp4"'},
           body: MP4});
       }
@@ -105,7 +105,19 @@ function fixture() {
     assert.equal(result.jobId, ID);
     assert.equal(two.calls.created, 0, 'resume must never create another render');
     assert.deepEqual(fs.readFileSync(result.output), MP4);
-    console.log('PASS: real Chromium owner UI login, one render, status, protected MP4 download and zero-quota resume');
+    const unsafe = fixture({mp4CacheControl: 'public, max-age=3600'});
+    const unsafeOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'unsafe.mp4'),
+    });
+    await assert.rejects(
+      runBrowserAcceptance({...unsafeOpts, timeoutMs: 20000}, unsafe),
+      /MP4 response.*no-store/,
+      'a publicly cacheable owner-only MP4 must fail browser acceptance',
+    );
+    assert.equal(unsafe.calls.created, 0, 'security regression must not start a render');
+    assert.equal(fs.existsSync(unsafeOpts.output), false, 'never save an insecure MP4');
+    console.log('PASS: real Chromium owner UI login, one render, status, protected MP4 download, zero-quota resume, and private download cache policy');
   } finally {
     fs.rmSync(dir, {recursive: true, force: true});
   }
