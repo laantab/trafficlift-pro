@@ -145,6 +145,9 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     // after evaluate misses the only failure response and waits for an MP4.
     let rejectStatusFailure;
     const failedStatus = new Promise((_, reject) => { rejectStatusFailure = reject; });
+    // The response can fail before the later Promise.race is attached.
+    // Mark the rejection handled immediately while preserving it for that race.
+    void failedStatus.catch(() => {});
     const onStatusResponse = async response => {
       if (!jobId || response.url() !== BASE + '/api/v1/photo-videos/' + jobId ||
           response.request().method() !== 'GET') return;
