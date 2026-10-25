@@ -120,8 +120,21 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     if (href !== BASE + '/api/v1/photo-videos/' + jobId + '/video') {
       throw new Error('Browser download link is not the expected protected same-origin job');
     }
+    // Validate the actual browser download response, not just its file bytes.
+    // An owner-only MP4 must never be publicly cacheable.
+    const responsePromise = page.waitForResponse(response =>
+      response.url() === href && response.request().method() === 'GET',
+      {timeout: 180000});
     const downloadPromise = page.waitForEvent('download', {timeout: 180000});
     await link.click();
+    const mp4Response = await responsePromise;
+    const mp4Headers = await mp4Response.allHeaders();
+    if (mp4Response.status() !== 200 ||
+        !/^video\/mp4(?:;|$)/i.test(mp4Headers['content-type'] || '') ||
+        !/\bprivate\b/i.test(mp4Headers['cache-control'] || '') ||
+        !/\bno-store\b/i.test(mp4Headers['cache-control'] || '')) {
+      throw new Error('MP4 response must be HTTP 200 video/mp4 with private no-store');
+    }
     const download = await downloadPromise;
     if (await download.failure()) throw new Error('Chromium reported an MP4 download failure');
     fs.mkdirSync(path.dirname(opts.output), {recursive: true});
