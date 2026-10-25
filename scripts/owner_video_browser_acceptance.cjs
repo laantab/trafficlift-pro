@@ -157,8 +157,18 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     if (header.toString('ascii', 4, 8) !== 'ftyp') {
       throw new Error('Browser downloaded bytes without an MP4 ftyp signature');
     }
-    if (fs.existsSync(opts.output)) throw new Error('Output appeared during download; refusing overwrite');
-    fs.renameSync(partial, opts.output);
+    // renameSync overwrites a file created between existsSync and publish.
+    // The partial and destination share a directory/filesystem; linkSync
+    // atomically fails with EEXIST instead of replacing another owner's MP4.
+    try {
+      fs.linkSync(partial, opts.output);
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        throw new Error('Output appeared during download; refusing overwrite');
+      }
+      throw error;
+    }
+    fs.unlinkSync(partial);
     partial = null;
     return {jobId, bytes: stat.size, output: opts.output};
   } finally {
