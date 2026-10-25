@@ -545,3 +545,35 @@ def test_conflicting_shopify_variant_parameters_are_not_assumed_equivalent():
         "?variant=44332211009988&variant=44332211009989",
     )
     assert not any(key.startswith("shopify-variant-") for key in keys)
+
+
+def test_ad_click_tracking_cannot_recycle_renamed_winner_after_restart(tmp_path):
+    """TikTok click IDs, Google linker and Pinterest click attribution are not SKUs."""
+    path = tmp_path / 'winner-history.db'
+    original = identity_keys(
+        'Portable Desk Light Compact A',
+        'https://seller.example/products/lamp?sku=compact-a&TTCLID=first'
+        '&_gl=1~old&epik=pin-a',
+    )
+    renamed = identity_keys(
+        'USB Rechargeable Reading Lantern',
+        'https://seller.example/products/lamp?epik=pin-b&_gl=1~new'
+        '&ttclid=second&sku=compact-a',
+    )
+    assert WinnerHistory('returning-browser', path=path).claim(original)
+    assert not WinnerHistory('returning-browser', path=path).claim(renamed), (
+        'New ad-click identifiers must not recycle a winner after browser reload'
+    )
+
+
+def test_ad_tracking_cleanup_keeps_real_sku_selectors(tmp_path):
+    """Do not discard merchant product variants while stripping attribution."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winner-history.db')
+    assert history.claim(identity_keys(
+        'Desk Light Compact Blue',
+        'https://seller.example/products/lamp?sku=compact-blue&ttclid=first&_gl=1~a',
+    ))
+    assert history.claim(identity_keys(
+        'Desk Light Large Green',
+        'https://seller.example/products/lamp?sku=large-green&ttclid=second&_gl=1~b',
+    )), 'Different SKUs remain eligible despite shared listing path'
