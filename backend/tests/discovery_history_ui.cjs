@@ -30,4 +30,4 @@ const oldWinner=browser();
 assert.equal(oldWinner.discoveryHistory().length,1,'old winners must not expire in local history');
 assert.equal(oldWinner.discoveryParams().get('exclude'),'old');
 assert.equal(oldWinner.discoveryParams().get('exclude_keys'),'name-old');
-console.log('PASS: refresh identity, exclusion history, fallback refusal, malformed storage, expiration');
+console.log('PASS: refresh identity, permanent browser exclusions, fallback refusal, malformed storage');
