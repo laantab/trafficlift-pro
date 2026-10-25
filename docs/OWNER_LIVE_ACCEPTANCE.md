@@ -14,7 +14,11 @@ only when owner-hosted video is already intentionally enabled and provisioned.
 Run `python scripts/owner_video_live_acceptance.py --preflight` to verify that
 the existing hosted health endpoint responds and unauthenticated video history,
 individual video status, master MP4 download, platform export ZIP, owner sample
-status, and owner sample MP4 are all denied with HTTP 401. Job checks use a
+status, and owner sample MP4 are all denied with HTTP 401. It also checks the existing
+read-only video readiness endpoint reports prepared assets and an enabled
+**owner-only** hosted render switch. That field's legacy API name does not
+mean public/customer rendering is enabled. An unready engine fails the
+preflight before an operator spends a render slot. Job checks use a
 non-existent 32-character job ID. Download checks stream without reading or
 saving any response body and always close the response. This does **not** sign
 in, create a render, consume a video quota slot, download an MP4 or ZIP, or
