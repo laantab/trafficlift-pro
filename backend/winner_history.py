@@ -67,8 +67,8 @@ def identity_keys(name, url):
     # and model numbers are not accidentally treated as the same SKU.
     units = r'(?:oz|ml|cm|mm|kg|lbs?)'
     measurement_variants = {
-        re.sub(r'\\b(\\d+)\\s+(' + units + r')\\b', r'\\1\\2', folded_name),
-        re.sub(r'\\b(\\d+)(' + units + r')\\b', r'\\1 \\2', folded_name),
+        re.sub(r'\b(\d+)\s+(' + units + r')\b', r'\1\2', folded_name),
+        re.sub(r'\b(\d+)(' + units + r')\b', r'\1 \2', folded_name),
     }
     for alternate in sorted(measurement_variants - {folded_name}):
         if not alternate:
