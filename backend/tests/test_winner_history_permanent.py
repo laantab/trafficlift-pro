@@ -247,3 +247,32 @@ def test_target_preselect_does_not_claim_parent_or_non_target_host():
         'Blue Drawer Divider',
         'https://unrelated.example/p/-/A-91234567?preselect=91234569',
     )
+
+
+def test_common_referrer_and_campaign_query_aliases_do_not_recycle_winner(tmp_path):
+    """Changing only marketing attribution and listing title cannot reset history."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys(
+        'Compact Desk Lamp Model A',
+        'https://seller.example/products/desk-lamp?referrer=email&affiliate_id=100&campaign_id=autumn',
+    )
+    relisted = identity_keys(
+        'Rechargeable Reading Light Model A',
+        'https://seller.example/products/desk-lamp?referrer=social&affiliate_id=200&campaign_id=winter',
+    )
+    assert history.claim(first)
+    assert not history.claim(relisted), 'Marketing attribution is not a new product identity'
+
+
+def test_variant_and_sku_queries_remain_distinct_after_tracking_cleanup(tmp_path):
+    """Removing referral tags must never erase meaningful size/SKU selectors."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys(
+        'Blue Desk Lamp Small', 'https://seller.example/products/lamp?size=small&referrer=email',
+    ))
+    assert history.claim(identity_keys(
+        'Blue Desk Lamp Large', 'https://seller.example/products/lamp?size=large&referrer=email',
+    ))
+    assert history.claim(identity_keys(
+        'Blue Desk Lamp Model B', 'https://seller.example/products/lamp?sku=model-b&referrer=email',
+    ))
