@@ -52,7 +52,8 @@ class Response:
 class FakeSession:
     def __init__(self, *, unauthorized=401, login=200, states=("running", "succeeded"), mp4=MP4, health=200,
                  status_public=401, mp4_public=401, export_public=401,
-                 sample_public=401, sample_mp4_public=401):
+                 sample_public=401, sample_mp4_public=401,
+                 readiness_status=200, readiness_state="ready", hosted_enabled=True):
         self.health = health
         self.unauthorized = unauthorized
         self.login = login
@@ -68,6 +69,9 @@ class FakeSession:
         self.export_public = export_public
         self.sample_public = sample_public
         self.sample_mp4_public = sample_mp4_public
+        self.readiness_status = readiness_status
+        self.readiness_state = readiness_state
+        self.hosted_enabled = hosted_enabled
         self.probe_export = None
         self.probe_sample_mp4 = None
 
@@ -77,6 +81,11 @@ class FakeSession:
         self.reads.append(url)
         if url.endswith("/health"):
             return Response(self.health)
+        if url.endswith("/video-readiness"):
+            return Response(self.readiness_status, data={
+                "state": self.readiness_state,
+                "customer_rendering_enabled": self.hosted_enabled,
+            })
         if url.endswith("/photo-videos"):
             return Response(self.unauthorized)
         if url.endswith("/exports/tiktok") and not self.logged_in:
@@ -119,7 +128,7 @@ def test_readonly_preflight_checks_health_and_denied_history_without_login_or_re
         "health": "ok", "owner_history": "protected",
         "owner_status": "protected", "owner_mp4": "protected",
         "owner_exports": "protected", "owner_sample_status": "protected",
-        "owner_sample_mp4": "protected",
+        "owner_sample_mp4": "protected", "video_prerequisites": "ready",
     }
     assert session.reads == [
         BASE + "/api/v1/health", BASE + "/api/v1/photo-videos",
@@ -128,6 +137,7 @@ def test_readonly_preflight_checks_health_and_denied_history_without_login_or_re
         BASE + "/api/v1/photo-videos/" + ID + "/exports/tiktok",
         BASE + "/api/v1/video-owner-acceptance",
         BASE + "/api/v1/video-owner-acceptance/mp4",
+        BASE + "/api/v1/video-readiness",
     ]
     assert session.posts == []
     assert session.download is None
@@ -143,6 +153,9 @@ def test_readonly_preflight_checks_health_and_denied_history_without_login_or_re
     {"export_public": 200}, {"export_public": 302},
     {"sample_public": 200}, {"sample_public": 404},
     {"sample_mp4_public": 200}, {"sample_mp4_public": 302},
+    {"readiness_status": 503}, {"readiness_status": 302},
+    {"readiness_state": "preparing"}, {"readiness_state": "failed"},
+    {"readiness_state": "unknown"}, {"hosted_enabled": False},
 ])
 def test_readonly_preflight_fails_closed_without_login_or_render(override):
     session = FakeSession(**override)
