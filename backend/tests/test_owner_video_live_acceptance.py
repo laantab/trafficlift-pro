@@ -10,6 +10,8 @@ from scripts.owner_video_live_acceptance import AcceptanceError, preflight, veri
 BASE = "https://trafficlift-pro.onrender.com"
 ID = "a" * 32
 COOKIE = "trafficlift_video_session=fake; HttpOnly; Secure; SameSite=Strict"
+
+
 def _valid_mp4_fixture():
     """Real tiny playable media: the HTTP acceptance must decode both streams."""
     with tempfile.TemporaryDirectory() as directory:
@@ -169,7 +171,7 @@ def test_live_probe_login_create_poll_and_save_real_mp4_signature(tmp_path):
 
 def test_http_probe_rejects_fake_ftyp_and_never_publishes_corrupt_mp4(tmp_path):
     """Previously the HTTP probe accepted arbitrary bytes after ftyp as success."""
-    fake = b"\\x00\\x00\\x00\\x18ftypisom" + b"x" * 2048
+    fake = b"\x00\x00\x00\x18ftypisom" + b"x" * 2048
     session = FakeSession(states=("succeeded",), mp4=fake)
     output = tmp_path / "corrupt.mp4"
     with pytest.raises(AcceptanceError, match="MP4 invalid"):
