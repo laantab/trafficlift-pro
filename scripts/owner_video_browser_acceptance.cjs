@@ -140,6 +140,33 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
       {timeout: 30000});
 
     let jobId = opts.jobId;
+    // Install the observer before starting browser polling. A terminal status
+    // may arrive before Playwright's page.evaluate resolves; installing this
+    // after evaluate misses the only failure response and waits for an MP4.
+    let rejectStatusFailure;
+    const failedStatus = new Promise((_, reject) => { rejectStatusFailure = reject; });
+    const onStatusResponse = async response => {
+      if (!jobId || response.url() !== BASE + '/api/v1/photo-videos/' + jobId ||
+          response.request().method() !== 'GET') return;
+      if (response.status() !== 200) {
+        rejectStatusFailure(new Error('Owner video status returned HTTP ' + response.status()));
+        return;
+      }
+      try {
+        const data = await response.json();
+        if (data?.video?.status === 'failed') {
+          rejectStatusFailure(new Error('Owner video render failed; inspect Past videos'));
+        } else if (!['queued', 'running', 'succeeded'].includes(data?.video?.status)) {
+          // The UI has no MP4 link for unknown/unsupported states. Do not
+          // wait the full 25-minute acceptance timeout for a dead job.
+          rejectStatusFailure(new Error('Unexpected owner video state; inspect Past videos'));
+        }
+      } catch (_) {
+        rejectStatusFailure(new Error('Owner video status response was not valid JSON'));
+      }
+    };
+    page.on('response', onStatusResponse);
+
     if (opts.mode === '--run') {
       if (opts.benefit) await page.locator('#freeProductFact').fill(opts.benefit);
       const createdPromise = page.waitForResponse(response =>
@@ -175,29 +202,6 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     // If the render fails or owner status access is lost, fail acceptance
     // immediately instead of waiting 25 minutes for an MP4 link that cannot
     // appear. Observe only existing GET responses; never create another job.
-    const statusUrl = BASE + '/api/v1/photo-videos/' + jobId;
-    let rejectStatusFailure;
-    const failedStatus = new Promise((_, reject) => { rejectStatusFailure = reject; });
-    const onStatusResponse = async response => {
-      if (response.url() !== statusUrl || response.request().method() !== 'GET') return;
-      if (response.status() !== 200) {
-        rejectStatusFailure(new Error('Owner video status returned HTTP ' + response.status()));
-        return;
-      }
-      try {
-        const data = await response.json();
-        if (data?.video?.status === 'failed') {
-          rejectStatusFailure(new Error('Owner video render failed; inspect Past videos'));
-        } else if (!['queued', 'running', 'succeeded'].includes(data?.video?.status)) {
-          // The UI has no MP4 link for unknown/unsupported states. Do not
-          // wait the full 25-minute acceptance timeout for a dead job.
-          rejectStatusFailure(new Error('Unexpected owner video state; inspect Past videos'));
-        }
-      } catch (_) {
-        rejectStatusFailure(new Error('Owner video status response was not valid JSON'));
-      }
-    };
-    page.on('response', onStatusResponse);
     try {
       await Promise.race([
         link.waitFor({state: 'visible', timeout: opts.timeoutMs}),
