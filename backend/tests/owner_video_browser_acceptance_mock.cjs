@@ -131,6 +131,47 @@ function fixture({mp4CacheControl = 'private, no-store'} = {}) {
     );
     assert.equal(contradictory.calls.created, 0, 'security regression must not start a render');
     assert.equal(fs.existsSync(contradictoryOpts.output), false, 'never save a publicly cacheable MP4');
+    // A second operator can create the destination after the initial
+    // existsSync guard while Chromium streams the MP4. Neither renameSync
+    // nor the replacement publish operation may overwrite that file.
+    const raceOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'concurrent.mp4'),
+    });
+    const competingBytes = Buffer.from('another operator\'s MP4 must remain intact');
+    const originalRename = fs.renameSync;
+    const originalLink = fs.linkSync;
+    let raceInjected = false;
+    function injectRace(destination) {
+      if (destination === raceOpts.output && !raceInjected) {
+        raceInjected = true;
+        fs.writeFileSync(raceOpts.output, competingBytes);
+      }
+    }
+    fs.renameSync = function(source, destination) {
+      injectRace(destination);
+      return originalRename.call(fs, source, destination);
+    };
+    fs.linkSync = function(source, destination) {
+      injectRace(destination);
+      return originalLink.call(fs, source, destination);
+    };
+    try {
+      const race = fixture();
+      await assert.rejects(
+        runBrowserAcceptance({...raceOpts, timeoutMs: 20000}, race),
+        /Output (already exists|appeared)/,
+        'a concurrent MP4 must not be overwritten during browser acceptance',
+      );
+      assert(raceInjected, 'race must be injected at the final publish operation');
+      assert.equal(race.calls.created, 0, 'resume must not start a second render');
+      assert.deepEqual(fs.readFileSync(raceOpts.output), competingBytes);
+      assert.equal(fs.readdirSync(dir).filter(name => name.includes('.partial-')).length, 0,
+        'failed publish must remove the private partial MP4');
+    } finally {
+      fs.renameSync = originalRename;
+      fs.linkSync = originalLink;
+    }
     console.log('PASS: real Chromium owner UI login, one render, status, protected MP4 download, zero-quota resume, and private download cache policy');
   } finally {
     fs.rmSync(dir, {recursive: true, force: true});
