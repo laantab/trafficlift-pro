@@ -13,7 +13,7 @@ const html = fs.readFileSync('index.html', 'utf8')
   .replace(/<script[^>]*src=[^>]*><\/script>/g, '')
   .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/, '');
 
-function fixture({mp4CacheControl = 'private, no-store'} = {}) {
+function fixture({mp4CacheControl = 'private, no-store', videoStatus = 'succeeded'} = {}) {
   const calls = {created: 0, downloaded: 0, loggedIn: 0, privateCookieSeen: false};
   const setupPage = async page => {
     await page.addInitScript(() => { window.lucide = {createIcons() {}}; });
@@ -53,7 +53,8 @@ function fixture({mp4CacheControl = 'private, no-store'} = {}) {
       }
       if (p === '/api/v1/photo-videos/' + ID) {
         return hasCookie ? json(200, {video: {
-          id: ID, name: 'Licensed Product', status: 'succeeded', message: 'Ready',
+          id: ID, name: 'Licensed Product', status: videoStatus,
+          message: videoStatus === 'failed' ? 'Fixture render failed' : 'Ready',
           video_url: '/api/v1/photo-videos/' + ID + '/video',
           product_url: 'https://seller.example/item', sales_plan: {phrases: []},
         }}, privateHeaders) : json(401, {detail: 'owner only'}, privateHeaders);
@@ -105,6 +106,20 @@ function fixture({mp4CacheControl = 'private, no-store'} = {}) {
     assert.equal(result.jobId, ID);
     assert.equal(two.calls.created, 0, 'resume must never create another render');
     assert.deepEqual(fs.readFileSync(result.output), MP4);
+    // A terminal failure is already visible in the authenticated status API.
+    // Do not wait for the full MP4-link timeout before reporting the failed job.
+    const failedOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'failed.mp4'),
+    });
+    const failed = fixture({videoStatus: 'failed'});
+    await assert.rejects(
+      runBrowserAcceptance({...failedOpts, timeoutMs: 7000}, failed),
+      /Owner video render failed/,
+      'a failed owner job must be reported promptly instead of timing out waiting for an MP4',
+    );
+    assert.equal(failed.calls.created, 0, 'failed resume must never start another render');
+    assert.equal(fs.existsSync(failedOpts.output), false, 'failed render must not publish an MP4');
     const unsafe = fixture({mp4CacheControl: 'public, max-age=3600'});
     const unsafeOpts = optionsFromEnv(['--resume', ID], {
       TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
