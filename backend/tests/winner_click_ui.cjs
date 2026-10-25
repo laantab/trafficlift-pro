@@ -1,12 +1,12 @@
 const fs=require('fs'), vm=require('vm'), assert=require('assert');
 const html=fs.readFileSync('index.html','utf8');
-function browser(response) {
- const nodes=new Map(), requests=[], events=new Map();
+function browser(response, {blockedStorage=false}={}) {
+ const nodes=new Map(), requests=[], events=new Map(), saved=new Map();
  const node=id=>{if(!nodes.has(id)) nodes.set(id,{innerHTML:'',textContent:'',style:{},value:'',classList:{add(){},remove(){}},querySelector(){return node(id+'span')},addEventListener(type,fn){events.set(id+type,fn)},appendChild(){}});return nodes.get(id)};
  const location={hostname:'127.0.0.1',pathname:'/studio',origin:'http://127.0.0.1:8000',href:'http://127.0.0.1:8000/studio',search:''};
  const context={console:{log(){},warn(){},error(){}},window:{location,lucide:{createIcons(){}}},
  document:{getElementById:node,querySelector(){return {content:''}},querySelectorAll(){return []},addEventListener(){},createElement(){return node('new')}},
- localStorage:{getItem(){return 'https://stale.example'},setItem(){}},sessionStorage:{getItem(){return null},setItem(){}},
+ localStorage:{getItem(key){if(blockedStorage && key.startsWith('trafficlift.discovery'))throw new Error('blocked');return key==='tlp_api_base'?'https://stale.example':saved.get(key)||null},setItem(key,value){if(blockedStorage && key.startsWith('trafficlift.discovery'))throw new Error('blocked');saved.set(key,value)}},sessionStorage:{getItem(){return null},setItem(){}},
  URL,URLSearchParams,Date,AbortController,crypto:require('crypto').webcrypto,
  setInterval(){},clearInterval(){},setTimeout(){},clearTimeout(){},
  fetch:async url=>{requests.push(url);return url.includes('/discover-winner')?response:{ok:true,json:async()=>({})}}};
@@ -30,6 +30,12 @@ const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',i
   assert.equal(b.requests.length,1);assert(b.nodes.get('executionOutput').innerHTML.includes('Find Winning Product failed'));
   assert.equal(b.nodes.get('findWinningProductBtn').disabled,false);
  }
+ // If site storage is disabled, do not spend a research call or select a repeat.
+ b=browser({ok:true,json:async()=>winner},{blockedStorage:true});
+ await b.events.get('findWinningProductBtnclick')();
+ assert.equal(b.requests.length,0,'Discovery must fail before any HTTP request');
+ assert(b.nodes.get('executionOutput').textContent.toLowerCase().includes('storage'));
+ assert.equal(b.nodes.get('findWinningProductBtn').disabled,false);
  // Exercise the real free-video submission with the untouched, blank benefit field.
  b=browser({ok:true,json:async()=>winner});
  b.context.window.__currentWinner={...winner,url:'https://example.com/product'};
