@@ -4,11 +4,27 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {execFileSync} = require('node:child_process');
 const {optionsFromEnv, runBrowserAcceptance} = require('../../scripts/owner_video_browser_acceptance.cjs');
 
 const ID = 'b'.repeat(32);
 const HOST = 'https://trafficlift-pro.onrender.com';
-const MP4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(4096, 88)]);
+// The success fixture must contain real decodable video AND audio, not merely
+// an ftyp signature. The corrupt fixture below preserves the former false pass.
+function createFixtureMp4() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trafficlift-valid-mp4-'));
+  try {
+    const file = path.join(dir, 'fixture.mp4');
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'color=c=blue:s=64x96:r=5:d=1',
+      '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono',
+      '-t', '1', '-c:v', 'mpeg4', '-q:v', '5', '-c:a', 'aac',
+      '-b:a', '32k', '-shortest', '-movflags', '+faststart', file],
+    {timeout: 20000, stdio: 'ignore'});
+    return fs.readFileSync(file);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+}
+const MP4 = createFixtureMp4();
 const html = fs.readFileSync('index.html', 'utf8')
   .replace(/<script[^>]*src=[^>]*><\/script>/g, '')
   .replace(/<script>\s*tailwind.config[\s\S]*?<\/script>/, '');
