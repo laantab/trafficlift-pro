@@ -469,3 +469,37 @@ def test_existing_compact_and_spaced_history_keys_remain_effective(tmp_path):
         assert not WinnerHistory('returning-browser', path=path).claim(
             identity_keys(new_title, 'https://seller.example/changed-' + old_title.replace(' ', '-'))
         ), 'Pre-upgrade permanent history must still exclude measurement relistings'
+
+
+def test_percent_encoded_unreserved_product_path_cannot_recycle_winner(tmp_path):
+    """Retailer URL encoders may escape letters or hyphens without changing SKU."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    original = identity_keys(
+        'Compact Desk Lamp Model A',
+        'https://shop.example/products/desk-lamp?utm_source=pin',
+    )
+    relisted = identity_keys(
+        'Rechargeable Reading Light Model A',
+        'https://shop.example/products/%64esk%2Dlamp?utm_source=video',
+    )
+    assert history.claim(original)
+    assert not history.claim(relisted), (
+        'Percent-encoding an unreserved path character must not create a new winner'
+    )
+    reverse = WinnerHistory('second-browser', path=history.path)
+    assert reverse.claim(relisted)
+    assert not reverse.claim(original), 'Canonicalization must work in both directions'
+
+
+def test_percent_encoded_reserved_path_and_real_skus_remain_distinct(tmp_path):
+    """Encoded slashes must not become route separators; SKU selectors stay intact."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys(
+        'Lamp Variant Alpha', 'https://shop.example/products/desk%2Flamp?sku=alpha'
+    ))
+    assert history.claim(identity_keys(
+        'Lamp Variant Beta', 'https://shop.example/products/desk/lamp?sku=beta'
+    ))
+    assert history.claim(identity_keys(
+        'Lamp Variant Gamma', 'https://shop.example/products/desk%2Flamp?sku=gamma'
+    ))
