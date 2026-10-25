@@ -41,7 +41,7 @@ const context = {
       authorized = true;
       return {ok: true, json: async () => ({authorized: true})};
     }
-    if (!authorized) return {ok: false, json: async () => ({detail: 'Video access requires authorization.'})};
+    if (!authorized) return {ok: false, status: 401, json: async () => ({detail: 'Video access requires authorization.'})};
     if (url.endsWith('/photo-videos')) return {ok: true, json: async () => ({videos: []})};
     if (url.endsWith('/video-owner-acceptance')) return {ok: true, json: async () => receipt};
     throw new Error('Unexpected request: ' + url);
@@ -80,6 +80,15 @@ vm.runInContext(code, context);
   element('hostedVideoAcceptanceReview').classList.add('hidden');
   await context.restoreHostedOwnerSession();
   assert(element('hostedVideoAcceptanceReview').classList.contains('hidden'));
+  assert(!element('hostedVideoOwnerAccess').classList.contains('hidden'),
+    'expired owner session must show the unlock panel');
+  assert(element('videoOwnerAccessStatus').textContent.includes('expired'),
+    'expired owner session must explain reauthorization without exposing secrets');
+  element('hostedVideoOwnerAccess').classList.add('hidden');
+  await assert.rejects(context.freeVideoRequest('/api/v1/photo-videos'), /Owner session expired/);
+  assert(!element('hostedVideoOwnerAccess').classList.contains('hidden'),
+    'a protected request returning 401 must reveal owner unlock');
+  assert.strictEqual(loginCount, 1, 'reauthorization prompt must not automatically resubmit access code');
   authorized = true;
   assert(!source.includes('test-owner-code'), 'test credential must not enter production HTML');
   receipt = {state: 'not_run', sample_only: true, download_url: null};

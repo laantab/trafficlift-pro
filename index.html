@@ -1543,7 +1543,17 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const url = hostedVideoSite ? location.origin + path : apiUrl(path);
         const response = await fetch(url, {...options, signal: AbortSignal.timeout(30000)});
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Check the product fields and try again.');
+        if (!response.ok) {
+            const detail = typeof data.detail === 'string' ? data.detail : 'Check the product fields and try again.';
+            if (hostedVideoSite && response.status === 401 && !path.includes('/video-owner-login')) {
+                const panel = document.getElementById('hostedVideoOwnerAccess');
+                const note = document.getElementById('videoOwnerAccessStatus');
+                if (panel) panel.classList.remove('hidden');
+                if (note) note.textContent = 'Your owner session has expired. Enter your access code and click Unlock Video Studio. Your completed videos remain saved; check Past Videos before starting another render.';
+                throw new Error('Owner session expired. Unlock Video Studio again, then check Past Videos. Do not restart the video yet.');
+            }
+            throw new Error(detail);
+        }
         return data;
     }
     function showFreeVideo(job, resultEl) {
