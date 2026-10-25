@@ -129,10 +129,15 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     await link.click();
     const mp4Response = await responsePromise;
     const mp4Headers = await mp4Response.allHeaders();
+    // Cache-Control is a set of directives, not a substring match: a
+    // contradictory "public, private, no-store" response must fail closed.
+    const cacheDirectives = new Set((mp4Headers['cache-control'] || '')
+      .split(',').map(directive => directive.trim().split('=', 1)[0].toLowerCase()));
     if (mp4Response.status() !== 200 ||
         !/^video\/mp4(?:;|$)/i.test(mp4Headers['content-type'] || '') ||
-        !/\bprivate\b/i.test(mp4Headers['cache-control'] || '') ||
-        !/\bno-store\b/i.test(mp4Headers['cache-control'] || '')) {
+        !cacheDirectives.has('private') ||
+        !cacheDirectives.has('no-store') ||
+        cacheDirectives.has('public')) {
       throw new Error('MP4 response must be HTTP 200 video/mp4 with private no-store');
     }
     const download = await downloadPromise;
