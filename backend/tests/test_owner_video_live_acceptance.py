@@ -245,3 +245,32 @@ def test_http_acceptance_rejects_public_mp4_even_with_no_store(tmp_path, cache_c
     assert session.download.closed
     assert not output.exists()
     assert not list(tmp_path.glob("*.partial"))
+
+
+def test_live_acceptance_does_not_overwrite_output_created_during_download(tmp_path):
+    """A second operator/process may create the output after the initial check.
+
+    The acceptance probe must fail closed and preserve that existing file,
+    rather than replacing it after the streamed download finishes.
+    """
+    output = tmp_path / "race.mp4"
+
+    class ConcurrentWriterSession(FakeSession):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            if url.endswith("/video"):
+                original = response.iter_content
+
+                def concurrent_stream(chunk_size):
+                    output.write_bytes(b"another-operator-output")
+                    yield from original(chunk_size)
+
+                response.iter_content = concurrent_stream
+            return response
+
+    session = ConcurrentWriterSession(states=("succeeded",))
+    with pytest.raises(AcceptanceError, match="already exists"):
+        verify(session, "not-a-real-secret", resume=ID, output=output)
+    assert output.read_bytes() == b"another-operator-output"
+    assert session.download.closed
+    assert not list(tmp_path.glob("*.partial"))
