@@ -180,6 +180,31 @@ def identity_keys(name, url):
     canonical = urlunsplit(('https', host_name, canonical_path,
                            urlencode(sorted(query)), ''))
     if p.hostname:
+        # Retailers can change both the product slug and display name while
+        # retaining their own SKU. Claim a host-scoped key only when that SKU
+        # is strong and unambiguous. A parent SKU accompanied by size, color,
+        # variant, or any other non-tracking selector is NOT safe to collapse:
+        # the additional selector may identify a different sellable variant.
+        # SKU values are case-sensitive; only query *key* case and boundary
+        # whitespace are normalized. Existing URL/name keys remain intact.
+        sku_values = [value.strip() for key, value in query_pairs
+                      if key.lower() == 'sku']
+        other_selectors = [
+            key for key, _ in query_pairs
+            if key.lower() != 'sku'
+            and not key.lower().startswith('utm_')
+            and key.lower() not in _TRACKING_PARAMS
+        ]
+        # Entity-like and reserved separators in a product path can identify
+        # different routes even when a query SKU happens to match. Keep those
+        # paths distinct, as required by the existing encoded-path safeguards.
+        safe_sku_path = not re.search(r'&|;|%(?:26|3b)', raw_p.path, re.I)
+        if (sku_values and len(set(sku_values)) == 1
+                and not other_selectors and safe_sku_path):
+            sku = sku_values[0]
+            if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{3,63}', sku):
+                keys.append('merchant-sku-' + hashlib.sha256(
+                    f'{host_name}:{sku}'.encode()).hexdigest()[:24])
         keys.append('url-' + hashlib.sha256(canonical.encode()).hexdigest()[:24])
         # Preserve the pre-upgrade identity for an already stored encoded URL.
         # Historical hashes alone cannot recover a *different* old encoding;
