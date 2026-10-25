@@ -665,3 +665,34 @@ def test_html_escaped_shopify_variant_selector_cannot_recycle_winner(tmp_path):
         'Expandable Storage Rack Large',
         'https://seller.example/products/storage-rack?variant=44332211009989',
     )), 'Different Shopify variants must remain eligible'
+
+
+def test_numeric_html_query_entities_preserve_shopify_variant_identity(tmp_path):
+    """Both decimal and hex HTML ampersands must preserve retailer SKU selectors."""
+    for index, entity in enumerate(('&#38;', '&#x26;')):
+        history = WinnerHistory(f'client-{index}', path=tmp_path / 'numeric-entities.sqlite3')
+        assert history.claim(identity_keys(
+            'Original Desk Lamp Model A',
+            'https://shop.example/products/lamp?utm_source=pin' + entity + 'variant=44332211009988',
+        ))
+        assert not history.claim(identity_keys(
+            'Renamed Reading Lantern Model B',
+            'https://shop.example/fr-ca/products/lantern?variant=44332211009988',
+        ))
+
+
+def test_html_query_unescaping_does_not_change_product_path_or_sku(tmp_path):
+    """An entity-looking path is not an HTML query separator; distinct SKUs stay distinct."""
+    history = WinnerHistory('same-browser', path=tmp_path / 'path-control.sqlite3')
+    assert history.claim(identity_keys(
+        'Compact Desk Light Model A',
+        'https://shop.example/products/lamp&amp;special?sku=compact-a',
+    ))
+    assert history.claim(identity_keys(
+        'Portable Reading Lantern Model B',
+        'https://shop.example/products/lamp&special?sku=compact-a',
+    )), 'Do not decode HTML entities in product paths'
+    assert history.claim(identity_keys(
+        'Large Desk Light Model C',
+        'https://shop.example/products/lamp&amp;special?sku=compact-b',
+    )), 'Do not merge distinct SKUs'
