@@ -137,3 +137,27 @@ def test_export_slot_and_temp_file_survive_until_stream_end(monkeypatch, tmp_pat
     assert not archive_path.exists(), "temporary ZIP must be removed"
     assert export_lock.acquire(blocking=False), "slot must be released after stream or disconnect"
     export_lock.release()
+
+
+def test_platform_kits_include_local_visual_safe_zone_review(monkeypatch, tmp_path):
+    """Review an exact copied master locally without another render or web service."""
+    app, job_id, master, _ = _setup(monkeypatch, tmp_path)
+    with TestClient(app, base_url=HOST) as owner:
+        assert owner.post("/api/v1/video-owner-login", json={"access_code": SECRET},
+                          headers={"origin": HOST}).status_code == 200
+        for platform, config in PLATFORMS.items():
+            response = owner.get(f"/api/v1/photo-videos/{job_id}/exports/{platform}")
+            assert response.status_code == 200
+            with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+                assert archive.read("video.mp4") == master
+                html = archive.read("safe_zone_review.html").decode("utf-8")
+                assert 'src="video.mp4"' in html, "Preview must play the existing master"
+                assert config["label"] in html
+                assert config["source"] in html, "Reviewer needs current official guidance"
+                assert "illustrative" in html.lower()
+                assert "manual" in html.lower()
+                assert "right" in html.lower() and "bottom" in html.lower()
+                assert "<script" not in html.lower(), "Offline preview must not run scripts"
+                manifest = json.loads(archive.read("manifest.json"))
+                assert manifest["safe_zone_preview"] == "safe_zone_review.html"
+                assert manifest["safe_zone_approval"] == "MANUAL_REVIEW_REQUIRED"
