@@ -67,7 +67,11 @@ def identity_keys(name, url):
         # seller changes the /products/<slug> or listing title. Do not apply
         # this to arbitrary ?variant=1 selectors used by other storefronts.
         # A real numeric Shopify variant remains distinct from another SKU.
-        if re.fullmatch(r'/products/[^/]+/?', p.path, re.I):
+        # Shopify Markets can add a language/region prefix to product URLs.
+        # The same numeric variant must stay excluded across locale changes,
+        # even if the merchant also renames the product and URL slug.
+        # Only accept a root or single locale prefix, never arbitrary paths.
+        if re.fullmatch(r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/[^/]+/?', p.path, re.I):
             variants = [v for k, v in parse_qsl(p.query) if k.lower() == 'variant']
             if len(variants) == 1 and re.fullmatch(r'[0-9]{8,20}', variants[0]):
                 merchant_variant = f'{host}:{variants[0]}'
