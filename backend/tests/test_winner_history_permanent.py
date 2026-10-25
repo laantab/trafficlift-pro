@@ -696,3 +696,46 @@ def test_html_query_unescaping_does_not_change_product_path_or_sku(tmp_path):
         'Large Desk Light Model C',
         'https://shop.example/products/lamp&amp;special?sku=compact-b',
     )), 'Do not merge distinct SKUs'
+
+
+def test_case_changed_and_repeated_sku_query_cannot_recycle_winner(tmp_path):
+    """Seller integrations can repeat an identical SKU under differently cased keys."""
+    path = tmp_path / "sku-repeat.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    original = identity_keys(
+        "Compact Blue Desk Lamp",
+        "https://seller.example/offer?sku=AB-12&ref=first",
+    )
+    relisted = identity_keys(
+        "Rechargeable LED Reading Light",
+        "https://seller.example/offer?SKU=AB-12&sku=AB-12&ttclid=other",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=path).claim(relisted), (
+        "Changing selector capitalization and repeating the same SKU cannot reset history"
+    )
+    assert history.claim(identity_keys(
+        "Larger LED Reading Light",
+        "https://seller.example/offer?sku=AB-13",
+    )), "A genuinely different SKU must remain eligible"
+
+
+def test_repeated_variant_query_on_non_shopify_path_cannot_recycle_winner(tmp_path):
+    """Duplicate variant query selectors must normalize even outside /products URLs."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "variant-repeat.sqlite3")
+    assert history.claim(identity_keys(
+        "Small Travel Organizer",
+        "https://seller.example/item?variant=blue-small",
+    ))
+    assert not history.claim(identity_keys(
+        "Compact Packing Cubes",
+        "https://seller.example/item?Variant=blue-small&variant=blue-small",
+    )), "An identical repeated variant is not a fresh product"
+    assert history.claim(identity_keys(
+        "Large Packing Cubes",
+        "https://seller.example/item?variant=blue-large",
+    )), "Different variants must remain distinct"
+    assert history.claim(identity_keys(
+        "Ambiguous Selector Listing",
+        "https://seller.example/item?variant=blue-small&variant=blue-large",
+    )), "Conflicting selector values must not be collapsed to one variant"

@@ -45,6 +45,31 @@ _HTML_QUERY_AMPERSAND = re.compile(r'&(?:amp|#0*38|#x0*26);', re.I)
 _UNRESERVED_PATH = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~')
 
 
+def _canonical_query_pairs(pairs):
+    """Normalize only retailer SKU selectors; keep all distinct selector values.
+
+    Integrations sometimes repeat an identical ?sku or ?variant parameter or
+    change its capitalization. Both are one product identity, but conflicting
+    values remain separate. Do not rewrite unrelated, possibly case-sensitive
+    query fields or SKU *values*.
+    """
+    cleaned = []
+    seen_selectors = set()
+    for key, value in pairs:
+        lowered = key.lower()
+        if lowered.startswith('utm_') or lowered in _TRACKING_PARAMS:
+            continue
+        if lowered in {'sku', 'variant'}:
+            pair = (lowered, value)
+            if pair in seen_selectors:
+                continue
+            seen_selectors.add(pair)
+        else:
+            pair = (key, value)
+        cleaned.append(pair)
+    return sorted(cleaned)
+
+
 def _canonical_product_path(path):
     def normalize_escape(match):
         value = chr(int(match.group(1), 16))
@@ -123,8 +148,7 @@ def identity_keys(name, url):
         p = raw_p
     canonical_path = _canonical_product_path(p.path)
     query_pairs = parse_qsl(p.query)
-    query = [(k, v) for k, v in query_pairs if not k.lower().startswith('utm_')
-             and k.lower() not in _TRACKING_PARAMS]
+    query = _canonical_query_pairs(query_pairs)
     host_name = (p.hostname or '').lower().removeprefix('www.')
     canonical = urlunsplit(('https', host_name, canonical_path,
                            urlencode(sorted(query)), ''))
