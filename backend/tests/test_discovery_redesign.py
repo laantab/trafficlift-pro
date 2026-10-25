@@ -132,7 +132,8 @@ def test_local_browser_history_contract():
     assert "params.set('client_id', discoveryClientId())" in html
     assert "params.set('exclude_keys', keys.join(','))" in html
     assert 'rememberDiscoveredWinner(winner)' in html
-    assert 'const params = discoveryParams();' in html
+    assert 'params = discoveryParams();' in html
+    assert 'Permanent winner history requires browser site storage' in html
 
 
 def test_twenty_clicks_return_twenty_new_products(isolated,monkeypatch):

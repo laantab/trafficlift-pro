@@ -2942,17 +2942,26 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     // â”€â”€ PATH A â€” Find a Winning Product (no input required) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Reads NOTHING from the URL field. Always hits the discovery
     // endpoint with the default 'trending product' seed.
-    // A stable anonymous browser identity and 30-day local history survive
-    // refreshes. Server SQLite history is shared across workers on this host.
+    // Browser identity must survive reloads. The server ledger never expires
+    // winners for that identity, but cannot recover it if site data is cleared.
     const DISCOVERY_HISTORY_KEY = 'trafficlift.discovery.history.v3';
     const DISCOVERY_CLIENT_KEY = 'trafficlift.discovery.client.v3';
     function discoveryClientId() {
         if (window.__discoveryClientId) return window.__discoveryClientId;
         let id = '';
-        try { id = localStorage.getItem(DISCOVERY_CLIENT_KEY) || ''; } catch (_) {}
-        if (!/^[a-zA-Z0-9_-]{16,64}$/.test(id)) {
-            id = crypto.randomUUID().replace(/-/g, '');
-            try { localStorage.setItem(DISCOVERY_CLIENT_KEY, id); } catch (_) {}
+        try {
+            id = localStorage.getItem(DISCOVERY_CLIENT_KEY) || '';
+            if (!/^[a-zA-Z0-9_-]{16,64}$/.test(id)) {
+                id = crypto.randomUUID().replace(/-/g, '');
+                localStorage.setItem(DISCOVERY_CLIENT_KEY, id);
+                // Some privacy settings silently discard writes. A temporary
+                // ID would bypass the permanent ledger after every reload.
+                if (localStorage.getItem(DISCOVERY_CLIENT_KEY) !== id) {
+                    throw new Error('Site storage did not retain the browser identity');
+                }
+            }
+        } catch (_) {
+            throw new Error('Permanent winner history requires browser site storage. Enable site storage and reload; no new winner was selected.');
         }
         window.__discoveryClientId = id;
         return id;
@@ -3022,8 +3031,30 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
         // Note: we deliberately do NOT read #productUrl here.
         const isFirstRun = !window.__pickPipelineRanOnce;
+        let params;
+        try {
+            params = discoveryParams();
+        } catch (error) {
+            // Fail before research or Pinterest generation if the browser
+            // cannot retain the ID that binds it to its permanent history.
+            const message = error.message || 'Browser site storage is unavailable.';
+            if (resultsEl) resultsEl.classList.remove('hidden');
+            if (executionEl) {
+                executionEl.textContent = message;
+                executionEl.classList.remove('hidden');
+            }
+            if (inlineErrEl) {
+                inlineErrEl.textContent = message;
+                inlineErrEl.classList.remove('hidden');
+            }
+            if (btn) {
+                btn.disabled = false;
+                const label = btn.querySelector('span');
+                if (label) label.textContent = 'Find Winning Product';
+            }
+            return;
+        }
         window.__pickPipelineRanOnce = true;
-        const params = discoveryParams();
         // PATH A calls ONLY the dedicated discovery endpoint - never
         // /find-winner, never /analyze-product-url, never a keyword path.
         const requestUrl = apiUrl(`/api/v1/discover-winner?${params.toString()}`);
