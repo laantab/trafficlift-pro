@@ -939,7 +939,7 @@ def test_discover_route_forwards_exclude_to_live_discovery(monkeypatch):
 
     monkeypatch.setattr("backend.discovery.discover_winner", fake_discover)
     c = TestClient(app)
-    r = c.get("/api/v1/discover-winner?exclude=discover-old-001")
+    r = c.get("/api/v1/discover-winner?client_id=regression-browser-route&exclude=discover-old-001")
     assert r.status_code == 200, r.text
     assert captured["exclude_ids"] == {"discover-old-001"}
 
@@ -1007,7 +1007,7 @@ def test_live_discovery_skips_excluded_candidate(monkeypatch):
         primary_reason = ""
     monkeypatch.setattr(d.ProductControlAgent, "evaluate", lambda *a, **k: Report())
 
-    winner = d.discover_winner(exclude_ids={"discover-old-001"})
+    winner = d.discover_winner(exclude_ids={"discover-old-001"}, client_id="regression-browser-1010")
     from backend.winner_history import product_id
     assert winner["id"] == product_id("Magnetic Phone Stand", "https://example.com/2")
 
@@ -3817,7 +3817,7 @@ def test_backend_discovery_rejects_with_specific_message(monkeypatch):
     monkeypatch.setattr("backend.live_research.research", lambda *a,**kw: types.SimpleNamespace(research_status="fallback",research_sources=[]))
     from backend.discovery import discover_winner
     with pytest.raises(HTTPException) as exc:
-        discover_winner()
+        discover_winner(client_id="regression-browser-3820")
     assert exc.value.status_code==503
     assert 'No saved-list product was substituted' in exc.value.detail
 
@@ -3874,7 +3874,7 @@ def test_backend_discovery_returns_qualified_winner(monkeypatch):
 
     monkeypatch.setattr(ProductControlAgent, "evaluate", staticmethod(_stub_evaluate))
 
-    winner = discover_winner()
+    winner = discover_winner(client_id="regression-browser-3877")
 
     assert winner.get("source") == "discovery", (
         "winner must be tagged with source='discovery'"
@@ -3904,7 +3904,7 @@ def test_backend_discovery_skips_candidate_without_verified_image(monkeypatch):
     monkeypatch.setattr('backend.live_research.research',lambda *a,**kw:env)
     monkeypatch.setattr(d,'_find_image_for_candidate',lambda *a,**kw:None)
     with mock.patch.object(d,'_pick_curated_winner') as saved:
-        with pytest.raises(HTTPException) as exc:d.discover_winner()
+        with pytest.raises(HTTPException) as exc:d.discover_winner(client_id="regression-browser-3907")
         assert exc.value.status_code==404
         saved.assert_not_called()
 
@@ -4130,7 +4130,7 @@ def test_discover_winner_uses_prefetched_image_first(monkeypatch):
     monkeypatch.setattr(ProductControlAgent, "evaluate",
                         staticmethod(lambda w: _Report()))
 
-    winner = discovery_mod.discover_winner()
+    winner = discovery_mod.discover_winner(client_id="regression-browser-4133")
 
     assert captured["pre_count"] >= 1, (
         "pre-fetched Tavily images must be passed to _find_image_for_candidate"
@@ -4359,7 +4359,7 @@ def test_discover_winner_refuses_curated_when_live_research_empty(monkeypatch):
     from backend import discovery as d
     monkeypatch.setattr('backend.live_research.research',lambda *a,**kw:types.SimpleNamespace(research_status='live',research_sources=[]))
     with mock.patch.object(d,'_pick_curated_winner') as saved:
-        with pytest.raises(HTTPException) as exc:d.discover_winner()
+        with pytest.raises(HTTPException) as exc:d.discover_winner(client_id="regression-browser-4362")
         assert exc.value.status_code==503
         saved.assert_not_called()
 
