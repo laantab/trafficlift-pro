@@ -91,10 +91,11 @@ def identity_keys(name, url):
         if len(alt_tokens) >= 3 and len(set(alt_tokens)) >= 3:
             keys.append('title-' + hashlib.sha256(' '.join(sorted(alt_tokens)).encode()).hexdigest()[:24])
     p = urlsplit(url)
+    canonical_path = _canonical_product_path(p.path)
     query = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith('utm_')
              and k.lower() not in _TRACKING_PARAMS]
     host_name = (p.hostname or '').lower().removeprefix('www.')
-    canonical = urlunsplit(('https', host_name, _canonical_product_path(p.path),
+    canonical = urlunsplit(('https', host_name, canonical_path,
                            urlencode(sorted(query)), ''))
     if p.hostname:
         keys.append('url-' + hashlib.sha256(canonical.encode()).hexdigest()[:24])
@@ -117,18 +118,18 @@ def identity_keys(name, url):
         # The same numeric variant must stay excluded across locale changes,
         # even if the merchant also renames the product and URL slug.
         # Only accept a root or single locale prefix, never arbitrary paths.
-        if re.fullmatch(r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/[^/]+/?', p.path, re.I):
+        if re.fullmatch(r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/[^/]+/?', canonical_path, re.I):
             variants = [v for k, v in parse_qsl(p.query) if k.lower() == 'variant']
             if len(variants) == 1 and re.fullmatch(r'[0-9]{8,20}', variants[0]):
                 merchant_variant = f'{host}:{variants[0]}'
                 keys.append('shopify-variant-' + hashlib.sha256(
                     merchant_variant.encode()).hexdigest()[:24])
         if host == 'amazon.com' or host.endswith('.amazon.com'):
-            match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', p.path, re.I)
+            match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', canonical_path, re.I)
             if match:
                 keys.append('amazon-asin-' + match.group(1).lower())
         elif host == 'walmart.com' or host.endswith('.walmart.com'):
-            match = re.search(r'/ip/(?:[^/]+/)?([0-9]{6,})(?:/|$)', p.path, re.I)
+            match = re.search(r'/ip/(?:[^/]+/)?([0-9]{6,})(?:/|$)', canonical_path, re.I)
             if match:
                 keys.append('walmart-item-' + match.group(1))
         elif host == 'target.com' or host.endswith('.target.com'):
@@ -138,7 +139,7 @@ def identity_keys(name, url):
             # Claim the child's stable TCIN (also used by its direct listing),
             # never the parent TCIN. This blocks relisted child URLs without
             # conflating other sizes, packs, or the unselected parent.
-            match = re.search(r'/p/(?:[^/]+/)?-/A-([0-9]{6,})(?:/|$)', p.path, re.I)
+            match = re.search(r'/p/(?:[^/]+/)?-/A-([0-9]{6,})(?:/|$)', canonical_path, re.I)
             preselected = next((v for k, v in parse_qsl(p.query)
                                 if k.lower() == 'preselect' and v), None)
             if preselected:
