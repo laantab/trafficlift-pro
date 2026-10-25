@@ -29,8 +29,14 @@ class AcceptanceError(RuntimeError):
 def _check(response, expected, label):
     if response.status_code != expected:
         raise AcceptanceError(f"{label}: expected HTTP {expected}, got {response.status_code}")
-    if "no-store" not in response.headers.get("Cache-Control", "").lower():
-        raise AcceptanceError(f"{label}: private response is missing no-store")
+    # Cache-Control directives are tokens, not substrings. A public response
+    # (or a made-up x-no-store directive) must never certify owner privacy.
+    directives = {
+        part.strip().split("=", 1)[0].strip().lower()
+        for part in response.headers.get("Cache-Control", "").split(",")
+    }
+    if "no-store" not in directives or "public" in directives:
+        raise AcceptanceError(f"{label}: private response has unsafe cache policy")
 
 
 def _job_id(value):
