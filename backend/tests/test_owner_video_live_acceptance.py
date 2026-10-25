@@ -40,6 +40,7 @@ class FakeSession:
         self.mp4 = mp4
         self.posts = []
         self.download = None
+        self.probe_download = None
         self.logged_in = False
         self.reads = []
         self.status_public = status_public
@@ -54,7 +55,8 @@ class FakeSession:
         if url.endswith("/photo-videos"):
             return Response(self.unauthorized)
         if url.endswith("/video") and not self.logged_in:
-            return Response(self.mp4_public)
+            self.probe_download = Response(self.mp4_public)
+            return self.probe_download
         if url.endswith("/" + ID) and not self.logged_in:
             return Response(self.status_public)
         if url.endswith("/video"):
@@ -91,6 +93,7 @@ def test_readonly_preflight_checks_health_and_denied_history_without_login_or_re
     ]
     assert session.posts == []
     assert session.download is None
+    assert session.probe_download.closed
 
 
 @pytest.mark.parametrize("health,unauthorized,status_public,mp4_public", [
@@ -106,6 +109,8 @@ def test_readonly_preflight_fails_closed_without_login_or_render(
         preflight(session)
     assert session.posts == []
     assert session.download is None
+    if session.probe_download is not None:
+        assert session.probe_download.closed
 
 
 def test_live_probe_login_create_poll_and_save_real_mp4_signature(tmp_path):
