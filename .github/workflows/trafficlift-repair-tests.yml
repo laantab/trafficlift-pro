@@ -37,6 +37,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest tree-sitter tree-sitter-javascript numpy pillow soundfile
+      - name: Install FFmpeg and FFprobe for owner MP4 decode acceptance
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       - name: Run Find Winner regression suite
         run: |
           mkdir -p video
@@ -53,10 +57,6 @@ jobs:
         run: npm install --no-save --no-package-lock jsdom@24 @napi-rs/canvas@0.1.96
       - name: Verify complete Pinterest image export in a DOM
         run: node backend/tests/full_dom_pin.cjs
-      - name: Install FFmpeg and FFprobe for owner MP4 decode acceptance
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
       - name: Install Chromium browser for release acceptance
         run: |
           npm install --no-save --no-package-lock playwright@1.56.1 jsdom@24 @napi-rs/canvas@0.1.96
