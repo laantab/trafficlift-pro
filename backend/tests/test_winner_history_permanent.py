@@ -427,3 +427,24 @@ def test_unicode_title_identity_does_not_collapse_distinct_sizes(tmp_path):
     history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
     assert history.claim(identity_keys('Café Mug 12oz', 'https://shop.example/a'))
     assert history.claim(identity_keys('Cafe Mug 16oz', 'https://shop.example/b'))
+
+
+def test_compact_measurement_relisting_cannot_recycle_winner(tmp_path):
+    """A changed seller URL and spaced measurement must not reset a winner.
+
+    A 12oz mug and a 12 oz mug describe the same quantity; a 16oz size
+    is a different SKU and must remain eligible. This also applies to ml.
+    """
+    history = WinnerHistory('returning-browser', path=tmp_path / 'history.db')
+    first = identity_keys('Café Travel Mug 12oz', 'https://seller.example/old-listing')
+    relisted = identity_keys('Cafe Travel Mug 12 oz', 'https://seller.example/new-listing')
+    assert history.claim(first)
+    assert not WinnerHistory('returning-browser', path=history.path).claim(relisted), (
+        'A measurement-space and URL change must not recycle a previous winner'
+    )
+    assert history.claim(identity_keys('Cafe Travel Mug 16 oz', 'https://seller.example/large'))
+
+    second = identity_keys('Hydration Bottle 500ml', 'https://seller.example/bottle-old')
+    assert history.claim(second)
+    assert not history.claim(identity_keys('Hydration Bottle 500 ml', 'https://seller.example/bottle-new'))
+    assert history.claim(identity_keys('Hydration Bottle 750 ml', 'https://seller.example/bottle-large'))
