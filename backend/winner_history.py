@@ -195,7 +195,12 @@ def identity_keys(name, url):
             and not key.lower().startswith('utm_')
             and key.lower() not in _TRACKING_PARAMS
         ]
-        if sku_values and len(set(sku_values)) == 1 and not other_selectors:
+        # Entity-like and reserved separators in a product path can identify
+        # different routes even when a query SKU happens to match. Keep those
+        # paths distinct, as required by the existing encoded-path safeguards.
+        safe_sku_path = not re.search(r'&|;|%(?:26|3b)', raw_p.path, re.I)
+        if (sku_values and len(set(sku_values)) == 1
+                and not other_selectors and safe_sku_path):
             sku = sku_values[0]
             if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{3,63}', sku):
                 keys.append('merchant-sku-' + hashlib.sha256(
