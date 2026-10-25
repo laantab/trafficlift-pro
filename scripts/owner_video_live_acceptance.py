@@ -56,7 +56,8 @@ def preflight(session):
 
 
 def verify(session, access_code, *, payload=None, resume=None, output=None,
-           timeout=1800, interval=5, now=time.monotonic, sleep=time.sleep):
+           timeout=1800, interval=5, now=time.monotonic, sleep=time.sleep,
+           on_created=None):
     """Verify auth, create/resume, poll, and stream a real MP4 to disk.
 
     session is a requests.Session-compatible object. Never log access_code.
@@ -89,6 +90,10 @@ def verify(session, access_code, *, payload=None, resume=None, output=None,
                                allow_redirects=False)
         _check(created, 202, "Video creation")
         job_id = _job_id(created.json().get("video", {}).get("id"))
+        # Announce the non-secret job ID before polling. If the connection fails
+        # later, the operator can --resume without starting a second render.
+        if on_created is not None:
+            on_created(job_id)
     else:
         job_id = resume
 
@@ -181,10 +186,14 @@ def main():
         }
         if not all(payload[key].startswith("https://") for key in ("image_url", "product_url")):
             parser.error("Product and image URLs must use HTTPS")
+    def announce_created(job_id):
+        print(f"Owner video created: job={job_id}; if interrupted, use --resume {job_id}", flush=True)
+
     try:
         with requests.Session() as session:
             result = verify(session, code, payload=payload, resume=args.resume,
-                            output=args.output, timeout=args.timeout)
+                            output=args.output, timeout=args.timeout,
+                            on_created=announce_created if args.run else None)
     except (AcceptanceError, requests.RequestException, ValueError) as exc:
         # Never print HTTP bodies, request headers, cookies, or access codes.
         parser.exit(1, "Owner MP4 acceptance failed: " + str(exc)[:240] + "\n")
