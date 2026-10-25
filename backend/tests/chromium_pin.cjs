@@ -52,6 +52,21 @@ const { createCanvas } = require('@napi-rs/canvas');
     savedImage.src=saved;
     assert.equal(savedImage.width,1000);assert.equal(savedImage.height,1500);
     fs.writeFileSync('/tmp/trafficlift-chromium-lamp.jpg',Buffer.from(result.jpeg.split(',')[1],'base64'));
-    console.log('PASS: real Chromium renders full 1000x1500 pin, claim-safe lamp headline, and visible product photo');
+    // A real browser with blocked storage must never issue a new winner request
+    // under a temporary identity that disappears on reload.
+    let discoveryRequests=0;
+    await page.route('**/api/v1/discover-winner?**',route=>{
+      discoveryRequests++;
+      return route.fulfill({status:500,body:'Unexpected discovery request'});
+    });
+    const storageFailure=await page.evaluate(async()=>{
+      Object.defineProperty(window,'localStorage',{configurable:true,get(){throw new Error('blocked')}});
+      window.__discoveryClientId=null;
+      await findWinningProduct();
+      return document.getElementById('executionOutput').textContent;
+    });
+    assert.match(storageFailure,/browser site storage/i);
+    assert.equal(discoveryRequests,0,'Blocked storage must not launch live research');
+    console.log('PASS: real Chromium pin export and blocked-storage winner history fail-closed');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});
