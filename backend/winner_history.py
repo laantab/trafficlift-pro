@@ -47,6 +47,14 @@ def identity_keys(name, url):
     normalized = ' '.join(re.findall(r'[a-z0-9]+', name.lower()))
     keys = ['name-' + hashlib.sha256(normalized.encode()).hexdigest()[:24]]
     tokens = _title_tokens(name)
+    # Retain the legacy name key so existing ASCII winner records still match.
+    # Also store a Unicode-folded key: the legacy ASCII regex drops accented
+    # letters ("Café Mug" became "caf mug"), letting short renamed listings
+    # repeat when the URL changed. Short titles intentionally do not get the
+    # broader sorted-token key, but their exact folded form is still stable.
+    folded_name = ' '.join(tokens)
+    if folded_name:
+        keys.append('name-folded-' + hashlib.sha256(folded_name.encode()).hexdigest()[:24])
     # A conservative second key catches reordered titles, UK/US spelling,
     # and piece/pc variants without conflating short generic names.
     if len(tokens) >= 3 and len(set(tokens)) >= 3:
