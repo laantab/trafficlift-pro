@@ -161,3 +161,33 @@ def test_reject_invalid_resume_id_without_network(tmp_path):
     with pytest.raises(AcceptanceError, match="invalid video job ID"):
         verify(session, "not-a-real-secret", resume="../unsafe", output=tmp_path / "bad.mp4")
     assert session.posts == []
+
+
+def test_created_job_id_survives_status_network_interruption(tmp_path):
+    """A live acceptance run must reveal its safe job ID before a poll fails.
+
+    The operator can then use --resume rather than consume another render slot.
+    """
+    import requests
+
+    class InterruptedSession(FakeSession):
+        def get(self, url, **kwargs):
+            if url.endswith("/" + ID):
+                raise requests.Timeout("temporary polling timeout")
+            return super().get(url, **kwargs)
+
+    announced = []
+    session = InterruptedSession()
+    with pytest.raises(requests.Timeout):
+        verify(session, "not-a-real-secret", payload={"name": "test"},
+               output=tmp_path / "interrupted.mp4", on_created=announced.append)
+    assert announced == [ID]
+    assert len(session.posts) == 2
+    assert not (tmp_path / "interrupted.mp4").exists()
+
+    resumed = FakeSession(states=("succeeded",))
+    result = verify(resumed, "not-a-real-secret", resume=announced[0],
+                    output=tmp_path / "resumed.mp4", on_created=announced.append)
+    assert result["job_id"] == ID
+    assert announced == [ID], "resuming must not announce or create another job"
+    assert resumed.posts == [BASE + "/api/v1/video-owner-login"]
