@@ -117,6 +117,20 @@ function fixture({mp4CacheControl = 'private, no-store'} = {}) {
     );
     assert.equal(unsafe.calls.created, 0, 'security regression must not start a render');
     assert.equal(fs.existsSync(unsafeOpts.output), false, 'never save an insecure MP4');
+    // Public cache permission must never pass even when private/no-store are also present.
+    // This deliberately contradictory header was previously accepted by the browser probe.
+    const contradictory = fixture({mp4CacheControl: 'public, private, no-store'});
+    const contradictoryOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'contradictory.mp4'),
+    });
+    await assert.rejects(
+      runBrowserAcceptance({...contradictoryOpts, timeoutMs: 20000}, contradictory),
+      /MP4 response.*no-store/,
+      'a public cache directive must fail even alongside private no-store',
+    );
+    assert.equal(contradictory.calls.created, 0, 'security regression must not start a render');
+    assert.equal(fs.existsSync(contradictoryOpts.output), false, 'never save a publicly cacheable MP4');
     console.log('PASS: real Chromium owner UI login, one render, status, protected MP4 download, zero-quota resume, and private download cache policy');
   } finally {
     fs.rmSync(dir, {recursive: true, force: true});
