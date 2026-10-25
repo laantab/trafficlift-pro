@@ -30,6 +30,19 @@ _TRACKING_PARAMS = {
     '_pos', '_sid', '_ss', 'gad_source', 'gad_campaignid', 'gbraid', 'wbraid',
 }
 
+# RFC 3986 unreserved bytes are the same URL path characters whether a
+# retailer percent-encodes them or not. Never decode reserved separators
+# (especially %2F): doing so could merge different products or routes.
+_UNRESERVED_PATH = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~')
+
+
+def _canonical_product_path(path):
+    def normalize_escape(match):
+        value = chr(int(match.group(1), 16))
+        return value if value in _UNRESERVED_PATH else '%' + match.group(1).upper()
+    return re.sub(r'%([0-9A-Fa-f]{2})', normalize_escape, path).rstrip('/')
+
+
 def _title_tokens(name):
     ascii_name = unicodedata.normalize('NFKD', name.casefold()).encode('ascii', 'ignore').decode('ascii')
     # Seller listings often join quantities to the unit: 18pc, 18pcs,
@@ -80,10 +93,18 @@ def identity_keys(name, url):
     p = urlsplit(url)
     query = [(k, v) for k, v in parse_qsl(p.query) if not k.lower().startswith('utm_')
              and k.lower() not in _TRACKING_PARAMS]
-    canonical = urlunsplit(('https', (p.hostname or '').lower().removeprefix('www.'),
-                           p.path.rstrip('/'), urlencode(sorted(query)), ''))
+    host_name = (p.hostname or '').lower().removeprefix('www.')
+    canonical = urlunsplit(('https', host_name, _canonical_product_path(p.path),
+                           urlencode(sorted(query)), ''))
     if p.hostname:
         keys.append('url-' + hashlib.sha256(canonical.encode()).hexdigest()[:24])
+        # Preserve the pre-upgrade identity for an already stored encoded URL.
+        # Historical hashes alone cannot recover a *different* old encoding;
+        # all newly claimed winners store the normalized key going forward.
+        legacy = urlunsplit(('https', host_name, p.path.rstrip('/'),
+                             urlencode(sorted(query)), ''))
+        if legacy != canonical:
+            keys.append('url-' + hashlib.sha256(legacy.encode()).hexdigest()[:24])
         # Amazon product pages use several equivalent paths for one ASIN.
         # Keep the merchant-scoped product ID separate from the full URL,
         # without merging unrelated products whose names share generic words.
