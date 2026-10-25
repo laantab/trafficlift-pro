@@ -21,7 +21,7 @@ def test_pack_and_count_abbreviations_do_not_recycle_winners(tmp_path):
     )), "Different pack quantities must remain eligible"
 
     assert history.claim(identity_keys(
-        "Reusable Cleaning Cloths 24ct", "https://shop.example/old-cloth",
+        "Reusable Cleaning Cloths 24count", "https://shop.example/old-cloth",
     ))
     assert not history.claim(identity_keys(
         "Reusable Cleaning Cloths 24 count", "https://shop.example/new-cloth",
@@ -37,7 +37,7 @@ def test_legacy_compact_pack_and_count_hashes_still_exclude_relistings(tmp_path)
     history = WinnerHistory("returning-browser", path=path)
     for legacy_title, new_title in (
         ("stackable storage bins 12pk", "Stackable Storage Bins 12 pack"),
-        ("reusable cleaning cloths 24ct", "Reusable Cleaning Cloths 24 count"),
+        ("reusable cleaning cloths 24count", "Reusable Cleaning Cloths 24 count"),
     ):
         old_key = "name-folded-" + hashlib.sha256(legacy_title.encode()).hexdigest()[:24]
         with sqlite3.connect(path) as db:
@@ -56,3 +56,9 @@ def test_pack_and_count_are_not_automatically_equated(tmp_path):
     assert history.claim(identity_keys(
         "Storage Bags 12 count", "https://two.example/item",
     )), "Pack and count are not interchangeable without SKU evidence"
+    assert history.claim(identity_keys(
+        "Gold Chain 24ct", "https://three.example/item",
+    ))
+    assert history.claim(identity_keys(
+        "Gold Chain 24 count", "https://four.example/item",
+    )), "ct can mean carat and must not be silently equated with count"
