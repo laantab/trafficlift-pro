@@ -201,6 +201,35 @@ function fixture({mp4CacheControl = 'private, no-store', creationCacheControl = 
       /Owner video render failed/,
       'a failed owner job must be reported promptly instead of timing out waiting for an MP4',
     );
+    // Reproduce a terminal status arriving while Playwright is returning from
+    // the browser's resume-polling evaluate call. The real UI can receive
+    // its first failure response before the acceptance observer is attached.
+    // Delaying only the Node-side return makes this race deterministic,
+    // without a render, real network call, or extra status request.
+    const earlyOpts = optionsFromEnv(['--resume', ID], {
+      TRAFFICLIFT_OWNER_ACCESS_CODE: 'fixture-owner-code',
+      TRAFFICLIFT_ACCEPTANCE_OUTPUT: path.join(dir, 'early-failure.mp4'),
+    });
+    const early = fixture({videoStatus: 'failed'});
+    const setupEarly = early.setupPage;
+    early.setupPage = async page => {
+      await setupEarly(page);
+      const originalEvaluate = page.evaluate.bind(page);
+      page.evaluate = async (...args) => {
+        const value = await originalEvaluate(...args);
+        if (String(args[0]).includes('waitForFreeVideoJob')) {
+          await new Promise(resolve => setTimeout(resolve, 3300));
+        }
+        return value;
+      };
+    };
+    await assert.rejects(
+      runBrowserAcceptance({...earlyOpts, timeoutMs: 5500}, early),
+      /Owner video render failed/,
+      'a failure response before evaluate returns must not be missed by the acceptance observer',
+    );
+    assert.equal(early.calls.created, 0, 'early terminal failure must not start a render');
+    assert.equal(fs.existsSync(earlyOpts.output), false, 'early failure must not publish an MP4');
     // A malformed or unsupported job state must fail promptly rather than
     // leave the operator waiting for a download link that will never appear.
     const unknownOpts = optionsFromEnv(['--resume', ID], {
