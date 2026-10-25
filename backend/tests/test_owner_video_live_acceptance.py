@@ -1,5 +1,7 @@
 """Offline regressions for the explicit live owner MP4 acceptance probe."""
 from pathlib import Path
+import subprocess
+import tempfile
 
 import pytest
 
@@ -8,7 +10,22 @@ from scripts.owner_video_live_acceptance import AcceptanceError, preflight, veri
 BASE = "https://trafficlift-pro.onrender.com"
 ID = "a" * 32
 COOKIE = "trafficlift_video_session=fake; HttpOnly; Secure; SameSite=Strict"
-MP4 = b"\x00\x00\x00\x18ftypisom" + b"x" * 2048
+def _valid_mp4_fixture():
+    """Real tiny playable media: the HTTP acceptance must decode both streams."""
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / "fixture.mp4"
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=64x96:r=5:d=1",
+            "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+            "-t", "1", "-c:v", "mpeg4", "-q:v", "5",
+            "-c:a", "aac", "-b:a", "32k", "-shortest",
+            "-movflags", "+faststart", str(output),
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+        return output.read_bytes()
+
+
+MP4 = _valid_mp4_fixture()
 
 
 class Response:
@@ -146,6 +163,21 @@ def test_live_probe_login_create_poll_and_save_real_mp4_signature(tmp_path):
     assert output.read_bytes() == MP4
     assert len(session.posts) == 2
     assert session.download.closed
+
+
+
+
+def test_http_probe_rejects_fake_ftyp_and_never_publishes_corrupt_mp4(tmp_path):
+    """Previously the HTTP probe accepted arbitrary bytes after ftyp as success."""
+    fake = b"\\x00\\x00\\x00\\x18ftypisom" + b"x" * 2048
+    session = FakeSession(states=("succeeded",), mp4=fake)
+    output = tmp_path / "corrupt.mp4"
+    with pytest.raises(AcceptanceError, match="MP4 invalid"):
+        verify(session, "not-a-real-secret", resume=ID, output=output)
+    assert session.posts == [BASE + "/api/v1/video-owner-login"]
+    assert session.download.closed
+    assert not output.exists()
+    assert not list(tmp_path.glob("*.partial"))
 
 
 def test_resume_does_not_consume_render_quota(tmp_path):
