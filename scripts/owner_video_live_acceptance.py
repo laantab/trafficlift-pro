@@ -7,9 +7,11 @@ without consuming another daily render slot. This is not a browser UI test.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import time
 
@@ -35,6 +37,47 @@ def _job_id(value):
     if not JOB_ID.fullmatch(value or ""):
         raise AcceptanceError("Server returned an invalid video job ID")
     return value
+
+
+
+
+def _verify_decoded_mp4(path):
+    """Require actual decodable video and audio, not just an ftyp signature.
+
+    Suppress tool output: downloaded media can contain untrusted metadata.
+    The opt-in probe needs local ffprobe and ffmpeg, like browser acceptance.
+    """
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "format=duration:stream=codec_type,width,height", "-of", "json",
+             str(path)],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=30, check=False,
+        )
+        if probe.returncode != 0:
+            raise AcceptanceError("MP4 invalid: ffprobe could not inspect download")
+        media = json.loads(probe.stdout)
+        streams = media.get("streams", [])
+        if (not isinstance(streams, list)
+                or not any(s.get("codec_type") == "video"
+                           and s.get("width", 0) > 0 and s.get("height", 0) > 0
+                           for s in streams if isinstance(s, dict))
+                or not any(s.get("codec_type") == "audio"
+                           for s in streams if isinstance(s, dict))
+                or float(media.get("format", {}).get("duration", 0)) <= 0):
+            raise AcceptanceError("MP4 invalid: video, audio or duration is missing")
+        decoded = subprocess.run(
+            ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i",
+             str(path), "-map", "0:v:0", "-map", "0:a:0",
+             "-f", "null", "-"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=180, check=False,
+        )
+        if decoded.returncode != 0:
+            raise AcceptanceError("MP4 invalid: full video/audio decode failed")
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError) as exc:
+        raise AcceptanceError("MP4 invalid: unable to decode downloaded media") from exc
 
 
 def preflight(session):
@@ -188,6 +231,7 @@ def verify(session, access_code, *, payload=None, resume=None, output=None,
                 file.write(chunk)
             if size < 1024 or len(header) < 12 or header[4:8] != b"ftyp":
                 raise AcceptanceError("Downloaded bytes are not a plausible MP4")
+        _verify_decoded_mp4(temp_path)
         # The output may have appeared while streaming. Path.replace would
         # silently overwrite another operator's MP4 on POSIX and Windows.
         # The partial file is in the same directory, so a hard link publishes
