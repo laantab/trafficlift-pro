@@ -621,3 +621,47 @@ def test_inch_alias_does_not_rewrite_two_in_one_product_phrase():
     phrase = identity_keys('Portable Blender 2 in 1', 'https://seller.example/one')
     measurement = identity_keys('Portable Blender 2 inch 1', 'https://seller.example/two')
     assert not set(phrase) & set(measurement)
+
+
+def test_html_escaped_tracking_query_cannot_recycle_relisted_winner(tmp_path):
+    """HTML-escaped retailer links and clean URLs must identify the same SKU."""
+    path = tmp_path / 'escaped-query.sqlite3'
+    history = WinnerHistory('returning-browser', path=path)
+    original = identity_keys(
+        'Rechargeable Desk Lamp Compact A',
+        'https://seller.example/products/lamp?sku=compact-a&amp;utm_source=pin',
+    )
+    renamed = identity_keys(
+        'Portable Reading Light Model B',
+        'https://seller.example/products/lamp?sku=compact-a&utm_source=video',
+    )
+    assert history.claim(original)
+    assert not WinnerHistory('returning-browser', path=path).claim(renamed), (
+        'HTML-escaped tracking separators must not turn a claimed SKU into a new winner'
+    )
+    assert history.claim(identity_keys(
+        'Different Portable Light Model C',
+        'https://seller.example/products/lamp?sku=compact-b&utm_source=pin',
+    )), 'Distinct product SKUs must remain eligible'
+
+
+def test_html_escaped_shopify_variant_selector_cannot_recycle_winner(tmp_path):
+    """An escaped ampersand before variant= must not hide the stable SKU ID."""
+    path = tmp_path / 'escaped-variant.sqlite3'
+    history = WinnerHistory('returning-browser', path=path)
+    original = identity_keys(
+        'Compact Drawer Divider Blue',
+        'https://seller.example/products/blue-divider?utm_source=pin&amp;variant=44332211009988',
+    )
+    renamed = identity_keys(
+        'Expandable Storage Rack Small',
+        'https://seller.example/en-us/products/storage-rack?variant=44332211009988',
+    )
+    assert history.claim(original)
+    assert not WinnerHistory('returning-browser', path=path).claim(renamed), (
+        'HTML-escaped Shopify variant selectors must preserve permanent SKU exclusions'
+    )
+    assert history.claim(identity_keys(
+        'Expandable Storage Rack Large',
+        'https://seller.example/products/storage-rack?variant=44332211009989',
+    )), 'Different Shopify variants must remain eligible'
