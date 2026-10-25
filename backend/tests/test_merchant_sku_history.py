@@ -60,3 +60,27 @@ def test_sku_value_case_not_folded():
     second = identity_keys("Another Different Product", "https://shop.example/p/two?sku=abcd-1")
     scoped = lambda keys: {k for k in keys if k.startswith("merchant-sku-")}
     assert scoped(first) and scoped(second) and scoped(first).isdisjoint(scoped(second))
+
+
+def test_parent_sku_with_variant_selectors_is_not_conflated(tmp_path):
+    """A shared parent SKU must not merge different sizes or child variants."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    first = identity_keys(
+        "Adjustable Shelf Small Model",
+        "https://shop.example/products/shelf-small?sku=BASE-100&size=small",
+    )
+    second = identity_keys(
+        "Expandable Storage Rack Large Edition",
+        "https://shop.example/products/shelf-large?sku=BASE-100&size=large",
+    )
+    assert not any(key.startswith("merchant-sku-") for key in first + second)
+    assert history.claim(first)
+    assert history.claim(second), "Distinct sizes must remain eligible"
+
+
+def test_unrecognized_query_selector_disables_broad_sku_key():
+    keys = identity_keys(
+        "Outdoor Organizer",
+        "https://shop.example/products/organizer?sku=BASE-100&option_id=blue",
+    )
+    assert not any(key.startswith("merchant-sku-") for key in keys)
