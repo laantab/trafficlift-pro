@@ -49,10 +49,26 @@ def preflight(session):
         )
     denied = session.get(BASE + "/api/v1/photo-videos", timeout=20, allow_redirects=False)
     if denied.status_code != 401:
-        raise AcceptanceError(
-            "Unauthenticated video history did not return HTTP 401"
-        )
-    return {"health": "ok", "owner_history": "protected"}
+        raise AcceptanceError("Unauthenticated video history did not return HTTP 401")
+
+    # Use a syntactically valid but non-existent job ID to confirm the guard
+    # runs before job lookup. Never start a render or send owner credentials.
+    probe_url = BASE + "/api/v1/photo-videos/" + "a" * 32
+    status = session.get(probe_url, timeout=20, allow_redirects=False)
+    if status.status_code != 401:
+        raise AcceptanceError("Unauthenticated video status did not return HTTP 401")
+
+    # Stream so a mistakenly public MP4 response is never downloaded during
+    # this zero-quota check; always close the connection, even on failure.
+    mp4 = session.get(probe_url + "/video", timeout=20,
+                      allow_redirects=False, stream=True)
+    try:
+        if mp4.status_code != 401:
+            raise AcceptanceError("Unauthenticated MP4 download did not return HTTP 401")
+    finally:
+        mp4.close()
+    return {"health": "ok", "owner_history": "protected",
+            "owner_status": "protected", "owner_mp4": "protected"}
 
 
 def verify(session, access_code, *, payload=None, resume=None, output=None,
@@ -165,7 +181,7 @@ def main():
                 preflight(session)
         except (AcceptanceError, requests.RequestException, ValueError) as exc:
             parser.exit(1, "Owner video preflight failed: " + str(exc)[:240] + "\n")
-        print("Owner video preflight passed: hosted health OK; private video history denied (HTTP 401); no render started")
+        print("Owner video preflight passed: hosted health OK; private video history, status and MP4 denied (HTTP 401); no render started")
         return
     code = os.environ.get("TRAFFICLIFT_OWNER_ACCESS_CODE", "")
     payload = None
