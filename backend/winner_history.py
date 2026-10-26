@@ -338,13 +338,30 @@ def identity_keys(name, url):
                 'mkcid', 'mkevt', 'mkrid', 'campid', 'toolid', 'customid',
                 'hash', 'itmmeta', 'itmprp', '_trkparms', '_trksid',
             }
-            if ebay_item and all(
-                key.lower() in ebay_tracking
-                or key.lower() in _TRACKING_PARAMS
-                or key.lower().startswith('utm_')
-                for key, _ in query_pairs
-            ):
-                keys.append('ebay-item-' + ebay_item.group(1))
+            if ebay_item:
+                # An eBay ?var=<numeric ID> selects one sellable variation.
+                # A changed slug/title, mobile host or click tracking must not
+                # recycle that same child SKU. Do not attach the parent item
+                # identity to a selected variation: other children and the
+                # unselected parent must remain independently eligible.
+                # Repeated identical var selectors are unambiguous; conflicting
+                # values or unknown selectors are not.
+                non_tracking = [
+                    (key.lower(), value.strip()) for key, value in query_pairs
+                    if key.lower() not in ebay_tracking
+                    and key.lower() not in _TRACKING_PARAMS
+                    and not key.lower().startswith('utm_')
+                ]
+                if not non_tracking:
+                    keys.append('ebay-item-' + ebay_item.group(1))
+                elif all(key == 'var' for key, _ in non_tracking):
+                    variations = {value for _, value in non_tracking}
+                    if len(variations) == 1:
+                        variation = next(iter(variations))
+                        if re.fullmatch(r'[0-9]{9,20}', variation):
+                            keys.append(
+                                'ebay-variant-' + ebay_item.group(1) + '-' + variation
+                            )
         if host == 'amazon.com' or host.endswith('.amazon.com'):
             match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', canonical_path, re.I)
             if match:
