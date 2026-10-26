@@ -123,7 +123,13 @@ def _canonical_product_path(path):
 
 
 def _title_tokens(name):
-    ascii_name = unicodedata.normalize('NFKD', name.casefold()).encode('ascii', 'ignore').decode('ascii')
+    # Fold Latin accents without deleting meaningful Chinese, Arabic or other
+    # non-Latin letters. ASCII-only encoding made unrelated international
+    # product titles share the same permanent winner identity.
+    ascii_name = ''.join(
+        char for char in unicodedata.normalize('NFKD', name.casefold())
+        if not unicodedata.combining(char)
+    )
     # Seller listings often join quantities to the unit: 18pc, 18pcs,
     # 18-piece and 18 pieces describe the same pack, not new winners.
     # Keep the number so 18-piece and 20-piece remain different products.
@@ -135,7 +141,7 @@ def _title_tokens(name):
     ascii_name = re.sub(r'\bpack\s+of\s+(\d+)\b', r'\1 pack', ascii_name)
     ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:packs?|pk)\b', r'\1 pack', ascii_name)
     ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:counts?)\b', r'\1 count', ascii_name)
-    return [_TITLE_ALIASES.get(word, word) for word in re.findall(r'[a-z0-9]+', ascii_name)]
+    return [_TITLE_ALIASES.get(word, word) for word in re.findall(r'[^\W_]+', ascii_name)]
 
 
 WINDOW_SECONDS = 30 * 86400  # Category rotation only; winning products never expire
@@ -144,6 +150,17 @@ WINDOW_SECONDS = 30 * 86400  # Category rotation only; winning products never ex
 def identity_keys(name, url):
     # Do not use Python hash(): its output changes across server processes.
     normalized = ' '.join(re.findall(r'[a-z0-9]+', name.lower()))
+    # Preserve legacy ASCII hashes for older stored winners. When a title
+    # contains non-Latin letters, however, the legacy hash discards product
+    # identity (sometimes becoming SHA256 of the empty string). Do not emit
+    # that ambiguous key: it would permanently block unrelated winners.
+    # Historical non-Latin hash-only rows cannot be safely reconstructed.
+    unicode_folded = ''.join(
+        char for char in unicodedata.normalize('NFKD', name.casefold())
+        if not unicodedata.combining(char)
+    )
+    if any(ord(char) > 127 and char.isalnum() for char in unicode_folded):
+        normalized = ' '.join(re.findall(r'[^\W_]+', unicode_folded))
     keys = ['name-' + hashlib.sha256(normalized.encode()).hexdigest()[:24]]
     # Retailer titles may arrive HTML-escaped ("&amp;") or decoded ("&").
     # Keep the raw name hash above for existing rows, but share a decoded
