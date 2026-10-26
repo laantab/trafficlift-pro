@@ -254,3 +254,42 @@ def test_legacy_compact_piece_title_hash_and_distinct_quantity(tmp_path):
     assert history.claim(identity_keys(
         "20 pieces Acme Drawer Storage Organiser", "https://shop.example/20-piece",
     )), "Different package quantities must remain eligible"
+
+
+
+def test_pack_of_number_relisting_never_recommends_same_winner(tmp_path):
+    """'Pack of 3' and '3-pack' are the same sellable pack after URL/name changes."""
+    path = tmp_path / "pack-of.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    assert history.claim(identity_keys(
+        "Premium Bamboo Drawer Organiser Pack of 3",
+        "https://seller.example/old-offer?utm_source=pin",
+    ))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "3-pack Premium Bamboo Drawer Organizer",
+        "https://other.example/new-listing?fbclid=second",
+    )), "Pack-of quantity phrasing must not recycle a previous winner"
+    assert history.claim(identity_keys(
+        "4-pack Premium Bamboo Drawer Organizer",
+        "https://other.example/different-quantity",
+    )), "Different pack quantities must remain eligible"
+
+
+def test_old_pack_of_title_hash_excludes_reordered_relisting(tmp_path):
+    """Pre-upgrade sorted-title hashes must also match new '3-pack' wording."""
+    path = tmp_path / "legacy-pack-of.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    old_tokens = "premium bamboo drawer organizer pack of 3".split()
+    old_key = "title-" + hashlib.sha256(
+        " ".join(sorted(old_tokens)).encode()
+    ).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "3-pack Drawer Organiser Premium Bamboo",
+        "https://seller.example/renamed-and-relisted",
+    )), "Historical pack-of hashes must stay permanently excluded"
+    assert history.claim(identity_keys(
+        "5-pack Drawer Organiser Premium Bamboo",
+        "https://seller.example/5-pack",
+    )), "Different quantity must not be suppressed"

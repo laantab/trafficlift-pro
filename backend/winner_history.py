@@ -116,6 +116,8 @@ def _title_tokens(name):
     # Pack/count quantity labels can be joined to the number in listings:
     # 12pk, 12-pack and 12 packs are the same quantity, not fresh winners.
     # Do NOT equate 'ct' with count: in jewelry it can mean carat.
+    # 'Pack of 3' and '3-pack' are one quantity. Preserve the numeric count.
+    ascii_name = re.sub(r'\bpack\s+of\s+(\d+)\b', r'\1 pack', ascii_name)
     ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:packs?|pk)\b', r'\1 pack', ascii_name)
     ascii_name = re.sub(r'\b(\d+)\s*-?\s*(?:counts?)\b', r'\1 count', ascii_name)
     return [_TITLE_ALIASES.get(word, word) for word in re.findall(r'[a-z0-9]+', ascii_name)]
@@ -204,6 +206,12 @@ def identity_keys(name, url):
                 measurement_variants.add(re.sub(
                     pattern, lambda match: f'{match.group(1)} {spelling}', folded_name
                 ))
+        if unit == 'pack':
+            # Preserve pre-upgrade hashes for 'pack of N' titles, even
+            # when a seller changes the URL and reorders the title.
+            measurement_variants.add(re.sub(
+                pattern, lambda match: f'pack of {match.group(1)}', folded_name
+            ))
     # Seller titles interchange 12in, 12 inch, 12 inches, and 12-inch.
     # Emit all historical folded spellings so pre-upgrade SQLite hashes
     # remain effective even when a retailer changes the listing URL.
