@@ -276,3 +276,54 @@ def test_ebay_duplicate_identical_variation_selectors_are_one_product(tmp_path):
     )
     assert history.claim(first)
     assert not history.claim(second)
+
+
+def test_ebay_international_domain_relisting_cannot_repeat_winner(tmp_path):
+    """One global eBay item ID must survive a marketplace-domain change."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    uk = identity_keys(
+        "Blue Adjustable Shelf Organizer Original",
+        "https://www.ebay.co.uk/itm/Original-Shelf-Organizer/325019872006?mkcid=1",
+    )
+    us = identity_keys(
+        "Compact Wall Storage Support New Edition",
+        "https://www.ebay.com/itm/325019872006?campid=second",
+    )
+    assert history.claim(uk)
+    assert not WinnerHistory("returning-browser", path=history.path).claim(us), (
+        "A marketplace redirect must not recycle the same eBay item"
+    )
+
+
+def test_ebay_international_variant_relisting_and_distinct_child(tmp_path):
+    """An eBay variation stays excluded across countries; other variants stay fresh."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    original = identity_keys(
+        "Small Blue Shelf Support",
+        "https://www.ebay.de/itm/325019872006?var=675019872006&mkcid=1",
+    )
+    relisted = identity_keys(
+        "Compact Azure Wall Bracket",
+        "https://m.ebay.com/itm/Changed-Title/325019872006?VAR=675019872006&campid=2",
+    )
+    different = identity_keys(
+        "Large Red Wall Support",
+        "https://www.ebay.co.uk/itm/325019872006?var=675019872007",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=history.path).claim(relisted)
+    assert history.claim(different), "A distinct eBay child variation remains eligible"
+
+
+def test_ebay_international_host_allowlist_rejects_lookalikes():
+    """Do not trust unrelated hosts or broad wildcard marketplace suffixes."""
+    valid = identity_keys(
+        "One Product", "https://www.ebay.com.au/itm/325019872006"
+    )
+    assert "ebay-item-325019872006" in valid
+    for host in ("ebay.co.uk.evil.example", "not-ebay.de", "ebay.example"):
+        keys = identity_keys(
+            "Different Product", f"https://{host}/itm/325019872006"
+        )
+        assert not any(k.startswith("ebay-item-") or k.startswith("ebay-variant-")
+                       for k in keys), host
