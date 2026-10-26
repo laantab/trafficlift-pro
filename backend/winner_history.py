@@ -17,6 +17,7 @@ _TITLE_ALIASES = {
     'organiser': 'organizer', 'organisers': 'organizer',
     'organizers': 'organizer', 'organizer': 'organizer',
     'colour': 'color', 'colours': 'color', 'colors': 'color',
+    'grey': 'gray',
     'pcs': 'piece', 'pc': 'piece', 'pieces': 'piece',
     'lights': 'light', 'lamps': 'lamp', 'bottles': 'bottle',
     'drawers': 'drawer', 'holders': 'holder', 'racks': 'rack',
@@ -186,6 +187,14 @@ def identity_keys(name, url):
     # relisted winners after the seller changes their product URL. Do not
     # drop size, count, brand, or model tokens from these alternate keys.
     legacy_spellings = {tuple(_title_tokens(name))}
+    # Earlier permanent rows store only hashed titles. Before grey/gray
+    # normalization, a UK-spelled listing stored "grey" in its folded/title
+    # hash; emit that historical spelling on either incoming form so the
+    # same winner remains excluded after a URL or seller-title change.
+    # Other colors, pack sizes and model numbers remain unchanged.
+    if 'gray' in tokens:
+        legacy_spellings.add(tuple('grey' if token == 'gray' else token
+                                   for token in tokens))
     if '&' in decoded_name:
         legacy_spellings.add(tuple(_title_tokens(decoded_name.replace('&', '&amp;'))))
     # A retailer can relist "Bamboo & Steel Drawer Organizer" as "Bamboo
