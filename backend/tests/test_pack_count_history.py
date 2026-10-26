@@ -175,3 +175,45 @@ def test_retailer_color_query_key_casing_does_not_recycle_winner(tmp_path):
         "Compact Drawer Divider Green",
         "https://seller.example/products/organizer?color=Green",
     )), "Distinct color variants must remain eligible"
+
+
+def test_legacy_uppercase_variant_query_url_hash_still_blocks_relisting(tmp_path):
+    """Old permanent SQLite URL keys must survive a retailer's key casing change."""
+    path = tmp_path / "legacy-query-case.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    old_url = "https://seller.example/products/desk-lamp?SIZE=Large"
+    old_key = "url-" + hashlib.sha256(old_url.encode()).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "Completely Renamed Large Reading Lamp",
+        "https://seller.example/products/desk-lamp?size=Large&gclid=another-click",
+    )), "Old uppercase URL hashes must remain effective after the upgrade"
+
+
+def test_identical_repeated_size_selectors_are_one_variant(tmp_path):
+    history = WinnerHistory("returning-browser", path=tmp_path / "repeat-size.sqlite3")
+    assert history.claim(identity_keys(
+        "Large Adjustable Lamp",
+        "https://seller.example/products/lamp?SIZE=Large&size=Large",
+    ))
+    assert not history.claim(identity_keys(
+        "Portable Reading Light",
+        "https://seller.example/products/lamp?size=Large",
+    )), "Duplicated identical variant selectors cannot reset winner history"
+    assert history.claim(identity_keys(
+        "Portable Reading Light Small",
+        "https://seller.example/products/lamp?size=Small",
+    )), "Different selector values must stay distinct"
+
+
+def test_conflicting_size_selector_values_do_not_collapse(tmp_path):
+    history = WinnerHistory("returning-browser", path=tmp_path / "conflicting-size.sqlite3")
+    assert history.claim(identity_keys(
+        "Large Adjustable Lamp",
+        "https://seller.example/products/lamp?size=Large",
+    ))
+    assert history.claim(identity_keys(
+        "Ambiguous Selection",
+        "https://seller.example/products/lamp?SIZE=Small&size=Large",
+    )), "Conflicting variant selectors must not be treated as one unambiguous SKU"
