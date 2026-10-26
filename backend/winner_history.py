@@ -137,6 +137,18 @@ def identity_keys(name, url):
     legacy_spellings = {tuple(_title_tokens(name))}
     if '&' in decoded_name:
         legacy_spellings.add(tuple(_title_tokens(decoded_name.replace('&', '&amp;'))))
+    # A retailer can relist "Bamboo & Steel Drawer Organizer" as "Bamboo
+    # and Steel Drawer Organiser". Existing permanent rows store only hashed
+    # titles, so emit BOTH historical spellings on either input, rather than
+    # only a new key that old rows cannot match. Apply this conservative
+    # conjunction alias only to specific titles with >=4 distinct non-"and"
+    # tokens; keep quantities, sizes, brand and model numbers untouched.
+    # Short/generic titles must not collide just because they contain "and".
+    if len(set(tokens) - {'and'}) >= 4:
+        if 'and' in tokens:
+            legacy_spellings.add(tuple(token for token in tokens if token != 'and'))
+        if '&' in decoded_name:
+            legacy_spellings.add(tuple(_title_tokens(decoded_name.replace('&', ' and '))))
     for old_tokens in sorted(legacy_spellings):
         if not old_tokens or list(old_tokens) == tokens:
             continue
