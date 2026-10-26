@@ -180,14 +180,14 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     sf.write(root/'music.wav',music,rate)
     def stamp(t):
         cs=round(t*100);return f'{cs//360000}:{cs//6000%60:02}:{cs//100%60:02}.{cs%100:02}'
-    ass='[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,38,&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,0,0,0,0,100,100,0,0,3,12,0,2,110,110,205,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+    ass='[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,58,&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,-1,0,0,0,100,100,0,0,3,14,0,2,120,120,210,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
-        chunks=balanced_caption_chunks(phrase)
+        chunks=balanced_caption_chunks(phrase, max_words=5)
         total=sum(len(c.split()) for c in chunks);offset=0
         for chunk in chunks:
             chunk_duration=duration*len(chunk.split())/total
-            lines=wrap(chunk,38,840)
+            lines=wrap(chunk,26,760)
             if len(lines)>2:raise ValueError('Caption cannot fit safely.')
             safe=r'\N'.join(lines).replace('{','').replace('}','')
             ass+=f'Dialogue: 0,{stamp(t+offset)},{stamp(t+offset+chunk_duration)},Default,,0,0,0,,'+safe+'\n'
