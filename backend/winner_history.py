@@ -196,6 +196,19 @@ def identity_keys(name, url):
         measurement_variants.add(re.sub(
             inch_pattern, lambda match: f'{match.group(1)}in', folded_name
         ))
+    # Seller listings interchange 4ft, 4 ft, 4-foot and 4 feet. Emit
+    # every folded spelling so permanent rows saved before this upgrade
+    # (which contain only hashed titles) still exclude the same product.
+    # Retain the numeric size and unit: 5 feet, 4 inches and 4 cm are distinct.
+    foot_pattern = r'\b(\d+)\s*(?:feet|foot|ft)\b'
+    if re.search(foot_pattern, folded_name):
+        for spelling in ('ft', 'foot', 'feet'):
+            measurement_variants.add(re.sub(
+                foot_pattern, lambda match: f'{match.group(1)} {spelling}', folded_name
+            ))
+        measurement_variants.add(re.sub(
+            foot_pattern, lambda match: f'{match.group(1)}ft', folded_name
+        ))
     for alternate in sorted(measurement_variants - {folded_name}):
         if not alternate:
             continue
