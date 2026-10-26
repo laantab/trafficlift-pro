@@ -856,3 +856,17 @@ def test_shopify_mobile_alias_preserves_other_merchants_and_variants(tmp_path):
         'Other Merchant Organizer Model A',
         'https://m.other.example/products/organizer?variant=44332211009988',
     ))
+
+
+def test_preupgrade_mobile_shopify_variant_hash_still_blocks_desktop(tmp_path):
+    """Hash-only mobile history from earlier releases must survive the alias fix."""
+    import hashlib
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    old_mobile = 'shopify-variant-' + hashlib.sha256(
+        'm.shop.example:44332211009988'.encode()
+    ).hexdigest()[:24]
+    assert history.claim([old_mobile])
+    assert not WinnerHistory('returning-browser', path=history.path).claim(identity_keys(
+        'Renamed Compact Office Storage Product',
+        'https://shop.example/products/new-slug?variant=44332211009988',
+    ))
