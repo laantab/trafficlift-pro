@@ -176,8 +176,12 @@ def identity_keys(name, url):
     }
     # Include old compact and plural folded spellings when checking permanent
     # history: existing rows contain hashes, not the original listing names.
-    # Pack and count stay separate; 'ct' is intentionally NOT a count alias.
+    # Older piece-count rows may contain 18pcs, 18 pcs or 18 pieces instead
+    # of today's normalized 18 piece. Preserve all historical hashes even
+    # when the retailer also changes title order and listing URL. Quantities
+    # remain exact; pack and count stay distinct, and 'ct' is not count.
     for unit, spellings in (
+        ('piece', ('piece', 'pieces', 'pc', 'pcs')),
         ('pack', ('pack', 'packs', 'pk')),
         ('count', ('count', 'counts')),
     ):

@@ -217,3 +217,40 @@ def test_conflicting_size_selector_values_do_not_collapse(tmp_path):
         "Ambiguous Selection",
         "https://seller.example/products/lamp?SIZE=Small&size=Large",
     )), "Conflicting variant selectors must not be treated as one unambiguous SKU"
+
+
+def test_legacy_piece_abbreviation_hash_still_excludes_relisted_winner(tmp_path):
+    """Pre-normalization SQLite rows contain only the old title hash.
+
+    A relisted 18-piece item must not be returned again if its prior record
+    used '18 pcs' and the merchant changed its URL and unit spelling. A lone
+    old folded-name hash cannot reconstruct arbitrary historical word order;
+    the separate sorted-title test covers that case.
+    """
+    path = tmp_path / "legacy-piece.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    old_title = "criusia drawer organizer 18 pcs set"
+    old_key = "name-folded-" + hashlib.sha256(old_title.encode()).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "Criusia Drawer Organiser 18-piece Set", "https://other.example/new-item",
+    )), "A pre-upgrade 'pcs' winner must remain excluded after relisting"
+
+
+def test_legacy_compact_piece_title_hash_and_distinct_quantity(tmp_path):
+    """A prior sorted title hash using 12pc must survive URL/name changes."""
+    path = tmp_path / "legacy-piece-title.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    old_tokens = "acme storage drawer organizer 12pc".split()
+    old_key = "title-" + hashlib.sha256(
+        " ".join(sorted(old_tokens)).encode()
+    ).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
+    assert not history.claim(identity_keys(
+        "12 pieces Acme Drawer Storage Organiser", "https://shop.example/relisted",
+    )), "An old compact piece-count title key must still exclude the same winner"
+    assert history.claim(identity_keys(
+        "20 pieces Acme Drawer Storage Organiser", "https://shop.example/20-piece",
+    )), "Different package quantities must remain eligible"
