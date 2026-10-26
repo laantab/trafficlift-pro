@@ -486,13 +486,25 @@ def identity_keys(name, url):
             # between conflicting child selectors: that could mark a
             # different variant as already won. An ambiguous selection
             # must not fall back to claiming the parent TCIN either.
-            preselected = {v.strip() for k, v in query_pairs
-                           if k.lower() == 'preselect' and v.strip()}
-            if len(preselected) == 1:
+            # Only a known, unambiguous preselect may claim a child TCIN.
+            # Unknown query selectors may select a different size, bundle or
+            # custom option. Keep the exact canonical URL in that case, but
+            # do not claim a broad parent/child TCIN that could block another
+            # legitimate variant. Known marketing/presentation fields do not
+            # select a SKU and remain safe to ignore here.
+            selectors = [
+                (k.lower(), v.strip()) for k, v in query_pairs
+                if not k.lower().startswith('utm_')
+                and k.lower() not in _TRACKING_PARAMS
+                and k.lower() not in _SKU_PRESENTATION_PARAMS
+            ]
+            preselected = {v for k, v in selectors if k == 'preselect'}
+            unknown_selector = any(k != 'preselect' for k, _ in selectors)
+            if not unknown_selector and len(preselected) == 1:
                 child = next(iter(preselected))
                 if re.fullmatch(r'[0-9]{6,}', child):
                     keys.append('target-tcin-' + child)
-            elif not preselected and match:
+            elif not selectors and match:
                 keys.append('target-tcin-' + match.group(1))
     return keys
 
