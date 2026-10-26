@@ -66,3 +66,16 @@ def test_owner_history_is_not_publicly_addressable_as_browser_id(monkeypatch):
     with TestClient(app, base_url="https://testserver") as client:
         response = client.get("/api/v1/discover-winner", params={"client_id": OWNER_SCOPE})
     assert response.status_code == 422
+
+
+def test_exhausted_catalog_is_not_mislabeled_as_missing_photo():
+    """A permanent-history 404 needs a truthful exhausted-catalog message."""
+    from pathlib import Path
+    page = (Path(__file__).resolve().parents[2] / "index.html").read_text(encoding="utf-8-sig")
+    # Do not call every HTTP 404 a photo failure: discovery returns 404 when
+    # all qualified candidates were previously selected for this owner.
+    error_handler = page.split("const isNoPhotoError", 1)[1].split("const backendDetail", 1)[0]
+    assert "/HTTP 404" not in error_handler.split("const heading", 1)[0]
+    assert "const isNoFreshWinner" in page
+    assert "No fresh product available" in error_handler
+    assert "Previously selected winners remain excluded" in page
