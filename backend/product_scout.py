@@ -31,7 +31,7 @@ import os
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.product_research import (
@@ -377,21 +377,48 @@ def analyze_product_url_get(
 
 @router.get("/discover-winner")
 def discover_winner_get(
+    request: Request,
     exclude: Optional[str] = Query(None, max_length=6000),
     exclude_keys: Optional[str] = Query(None, max_length=9000),
     client_id: Optional[str] = Query(None, min_length=16, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$"),
     seed: Optional[int] = Query(None, ge=0, le=10_000),
 ) -> dict:
-    """Fresh-only discovery with browser-scoped durable exclusions.
+    """Fresh-only discovery with durable exclusions.
 
-    No keyword input, no hidden saved-list substitution. All provider calls
-    are bounded; failures become actionable 404/503 responses.
+    Anonymous visitors retain their original browser-scoped ledger. In the
+    existing hosted owner beta, a valid signed operator session instead uses
+    one stable owner ledger across devices. This is not customer-account auth.
     """
     from backend.discovery import discover_winner as _discover
     excl = {x for x in (exclude or "").split(",") if x}
     keys = {x for x in (exclude_keys or "").split(",") if x}
     try:
-        return _discover(exclude_ids=excl, exclude_keys=keys, client_id=client_id, seed=seed)
+        history_scope = client_id
+        authenticated_owner = False
+        if os.getenv('TRAFFICLIFT_HOSTED_VIDEO') == '1':
+            # The signed, HttpOnly cookie is the existing owner-only beta
+            # credential. Origin and client_id alone are never authentication.
+            from backend.photo_video_api import valid_video_session
+            secret = os.getenv('TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN', '')
+            if len(secret) >= 32 and valid_video_session(
+                request.cookies.get('trafficlift_video_session', ''), secret
+            ):
+                from backend.winner_history import WinnerHistory
+                # Colon is intentionally disallowed in public client_id query
+                # values, preventing unauthenticated callers from selecting
+                # or poisoning the protected owner history namespace.
+                history_scope = 'owner:beta:v1'
+                owner_history = WinnerHistory(history_scope)
+                if client_id:
+                    owner_history.import_scope(client_id)
+                authenticated_owner = True
+        result = _discover(exclude_ids=excl, exclude_keys=keys,
+                           client_id=history_scope, seed=seed)
+        if authenticated_owner:
+            result.setdefault('discovery', {})['winner_history_policy'] = (
+                'permanent_per_authenticated_owner_beta'
+            )
+        return result
     except HTTPException:
         raise
     except (OSError, sqlite3.Error):

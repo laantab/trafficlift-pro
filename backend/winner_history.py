@@ -396,6 +396,27 @@ class WinnerHistory:
         with self.connect() as db:
             return {row[0] for row in db.execute('SELECT identity FROM discovery_seen WHERE scope=?', (self.scope,))}
 
+    def import_scope(self, source_scope):
+        """Copy older browser winner exclusions into an authenticated owner ledger.
+
+        Keep the browser's original rows: this is an additive, transactional
+        bridge, not an identity reset. The source scope is hashed just like
+        normal browser scopes. Never import into another customer's account;
+        callers must verify the owner session before invoking this method.
+        """
+        if not source_scope:
+            return
+        source_hash = hashlib.sha256(source_scope.encode()).hexdigest()
+        if source_hash == self.scope:
+            return
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute(
+                'INSERT OR IGNORE INTO discovery_seen (scope, identity, expires) '
+                'SELECT ?, identity, expires FROM discovery_seen WHERE scope=?',
+                (self.scope, source_hash),
+            )
+
     def next_cursor(self):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
