@@ -372,9 +372,22 @@ def identity_keys(name, url):
             if len(variants) == 1:
                 variant = next(iter(variants))
                 if re.fullmatch(r'[0-9]{8,20}', variant):
-                    merchant_variant = f'{host}:{variant}'
-                    keys.append('shopify-variant-' + hashlib.sha256(
-                        merchant_variant.encode()).hexdigest()[:24])
+                    # Shopify mobile storefront links commonly switch
+                    # between merchant.example and m.merchant.example.
+                    # Emit BOTH aliases on either host: this also preserves
+                    # exclusions saved before mobile-host normalization,
+                    # when history contained only the old host-specific hash.
+                    # Never alias a two-label m.example registrable domain,
+                    # and never combine unrelated merchant hostnames.
+                    merchant_hosts = {host}
+                    if host.startswith('m.') and host.count('.') >= 2:
+                        merchant_hosts.add(host[2:])
+                    elif not host.startswith('m.') and '.' in host:
+                        merchant_hosts.add('m.' + host)
+                    for merchant_host in sorted(merchant_hosts):
+                        merchant_variant = f'{merchant_host}:{variant}'
+                        keys.append('shopify-variant-' + hashlib.sha256(
+                            merchant_variant.encode()).hexdigest()[:24])
         # Etsy listing IDs survive seller title/slug edits, mobile links and
         # recommendation click tracking. Only official Etsy hosts can claim
         # these identities. A selected variation is a different sellable
