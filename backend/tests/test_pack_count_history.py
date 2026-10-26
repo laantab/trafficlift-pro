@@ -95,3 +95,47 @@ def test_old_written_and_title_hash_blocks_new_ampersand_listing(tmp_path):
         "12 Pack Steel & Bamboo Drawer Organizer",
         "https://shop.example/new-item",
     )), "Legacy conjunction-based title keys must still exclude the winner"
+
+
+
+def test_feet_foot_and_ft_relistings_do_not_recycle_winners(tmp_path):
+    """A retailer's 4ft/4-foot/4 feet spelling changes cannot reset history."""
+    path = tmp_path / "feet.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    assert history.claim(identity_keys(
+        "Foldable Storage Shelf 4ft", "https://seller.example/old-4ft",
+    ))
+    for title, url in (
+        ("Foldable Storage Shelf 4 feet", "https://seller.example/new-feet"),
+        ("4-foot Foldable Storage Shelf", "https://other.example/4-foot"),
+        ("Foldable Storage Shelf 4 ft", "https://other.example/4-ft"),
+    ):
+        assert not WinnerHistory("returning-browser", path=path).claim(
+            identity_keys(title, url)
+        ), "A unit spelling change must not yield another winner: " + title
+    assert history.claim(identity_keys(
+        "Foldable Storage Shelf 5 feet", "https://seller.example/5-feet",
+    )), "Different sizes must remain eligible"
+    assert history.claim(identity_keys(
+        "Foldable Storage Shelf 4 inches", "https://seller.example/4-inch",
+    )), "Feet and inches are different measurements"
+
+
+def test_legacy_foot_unit_hash_excludes_relisted_product(tmp_path):
+    """Older permanent rows store hashes only, not recoverable product titles."""
+    path = tmp_path / "legacy-feet.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    old_title = "foldable storage shelf 4ft"
+    old_key = "name-folded-" + hashlib.sha256(old_title.encode()).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "Foldable Storage Shelf 4 feet", "https://seller.example/new-4-feet",
+    )), "Legacy 4ft winner history must not be recycled"
+
+
+def test_feet_normalization_does_not_merge_other_units(tmp_path):
+    history = WinnerHistory("returning-browser", path=tmp_path / "distinct-units.sqlite3")
+    assert history.claim(identity_keys("Wall Shelf 4ft", "https://one.example/4ft"))
+    assert history.claim(identity_keys("Wall Shelf 4 cm", "https://two.example/4cm"))
+    assert history.claim(identity_keys("Wall Shelf 4in", "https://three.example/4in"))
