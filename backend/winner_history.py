@@ -6,6 +6,7 @@ import re
 import sqlite3
 import time
 from contextlib import contextmanager
+from itertools import product as cartesian_product
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import unicodedata
@@ -44,6 +45,11 @@ _TRACKING_PARAMS = {
 # Unknown selectors (size, color, option_id, etc.) remain variant-sensitive.
 _SKU_PRESENTATION_PARAMS = {'view', 'sort_by'}
 
+# Retailers frequently change query-key capitalization in redirects. These
+# known variant selectors are case-insensitive *keys*, not values. Keep Blue
+# and blue distinct, and never strip a selected size, color, or model.
+_CASE_INSENSITIVE_VARIANT_KEYS = {'size', 'color', 'colour', 'model'}
+
 # Scraped product URLs sometimes contain HTML-escaped query separators.
 # Decode only ampersand entities in the QUERY, not paths, product values, or
 # arbitrary HTML entities (which could merge genuinely different SKUs).
@@ -69,11 +75,12 @@ def _canonical_query_pairs(pairs):
         lowered = key.lower()
         if lowered.startswith('utm_') or lowered in _TRACKING_PARAMS:
             continue
-        if lowered in {'sku', 'variant', 'preselect'}:
-            # Retailer redirects sometimes URL-encode padding around a
-            # selector value. Boundary whitespace does not change a SKU, but
-            # interior whitespace can be meaningful (e.g. AB 12 vs AB12).
-            pair = (lowered, value.strip())
+        if lowered in {'sku', 'variant', 'preselect'} | _CASE_INSENSITIVE_VARIANT_KEYS:
+            # Selector key casing and identical repeated key/value pairs do
+            # not create a new variant. Trim only strong SKU selector values;
+            # other values may be case/whitespace-sensitive at the retailer.
+            normalized_value = value.strip() if lowered in {'sku', 'variant', 'preselect'} else value
+            pair = (lowered, normalized_value)
             if pair in seen_selectors:
                 continue
             seen_selectors.add(pair)
@@ -259,6 +266,24 @@ def identity_keys(name, url):
                 keys.append('merchant-sku-' + hashlib.sha256(
                     f'{host_name}:{sku}'.encode()).hexdigest()[:24])
         keys.append('url-' + hashlib.sha256(canonical.encode()).hexdigest()[:24])
+        # Before query-key normalization, permanent SQLite history recorded
+        # URL hashes for common uppercase/Title-case size and color selectors.
+        # Include bounded historical aliases in either direction so a renamed
+        # listing still matches those old hashes. Values and other selectors
+        # are never rewritten; cap combinations to avoid unbounded key growth.
+        case_indices = [i for i, (key, _) in enumerate(query)
+                        if key in _CASE_INSENSITIVE_VARIANT_KEYS]
+        if 0 < len(case_indices) <= 2:
+            for forms in cartesian_product(('lower', 'upper', 'title'), repeat=len(case_indices)):
+                historical_query = list(query)
+                for index, form in zip(case_indices, forms):
+                    key, value = historical_query[index]
+                    alias_key = key.upper() if form == 'upper' else key.capitalize() if form == 'title' else key
+                    historical_query[index] = (alias_key, value)
+                historical_url = urlunsplit(('https', host_name, canonical_path,
+                                           urlencode(sorted(historical_query)), ''))
+                if historical_url != canonical:
+                    keys.append('url-' + hashlib.sha256(historical_url.encode()).hexdigest()[:24])
         # Preserve the pre-upgrade identity for an already stored encoded URL.
         # Historical hashes alone cannot recover a *different* old encoding;
         # all newly claimed winners store the normalized key going forward.
