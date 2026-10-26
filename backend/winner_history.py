@@ -49,6 +49,18 @@ _EBAY_MARKETPLACES = frozenset({
 })
 
 
+# Amazon ASINs identify the same catalog item across official country stores.
+# Only allowlisted marketplaces may claim this stable cross-domain identity;
+# arbitrary amazon.* lookalikes must never inherit an Amazon ASIN key.
+_AMAZON_MARKETPLACES = frozenset({
+    'amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.co.jp',
+    'amazon.ca', 'amazon.fr', 'amazon.it', 'amazon.es',
+    'amazon.com.au', 'amazon.nl', 'amazon.se', 'amazon.pl',
+    'amazon.com.br', 'amazon.com.mx', 'amazon.in', 'amazon.ae',
+    'amazon.sa', 'amazon.sg', 'amazon.com.tr', 'amazon.com.be',
+})
+
+
 # These query fields change the retailer's *presentation*, not which item an
 # unambiguous merchant SKU identifies. Only exempt them from the broad-SKU
 # safety guard; retain them in URL keys for sites without a reliable SKU.
@@ -381,7 +393,8 @@ def identity_keys(name, url):
                             keys.append(
                                 'ebay-variant-' + ebay_item.group(1) + '-' + variation
                             )
-        if host == 'amazon.com' or host.endswith('.amazon.com'):
+        if any(host == market or host.endswith('.' + market)
+               for market in _AMAZON_MARKETPLACES):
             match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', canonical_path, re.I)
             if match:
                 keys.append('amazon-asin-' + match.group(1).lower())
