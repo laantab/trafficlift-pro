@@ -21,4 +21,19 @@ assert.equal(source.pin_title, product.name, 'Do not mutate source package');
 const unknown = context.editPinterestPackage({pin_title:'Biggest Sales Ever'}, {name:'Acme Portable Widget',category:'Gadgets'});
 assert(!/Biggest Sales/i.test(unknown.pin_title));
 assert(!/guaranteed/i.test(unknown.optimized_description));
+// Product attributes in marketing copy must be supported by the product title,
+// not inferred from a broad category or from only one of two adjectives.
+const bambooOnly = context.editPinterestPackage({}, {name:'Bamboo Drawer Organizer',category:'Kitchen'});
+assert.match(bambooOnly.optimized_description, /bamboo drawer organizer ideas/i);
+assert.doesNotMatch(bambooOnly.optimized_description, /expandable bamboo/i,
+  'Bamboo does not prove a drawer organizer expands');
+const expandableOnly = context.editPinterestPackage({}, {name:'Expandable Drawer Organizer',category:'Kitchen'});
+assert.match(expandableOnly.optimized_description, /expandable drawer organizer ideas/i);
+assert.doesNotMatch(expandableOnly.optimized_description, /expandable bamboo/i,
+  'Expandable does not prove the material is bamboo');
+const both = context.editPinterestPackage({}, {name:'Expandable Bamboo Drawer Organizer',category:'Kitchen'});
+assert.match(both.optimized_description, /expandable bamboo drawer organizer ideas/i);
+const categoryOnly = context.editPinterestPackage({}, {name:'Storage Tray',category:'Kitchen Drawer Organizers'});
+assert.doesNotMatch(categoryOnly.optimized_description, /drawer organizer ideas/i,
+  'A category label cannot establish a specific product attribute');
 console.log('PASS: Pinterest editor rewrites listing titles, rejects invented sales claims and keeps human review');
