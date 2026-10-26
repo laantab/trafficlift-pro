@@ -900,3 +900,29 @@ def test_target_child_unknown_selector_does_not_collapse_distinct_skus(tmp_path)
     )
     assert history.claim(first)
     assert history.claim(second), 'Do not claim a child TCIN when another selector may alter SKU'
+
+
+def test_gray_grey_spelling_cannot_recycle_relisted_winner(tmp_path):
+    """US/UK color spelling is not a new product when seller URLs change."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys('Gray Bamboo Drawer Organizer 18 Piece',
+                          'https://shop-one.example/products/gray-organizer')
+    renamed = identity_keys('18 pc Grey Bamboo Drawer Organiser',
+                            'https://shop-two.example/offer/new-name')
+    assert history.claim(first)
+    assert not history.claim(renamed), 'Grey/gray must share durable title identity'
+    assert history.claim(identity_keys('Blue Bamboo Drawer Organizer 18 Piece',
+                                       'https://shop-three.example/blue'))
+
+
+def test_legacy_grey_title_hash_remains_excluded_after_gray_normalization(tmp_path):
+    """Historical hash-only rows cannot be rewritten; emit their old spelling key."""
+    import hashlib
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    old_tokens = 'grey bamboo drawer organizer 18 piece'.split()
+    legacy_title = 'title-' + hashlib.sha256(
+        ' '.join(sorted(old_tokens)).encode()).hexdigest()[:24]
+    assert history.claim([legacy_title])
+    renamed = identity_keys('18 pc Gray Bamboo Drawer Organiser',
+                            'https://other-shop.example/updated')
+    assert not history.claim(renamed), 'Old grey hashes must still block the same winner'
