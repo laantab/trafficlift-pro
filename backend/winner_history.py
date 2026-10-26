@@ -358,6 +358,44 @@ def identity_keys(name, url):
                     merchant_variant = f'{host}:{variant}'
                     keys.append('shopify-variant-' + hashlib.sha256(
                         merchant_variant.encode()).hexdigest()[:24])
+        # Etsy listing IDs survive seller title/slug edits, mobile links and
+        # recommendation click tracking. Only official Etsy hosts can claim
+        # these identities. A selected variation is a different sellable
+        # item from the parent or another variation, so never attach the
+        # broad listing key when a variation selector is present.
+        if host in {'etsy.com', 'm.etsy.com'}:
+            etsy_listing = re.fullmatch(
+                r'/(?:[a-z]{2}(?:-[a-z]{2})?/)?listing/([0-9]{6,})(?:/[^/]*)?',
+                canonical_path, re.I
+            )
+            if etsy_listing:
+                etsy_attribution = {
+                    'click_key', 'click_sum', 'ga_order', 'ga_search_type',
+                    'ga_view_type', 'ga_search_query', 'organic_search_click',
+                }
+                selectors = [
+                    (key.lower(), value.strip()) for key, value in query_pairs
+                    if key.lower() not in etsy_attribution
+                    and key.lower() not in _TRACKING_PARAMS
+                    and not key.lower().startswith('utm_')
+                ]
+                listing_id = etsy_listing.group(1)
+                if not selectors:
+                    keys.append('etsy-listing-' + listing_id)
+                elif all(key in {'variation0', 'variation1'} for key, _ in selectors):
+                    # Repeated identical selectors are harmless; conflicting
+                    # values are ambiguous and must not claim a child SKU.
+                    chosen = {}
+                    for key, value in selectors:
+                        if (not re.fullmatch(r'[A-Za-z0-9._-]{1,64}', value)
+                                or (key in chosen and chosen[key] != value)):
+                            break
+                        chosen[key] = value
+                    else:
+                        fingerprint = hashlib.sha256(
+                            urlencode(sorted(chosen.items())).encode()
+                        ).hexdigest()[:24]
+                        keys.append('etsy-variation-' + listing_id + '-' + fingerprint)
         # eBay's numeric item ID is stable across rewritten listing slugs,
         # mobile subdomains and advertising click URLs. Claim it only for
         # unambiguous item links: unknown selectors might choose a distinct
