@@ -180,3 +180,14 @@ def test_pin_photo_rejects_unsafe_and_remote(client):
     with patch.object(api,'_validate_public_https_url',side_effect=ValueError('private')):
         assert client.get('/api/v1/product-image',params={'url':'https://127.0.0.1/a'}).status_code==422
     assert client.get('/api/v1/product-image',params={'url':'https://example.com/a'},headers={'Origin':'https://evil.example'}).status_code==403
+
+
+def test_vertical_video_subtitle_legibility_guard():
+    """Prevent regression to unreadably tiny captions on mobile video."""
+    from pathlib import Path
+    import inspect
+    from backend import photo_video
+    source = inspect.getsource(photo_video)
+    assert 'Style: Default,Arial,58,' in source
+    assert 'chunks=balanced_caption_chunks(phrase, max_words=5)' in source
+    assert 'lines=wrap(chunk,26,760)' in source
