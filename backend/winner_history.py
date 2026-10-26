@@ -39,6 +39,16 @@ _TRACKING_PARAMS = {
     'dclid', 'li_fat_id',
 }
 
+# eBay listing and variation IDs are stable when a buyer opens the same item
+# through another official country marketplace. Use an explicit allowlist;
+# matching arbitrary ebay.* hostnames would trust unrelated domains.
+_EBAY_MARKETPLACES = frozenset({
+    'ebay.com', 'ebay.co.uk', 'ebay.de', 'ebay.com.au', 'ebay.ca',
+    'ebay.fr', 'ebay.it', 'ebay.es', 'ebay.nl', 'ebay.at',
+    'ebay.ch', 'ebay.ie', 'ebay.be', 'ebay.pl',
+})
+
+
 # These query fields change the retailer's *presentation*, not which item an
 # unambiguous merchant SKU identifies. Only exempt them from the broad-SKU
 # safety guard; retain them in URL keys for sites without a reliable SKU.
@@ -330,7 +340,8 @@ def identity_keys(name, url):
         # unambiguous item links: unknown selectors might choose a distinct
         # size, colour or variation within the same parent listing. In that
         # case retain the exact canonical URL keys instead of broadening.
-        if host == 'ebay.com' or host.endswith('.ebay.com'):
+        if any(host == market or host.endswith('.' + market)
+               for market in _EBAY_MARKETPLACES):
             ebay_item = re.fullmatch(
                 r'/itm/(?:[^/]+/)?([0-9]{9,15})/?', canonical_path, re.I
             )
