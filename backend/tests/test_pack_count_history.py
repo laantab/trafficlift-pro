@@ -62,3 +62,36 @@ def test_pack_and_count_are_not_automatically_equated(tmp_path):
     assert history.claim(identity_keys(
         "Gold Chain 24 count", "https://four.example/item",
     )), "ct can mean carat and must not be silently equated with count"
+
+
+def test_ampersand_and_written_conjunction_do_not_recycle_winner(tmp_path):
+    """Retailers can change '&' to 'and' while renaming and relisting a pack."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "conjunction.sqlite3")
+    assert history.claim(identity_keys(
+        "Bamboo & Steel Drawer Organizer 12 Pack",
+        "https://shop.example/old-item?utm_source=pinterest",
+    ))
+    assert not WinnerHistory("returning-browser", path=history.path).claim(identity_keys(
+        "12pk Steel and Bamboo Drawer Organiser",
+        "https://other.example/relisted?utm_source=instagram",
+    )), "The same product cannot be recommended again after '&' becomes 'and'"
+    assert history.claim(identity_keys(
+        "16pk Steel and Bamboo Drawer Organiser",
+        "https://other.example/larger",
+    )), "A genuinely different pack quantity must remain eligible"
+
+
+def test_old_written_and_title_hash_blocks_new_ampersand_listing(tmp_path):
+    """Pre-upgrade permanent SQLite keys must exclude a renamed listing."""
+    path = tmp_path / "legacy-conjunction.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    old_tokens = "bamboo and steel drawer organizer 12 pack".split()
+    old_key = "title-" + hashlib.sha256(
+        " ".join(sorted(old_tokens)).encode()
+    ).hexdigest()[:24]
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
+    assert not history.claim(identity_keys(
+        "12 Pack Steel & Bamboo Drawer Organizer",
+        "https://shop.example/new-item",
+    )), "Legacy conjunction-based title keys must still exclude the winner"
