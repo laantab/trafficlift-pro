@@ -325,6 +325,26 @@ def identity_keys(name, url):
                     merchant_variant = f'{host}:{variant}'
                     keys.append('shopify-variant-' + hashlib.sha256(
                         merchant_variant.encode()).hexdigest()[:24])
+        # eBay's numeric item ID is stable across rewritten listing slugs,
+        # mobile subdomains and advertising click URLs. Claim it only for
+        # unambiguous item links: unknown selectors might choose a distinct
+        # size, colour or variation within the same parent listing. In that
+        # case retain the exact canonical URL keys instead of broadening.
+        if host == 'ebay.com' or host.endswith('.ebay.com'):
+            ebay_item = re.fullmatch(
+                r'/itm/(?:[^/]+/)?([0-9]{9,15})/?', canonical_path, re.I
+            )
+            ebay_tracking = {
+                'mkcid', 'mkevt', 'mkrid', 'campid', 'toolid', 'customid',
+                'hash', 'itmmeta', 'itmprp', '_trkparms', '_trksid',
+            }
+            if ebay_item and all(
+                key.lower() in ebay_tracking
+                or key.lower() in _TRACKING_PARAMS
+                or key.lower().startswith('utm_')
+                for key, _ in query_pairs
+            ):
+                keys.append('ebay-item-' + ebay_item.group(1))
         if host == 'amazon.com' or host.endswith('.amazon.com'):
             match = re.search(r'/(?:dp|gp/product|gp/aw/d)/([a-z0-9]{10})(?:/|$)', canonical_path, re.I)
             if match:
