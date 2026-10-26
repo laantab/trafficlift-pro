@@ -253,6 +253,21 @@ def identity_keys(name, url):
             measurement_variants.add(re.sub(
                 pattern, lambda match: f'pack of {match.group(1)}', folded_name
             ))
+    # Product titles also interchange 12oz, 12 oz, 12-ounce and 12 ounces.
+    # Emit historical folded/sorted-title hashes on both forms: permanent
+    # SQLite rows saved before this alias may contain only a title hash.
+    # Keep the numeric capacity, so 12 oz and 16 oz remain distinct.
+    ounce_pattern = r'\b(\d+)\s*(?:ounces?|oz)\b'
+    if re.search(ounce_pattern, folded_name):
+        for spelling in ('oz', 'ounce', 'ounces'):
+            measurement_variants.add(re.sub(
+                ounce_pattern,
+                lambda match: f'{match.group(1)} {spelling}',
+                folded_name,
+            ))
+        measurement_variants.add(re.sub(
+            ounce_pattern, lambda match: f'{match.group(1)}oz', folded_name
+        ))
     # Seller titles interchange 12in, 12 inch, 12 inches, and 12-inch.
     # Emit all historical folded spellings so pre-upgrade SQLite hashes
     # remain effective even when a retailer changes the listing URL.
