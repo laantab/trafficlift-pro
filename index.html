@@ -2218,9 +2218,16 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         let topic = '';
         let headline = '';
         let board = '';
-        if (/drawer organizer|silverware organizer|utensil tray/.test(searchText)) {
-            topic = 'expandable bamboo drawer organizer';
-            if (!/expandab|bamboo/.test(searchText)) topic = 'drawer organizer';
+        if (/drawer organizer|silverware organizer|utensil tray/.test(product.toLowerCase())) {
+            // Material and functionality must be stated by the selected
+            // product title, not inferred from a category or each other.
+            const productWords = product.toLowerCase();
+            const bamboo = /\bbamboo\b/.test(productWords)
+                && !/\b(?:faux|imitation)\s+bamboo\b|\bbamboo[-\s]look\b/.test(productWords);
+            const expandable = /\bexpandable\b/.test(productWords)
+                && !/\b(?:non[-\s]?expandable|not\s+expandable)\b/.test(productWords);
+            topic = [expandable && 'expandable', bamboo && 'bamboo', 'drawer organizer']
+                .filter(Boolean).join(' ');
             headline = 'Ideas for a More Organized Drawer';
             board = 'Kitchen Drawer Organization';
         } else if (/lunch box|bento/.test(searchText)) {
