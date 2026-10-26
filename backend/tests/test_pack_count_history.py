@@ -223,7 +223,9 @@ def test_legacy_piece_abbreviation_hash_still_excludes_relisted_winner(tmp_path)
     """Pre-normalization SQLite rows contain only the old title hash.
 
     A relisted 18-piece item must not be returned again if its prior record
-    used '18 pcs' and the merchant changed both title order and URL.
+    used '18 pcs' and the merchant changed its URL and unit spelling. A lone
+    old folded-name hash cannot reconstruct arbitrary historical word order;
+    the separate sorted-title test covers that case.
     """
     path = tmp_path / "legacy-piece.sqlite3"
     history = WinnerHistory("returning-browser", path=path)
@@ -232,7 +234,7 @@ def test_legacy_piece_abbreviation_hash_still_excludes_relisted_winner(tmp_path)
     with sqlite3.connect(path) as db:
         db.execute("INSERT INTO discovery_seen VALUES (?,?,?)", (history.scope, old_key, 1))
     assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
-        "18-piece Criusia Drawer Organiser Set", "https://other.example/new-item",
+        "Criusia Drawer Organiser 18-piece Set", "https://other.example/new-item",
     )), "A pre-upgrade 'pcs' winner must remain excluded after relisting"
 
 
