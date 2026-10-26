@@ -168,3 +168,43 @@ def test_preupgrade_html_escaped_history_hash_still_blocks_plain_title(tmp_path)
         "Premium Bamboo & Steel Drawer Organizer",
         "https://shop.example/products/brand-new-slug",
     ))
+
+
+def test_ebay_item_id_blocks_relisted_winner_across_mobile_urls(tmp_path):
+    """An eBay item ID survives title, slug, click tracking and mobile-host changes."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    original = identity_keys(
+        "Compact Rechargeable Desk Lamp Original",
+        "https://www.ebay.com/itm/Compact-Desk-Lamp/325019872006?mkcid=1&mkevt=1",
+    )
+    relisted = identity_keys(
+        "Portable LED Reading Light Updated",
+        "https://m.ebay.com/itm/325019872006?mkcid=99&campid=second",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=history.path).claim(relisted), (
+        "The same eBay item must not win twice when listing title, path and host change"
+    )
+    assert history.claim(identity_keys(
+        "Completely Different Outdoor Lantern",
+        "https://www.ebay.com/itm/325019872007",
+    )), "A different eBay item ID remains eligible"
+
+
+def test_ebay_variant_selector_and_unrelated_host_do_not_collapse_products(tmp_path):
+    """An item ID alone is not a sellable variant when eBay ?var= selects a child."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    first = identity_keys(
+        "Compact Lamp Small Blue Edition",
+        "https://www.ebay.com/itm/325019872006?var=111111111111",
+    )
+    second = identity_keys(
+        "Portable Lantern Large Red Edition",
+        "https://www.ebay.com/itm/325019872006?var=222222222222",
+    )
+    assert not any(k.startswith("ebay-item-") for k in first + second)
+    assert history.claim(first)
+    assert history.claim(second), "Different eBay variants must not be merged"
+    assert not any(k.startswith("ebay-item-") for k in identity_keys(
+        "Third-party Item", "https://not-ebay.com/itm/325019872006"
+    )), "Never trust a lookalike merchant hostname"
