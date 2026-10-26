@@ -134,8 +134,17 @@ jobs:
           python-version: "3.11"
       - name: Install FFmpeg and local voice dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          # Ubuntu runners generally include FFmpeg and DejaVu. Do not block
+          # narrated-video acceptance on a redundant apt mirror refresh.
+          # If either prerequisite is absent, install it rather than skip QA.
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
+             ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
+            sudo apt-get -y install ffmpeg fonts-dejavu-core
+          fi
+          command -v ffmpeg
+          command -v ffprobe
+          test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
           pip install numpy pillow soundfile kokoro-onnx==0.6.1 onnxruntime==1.30.0
       - name: Download verified local Kokoro model and voice data
         run: |
