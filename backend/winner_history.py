@@ -257,7 +257,7 @@ def identity_keys(name, url):
     # Emit historical folded/sorted-title hashes on both forms: permanent
     # SQLite rows saved before this alias may contain only a title hash.
     # Keep the numeric capacity, so 12 oz and 16 oz remain distinct.
-    ounce_pattern = r'\\b(\\d+)\\s*(?:ounces?|oz)\\b'
+    ounce_pattern = r'\b(\d+)\s*(?:ounces?|oz)\b'
     if re.search(ounce_pattern, folded_name):
         for spelling in ('oz', 'ounce', 'ounces'):
             measurement_variants.add(re.sub(
