@@ -870,3 +870,33 @@ def test_preupgrade_mobile_shopify_variant_hash_still_blocks_desktop(tmp_path):
         'Renamed Compact Office Storage Product',
         'https://shop.example/products/new-slug?variant=44332211009988',
     ))
+
+
+def test_target_unknown_variant_selector_does_not_collapse_distinct_skus(tmp_path):
+    """Unknown Target selectors may choose variants; do not claim broad parent."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys(
+        'Small Bamboo Drawer Divider',
+        'https://target.com/p/-/A-91234567?custom_size=small&ref=ad',
+    )
+    second = identity_keys(
+        'Large Bamboo Drawer Divider',
+        'https://www.target.com/p/-/A-91234567?custom_size=large&ref=email',
+    )
+    assert history.claim(first)
+    assert history.claim(second), 'An unknown selector must not collapse different sellable variants'
+
+
+def test_target_child_unknown_selector_does_not_collapse_distinct_skus(tmp_path):
+    """A child TCIN with extra unknown selectors is ambiguous."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    first = identity_keys(
+        'Small Custom Drawer Divider',
+        'https://target.com/p/-/A-91234567?preselect=91234569&custom_size=small',
+    )
+    second = identity_keys(
+        'Large Custom Drawer Divider',
+        'https://target.com/p/-/A-91234567?preselect=91234569&custom_size=large',
+    )
+    assert history.claim(first)
+    assert history.claim(second), 'Do not claim a child TCIN when another selector may alter SKU'
