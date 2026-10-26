@@ -824,3 +824,35 @@ def test_target_conflicting_preselect_values_do_not_claim_arbitrary_child():
     assert not any(key.startswith("target-tcin-") for key in keys), (
         "Never choose an arbitrary child TCIN or parent for conflicting preselect values"
     )
+
+
+def test_shopify_mobile_storefront_alias_cannot_recycle_numeric_variant(tmp_path):
+    """A merchant's m. mobile link must share its stable Shopify variant history."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    original = identity_keys(
+        'Original Bamboo Drawer Organizer Small',
+        'https://shop.example/en-us/products/organizer?variant=44332211009988&utm_source=pin',
+    )
+    relisted = identity_keys(
+        'Updated Office Storage Rack Compact',
+        'https://m.shop.example/fr-ca/products/storage-rack?VARIANT=44332211009988&gad_source=1',
+    )
+    assert history.claim(original)
+    assert not WinnerHistory('returning-browser', path=history.path).claim(relisted)
+
+
+def test_shopify_mobile_alias_preserves_other_merchants_and_variants(tmp_path):
+    """Mobile aliases cannot combine different numeric variants or stores."""
+    history = WinnerHistory('returning-browser', path=tmp_path / 'winners.db')
+    assert history.claim(identity_keys(
+        'Compact Organizer Model A',
+        'https://shop.example/products/organizer?variant=44332211009988',
+    ))
+    assert history.claim(identity_keys(
+        'Large Organizer Model B',
+        'https://m.shop.example/products/organizer?variant=44332211009989',
+    ))
+    assert history.claim(identity_keys(
+        'Other Merchant Organizer Model A',
+        'https://m.other.example/products/organizer?variant=44332211009988',
+    ))
