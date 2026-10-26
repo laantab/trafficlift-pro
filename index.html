@@ -2893,17 +2893,22 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const msg = (err && err.message) || String(err);
             const isWinnerStage = !window.__currentWinner;
             const isTimeout = /took too long/i.test(msg);
+            // Catalog exhaustion is a legitimate permanent-history outcome, not
+            // an image failure. Do not tell returning users to retry until
+            // a previously selected winner is recycled.
+            const isNoFreshWinner = /No fresh product|Previous products remain excluded|previously selected winners remain excluded/i.test(msg);
             const isNoPhotoError = /No photo-qualified winner|photo[- ]qualified/i.test(msg)
-                || /HTTP 404\b/i.test(msg)
                 || /No product candidate in our pool/i.test(msg)
                 || /matched your query/i.test(msg)
                 || /verified product photo/i.test(msg);
             const heading = isWinnerStage
                 ? (isTimeout
                     ? 'Server is waking up — please try again'
-                    : isNoPhotoError
-                        ? noPhotoHeading
-                        : failHeading)
+                    : isNoFreshWinner
+                        ? 'No fresh product available'
+                        : isNoPhotoError
+                            ? noPhotoHeading
+                            : failHeading)
                 : (isTimeout
                     ? 'Server is waking up — please try again'
                     : 'Pinterest generation failed');
@@ -2913,9 +2918,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const body = isWinnerStage
                 ? (isTimeout
                     ? 'The first request after a quiet period can take a moment while the server warms up. Click the button once more and the result should appear in a few seconds.'
-                    : isNoPhotoError
-                        ? 'Research completed, but no new product passed the checks. Previous products are still excluded. See the research result below.'
-                        : failBody)
+                    : isNoFreshWinner
+                        ? 'No new eligible product is available from this search. Previously selected winners remain excluded. Please check again when fresh products are available.'
+                        : isNoPhotoError
+                            ? 'Research completed, but no new photo-qualified product passed the checks. Previous products are still excluded. See the research result below.'
+                            : failBody)
                 : (isTimeout
                     ? 'Pinterest generation is taking longer than usual. Click again.'
                     : 'Winner card is below — Pinterest package generation hit an error. You can retry it with the “Retry Pinterest Package” button.');
