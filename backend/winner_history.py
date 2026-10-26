@@ -37,6 +37,9 @@ _TRACKING_PARAMS = {
     # DoubleClick and LinkedIn first-party ad click IDs identify visits,
     # not product variants. Keep exact keys; never strip sku/model selectors.
     'dclid', 'li_fat_id',
+    # Shopify product-recommendation placement/source context, not the SKU
+    # being viewed. Preserve variant, sku, selling_plan and other selectors.
+    'pr_prod_strat', 'pr_rec_id', 'pr_ref_pid', 'pr_seq',
 }
 
 # eBay listing and variation IDs are stable when a buyer opens the same item
