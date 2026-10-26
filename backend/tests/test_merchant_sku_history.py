@@ -208,3 +208,71 @@ def test_ebay_variant_selector_and_unrelated_host_do_not_collapse_products(tmp_p
     assert not any(k.startswith("ebay-item-") for k in identity_keys(
         "Third-party Item", "https://not-ebay.com/itm/325019872006"
     )), "Never trust a lookalike merchant hostname"
+
+
+def test_ebay_same_variation_cannot_repeat_across_relisted_urls(tmp_path):
+    """Stable eBay item+variation IDs must survive changed title, slug and tracking."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    original = identity_keys(
+        "Adjustable Shelf Bracket Small Blue",
+        "https://www.ebay.com/itm/Original-Shelf-Bracket/325019872006"
+        "?var=675019872006&mkcid=1&campid=first",
+    )
+    renamed = identity_keys(
+        "Compact Wall Storage Support Azure Edition",
+        "https://m.ebay.com/itm/325019872006"
+        "?VAR=675019872006&mkcid=2&campid=second",
+    )
+    assert history.claim(original)
+    assert not WinnerHistory("returning-browser", path=history.path).claim(renamed), (
+        "The same selected eBay variation must not win again after relisting"
+    )
+
+
+def test_ebay_variation_selection_keeps_other_variants_and_parent_distinct(tmp_path):
+    """An eBay item can have different child variants; do not claim parent identity."""
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    blue = identity_keys(
+        "Adjustable Shelf Bracket Blue",
+        "https://ebay.com/itm/325019872006?var=675019872006",
+    )
+    red = identity_keys(
+        "Adjustable Shelf Bracket Red",
+        "https://ebay.com/itm/325019872006?var=675019872007",
+    )
+    parent = identity_keys(
+        "Adjustable Shelf Bracket Base",
+        "https://ebay.com/itm/325019872006",
+    )
+    assert history.claim(blue)
+    assert history.claim(red)
+    assert history.claim(parent)
+    assert not any(k.startswith("ebay-item-") for k in blue + red)
+
+
+def test_ebay_ambiguous_variation_selectors_do_not_claim_stable_variant_key():
+    """Conflicting/unknown query selectors cannot be assumed to identify one SKU."""
+    urls = (
+        "https://ebay.com/itm/325019872006?var=675019872006&var=675019872007",
+        "https://ebay.com/itm/325019872006?var=675019872006&size=large",
+        "https://ebay.com/itm/325019872006?var=not-numeric",
+        "https://unrelated.example/itm/325019872006?var=675019872006",
+    )
+    for url in urls:
+        keys = identity_keys("Unique Shelf Bracket Model", url)
+        assert not any(k.startswith("ebay-variant-") for k in keys), url
+
+
+def test_ebay_duplicate_identical_variation_selectors_are_one_product(tmp_path):
+    history = WinnerHistory("returning-browser", path=tmp_path / "seen.db")
+    first = identity_keys(
+        "Wall Mount Organizer Blue",
+        "https://ebay.com/itm/325019872006?var=675019872006",
+    )
+    second = identity_keys(
+        "Different Retailer Description Azure",
+        "https://www.ebay.com/itm/New-Title/325019872006"
+        "?VAR=675019872006&var=675019872006&mkcid=2",
+    )
+    assert history.claim(first)
+    assert not history.claim(second)
