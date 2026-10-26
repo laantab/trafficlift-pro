@@ -139,3 +139,39 @@ def test_feet_normalization_does_not_merge_other_units(tmp_path):
     assert history.claim(identity_keys("Wall Shelf 4ft", "https://one.example/4ft"))
     assert history.claim(identity_keys("Wall Shelf 4 cm", "https://two.example/4cm"))
     assert history.claim(identity_keys("Wall Shelf 4in", "https://three.example/4in"))
+
+
+def test_retailer_size_query_key_casing_does_not_recycle_winner(tmp_path):
+    """Retailer redirects can change SIZE to size without changing the selected SKU."""
+    path = tmp_path / "query-size.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    assert history.claim(identity_keys(
+        "Adjustable Desk Lamp Blue Large",
+        "https://seller.example/products/desk-lamp?SIZE=Large&utm_source=pin",
+    ))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "Rechargeable Reading Light Large",
+        "https://seller.example/products/desk-lamp?size=Large&gclid=another-click",
+    )), "A query key casing change must not create a fresh winner"
+    assert history.claim(identity_keys(
+        "Rechargeable Reading Light Small",
+        "https://seller.example/products/desk-lamp?size=Small",
+    )), "Different selected sizes remain distinct"
+
+
+def test_retailer_color_query_key_casing_does_not_recycle_winner(tmp_path):
+    """Color and COLOR select the same value; color values remain distinct."""
+    path = tmp_path / "query-color.sqlite3"
+    history = WinnerHistory("returning-browser", path=path)
+    assert history.claim(identity_keys(
+        "Kitchen Organizer Blue",
+        "https://seller.example/products/organizer?Color=Blue&fbclid=first",
+    ))
+    assert not WinnerHistory("returning-browser", path=path).claim(identity_keys(
+        "Compact Drawer Divider Blue",
+        "https://seller.example/products/organizer?color=Blue&fbclid=second",
+    )), "Query selector capitalization is not a new product variant"
+    assert history.claim(identity_keys(
+        "Compact Drawer Divider Green",
+        "https://seller.example/products/organizer?color=Green",
+    )), "Distinct color variants must remain eligible"
