@@ -92,3 +92,28 @@ acceptance.** The live Chromium command requires the private owner access
 code and a rights-cleared product photo; it must be explicitly run by an
 authorized operator. Review the saved MP4's video, audio, captions, claims,
 photo rights and platform framing before any customer-launch claim.
+
+## Verify all three export kits from an existing completed job (no new render)
+
+After a video is already complete, set `TRAFFICLIFT_OWNER_ACCESS_CODE` privately
+in the trusted terminal and run:
+
+```sh
+python scripts/owner_existing_export_acceptance.py --job-id <existing-32-character-job-id>
+```
+
+This authenticated check downloads the **existing** master MP4 and the TikTok,
+YouTube Shorts, and Instagram Reels ZIPs sequentially. It verifies that each
+ZIP contains an exact SHA-256-matching copy of the original master, correct
+job/platform metadata, a posting draft, and an offline illustrative safe-zone
+review. It uses bounded temporary disk storage, removes downloaded files, and
+never starts a render, publishes media, changes account state, or consumes a
+hosted video-render slot. The only POST is the existing owner login.
+
+This checks archive integrity and reuse, **not** video decoding, subtitle
+legibility, content rights, actual platform uploads, or measured safe-zone
+compliance. Run the existing MP4 decoding acceptance separately if needed, and
+inspect the video in the official platform previews before publishing. An
+owner access code and a completed job ID are required; this cannot be run
+from public CI without those private credentials. Never put the access code
+in source control, logs, command-line arguments, or chat.
