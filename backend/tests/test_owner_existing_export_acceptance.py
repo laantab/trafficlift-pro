@@ -175,8 +175,8 @@ def test_existing_master_accepts_h264_aac_1080x1920(monkeypatch, tmp_path):
     def fake_run(*args, **kwargs):
         return SimpleNamespace(returncode=0, stdout=json.dumps({
             "streams": [
-                {"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920},
-                {"codec_type": "audio", "codec_name": "aac"},
+                {"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920, "avg_frame_rate": "30/1"},
+                {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2},
             ], "format": {"duration": "31.0"}
         }), stderr="")
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -244,3 +244,55 @@ def test_existing_export_acceptance_rejects_empty_or_inconsistent_posting_metada
     path = _posting_kit(tmp_path, changes=changes, post=post)
     with pytest.raises(AcceptanceError):
         _verify_kit(path, "tiktok", JOB, len(MASTER), hashlib.sha256(MASTER).hexdigest())
+
+
+# A correct H.264/AAC codec and 9:16 resolution are insufficient for a
+# cross-platform posting master. Official TikTok and Meta guidance require
+# 23-60 FPS; Meta's Reels audio guidance limits AAC to 48 kHz mono/stereo.
+# YouTube Shorts classification is limited to 3 minutes. The 31s master
+# should pass all these constraints without creating any new video.
+@pytest.mark.parametrize("changes,format_changes", [
+    ({"avg_frame_rate": "15/1"}, {}),
+    ({"avg_frame_rate": "120/1"}, {}),
+    ({"avg_frame_rate": "0/0"}, {}),
+    ({"sample_rate": "96000"}, {}),
+    ({"channels": 6}, {}),
+    ({}, {"duration": "2.9"}),
+    ({}, {"duration": "181"}),
+])
+def test_existing_master_rejects_platform_incompatible_fps_audio_or_duration(
+        monkeypatch, tmp_path, changes, format_changes):
+    video = {"codec_type": "video", "codec_name": "h264", "width": 1080,
+             "height": 1920, "avg_frame_rate": "30/1"}
+    audio = {"codec_type": "audio", "codec_name": "aac",
+             "sample_rate": "48000", "channels": 2}
+    (audio if "sample_rate" in changes or "channels" in changes else video).update(changes)
+    fmt = {"duration": "31.0", **format_changes}
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "streams": [video, audio], "format": fmt,
+        }), stderr="")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    with pytest.raises(AcceptanceError):
+        inspect_master_media(tmp_path / "existing.mp4")
+
+
+@pytest.mark.parametrize("rate,sample_rate,channels,duration", [
+    ("30000/1001", "44100", 1, "31.0"),
+    ("60/1", "48000", 2, "3.0"),
+    ("23/1", "48000", 2, "180.0"),
+])
+def test_existing_master_accepts_valid_shared_platform_boundaries(
+        monkeypatch, tmp_path, rate, sample_rate, channels, duration):
+    def fake_run(*args, **kwargs):
+        assert "avg_frame_rate" in args[0][args[0].index("-show_entries") + 1]
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264", "width": 1080,
+                 "height": 1920, "avg_frame_rate": rate},
+                {"codec_type": "audio", "codec_name": "aac",
+                 "sample_rate": sample_rate, "channels": channels},
+            ], "format": {"duration": duration},
+        }), stderr="")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert inspect_master_media(tmp_path / "existing.mp4")["video"] == "h264"

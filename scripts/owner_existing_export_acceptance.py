@@ -7,6 +7,7 @@ and a private TRAFFICLIFT_OWNER_ACCESS_CODE environment variable.
 from __future__ import annotations
 
 import argparse
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -134,7 +135,7 @@ def inspect_master_media(path):
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries",
-             "stream=codec_type,codec_name,width,height:format=duration",
+             "stream=codec_type,codec_name,width,height,avg_frame_rate,sample_rate,channels:format=duration",
              "-of", "json", str(path)],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=30, check=False, text=True,
@@ -145,23 +146,35 @@ def inspect_master_media(path):
         streams = payload.get("streams")
         if not isinstance(streams, list):
             raise AcceptanceError("Master MP4 is missing media streams")
+        # A matching codec/resolution alone is not enough for the shared
+        # TikTok / Instagram Reels / YouTube Shorts posting master. Read the
+        # *average* frame rate, not a potentially misleading nominal rate.
+        # Missing or invalid ffprobe fields must not be reported as PASS.
+        video_streams = [stream for stream in streams if isinstance(stream, dict)
+                         and stream.get("codec_type") == "video"]
+        audio_streams = [stream for stream in streams if isinstance(stream, dict)
+                         and stream.get("codec_type") == "audio"]
         video = any(
-            isinstance(stream, dict) and stream.get("codec_type") == "video"
-            and stream.get("codec_name") == "h264"
+            stream.get("codec_name") == "h264"
             and stream.get("width") == 1080 and stream.get("height") == 1920
-            for stream in streams
+            and 23 <= float(Fraction(str(stream.get("avg_frame_rate", "0/1")))) <= 60
+            for stream in video_streams
         )
         audio = any(
-            isinstance(stream, dict) and stream.get("codec_type") == "audio"
-            and stream.get("codec_name") == "aac"
-            for stream in streams
+            stream.get("codec_name") == "aac"
+            and 0 < int(stream.get("sample_rate", 0)) <= 48000
+            and int(stream.get("channels", 0)) in (1, 2)
+            for stream in audio_streams
         )
         duration = float(payload.get("format", {}).get("duration", 0))
-        if not video or not audio or not math.isfinite(duration) or duration <= 0:
-            raise AcceptanceError("Master must be 1080x1920 H.264/AAC with positive duration")
+        if not video or not audio or not math.isfinite(duration) or not 3 <= duration <= 180:
+            raise AcceptanceError(
+                "Master must be 1080x1920 H.264/AAC, 23-60 FPS, "
+                "AAC mono/stereo at <=48 kHz, and 3-180 seconds long"
+            )
         return {"video": "h264", "audio": "aac", "width": 1080, "height": 1920}
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError,
-            ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+            ValueError, TypeError, AttributeError, ZeroDivisionError, json.JSONDecodeError) as exc:
         raise AcceptanceError("Master MP4 media inspection failed; ffprobe is required") from exc
 
 def verify_existing_exports(session, access_code, job_id, *, temp_root=None):
