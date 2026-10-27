@@ -572,8 +572,9 @@ def test_case_15_renderPinPreview_function_exists():
     """index.html MUST define a renderPinPreview() that produces a designed pin."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     assert "async function renderPinPreview" in src, "renderPinPreview() missing"
-    assert "canvas.width = 1000" in src, "1000px canvas width missing"
-    assert "canvas.height = 1500" in src, "1500px canvas height missing"
+    pin_renderer = src.split("async function renderPinPreview", 1)[1].split("function downloadPinImage", 1)[0]
+    assert "const W = 1000, H = 1500" in pin_renderer, "1000x1500 designed canvas constants missing"
+    assert "canvas.width = W" in pin_renderer and "canvas.height = H" in pin_renderer, "Pin renderer must use the designed canvas dimensions"
     # Hero / title / CTA zones are explicitly drawn
     assert "_drawHeroImage" in src, "_drawHeroImage helper missing"
     assert "_drawTitleBand" in src, "_drawTitleBand helper missing"
@@ -670,8 +671,9 @@ def test_case_22_one_click_flow_auto_renders_pin():
 def test_case_23_pin_layout_is_2_3_vertical():
     """The pin canvas MUST be exactly 1000×1500 (2:3 vertical ratio)."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
-    assert "canvas.width = 1000" in src
-    assert "canvas.height = 1500" in src
+    pin_renderer = src.split("async function renderPinPreview", 1)[1].split("function downloadPinImage", 1)[0]
+    assert "const W = 1000, H = 1500" in pin_renderer
+    assert "canvas.width = W" in pin_renderer and "canvas.height = H" in pin_renderer
     # Verify it's actually exported as JPEG
     assert "image/jpeg" in src
 
