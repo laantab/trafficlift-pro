@@ -1973,9 +1973,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const evergreen  = typeof data.evergreen_score === 'number' ? data.evergreen_score : null;
         const competition= data.competition || '';
         const source     = data.source || 'pool';
-        const sourceLabel = source === 'openai_research'
-            ? 'GPT-4o research'
-            : 'Curated pool';
+        // A live researched product is not a curated fallback or proven seller.
+        // Label the actual source without promising demand or sales.
+        const sourceLabel = source === 'discovery' ? 'Live research'
+            : source === 'url' ? 'Verified listing'
+            : source === 'openai_research' ? 'AI research'
+            : 'Product candidate';
 
         // Trend-score color band
         let scoreColor = 'text-slate-300';
@@ -2056,14 +2059,14 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 <div class="border-t border-slate-800 pt-4 flex items-center justify-between flex-wrap gap-2">
                     <div class="flex items-center gap-2">
                         <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
-                        <span class="text-xs text-slate-300">MiniMax H3-Max Video Pipeline Ready</span>
+                        <span class="text-xs text-slate-300">Video Studio · owner beta</span>
                     </div>
                     <div class="flex items-center gap-2">
                         ${data.url ? `<a href="${escapeHtml(data.url)}" target="_blank" rel="noopener" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-3 py-2 rounded-xl transition shadow">
-                            🛒 View on Amazon
+                            🛒 View Product Listing
                         </a>` : ''}
                         <button onclick="openVideoModal()" class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow">
-                            🎬 Render Video Ad
+                            🎬 Open Video Studio
                         </button>
                     </div>
                 </div>
