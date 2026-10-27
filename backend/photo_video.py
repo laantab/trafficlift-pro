@@ -314,14 +314,16 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
         labels=storyboard[scene]['caption']
-        label_lines=wrap(labels,42)
-        if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
-        for row,line in enumerate(label_lines):text(d,(96,1435+row*52),line,42)
         if scene==len(phrases)-1:
-            # Keep the CTA clear of the outlined two-line subtitles below.
-            d.rounded_rectangle((96,1535,790,1625),radius=26,fill=accent)
+            # Reserve the subtitle zone below y=1578. Do not stack the
+            # duplicate footer label, CTA and two-line narration subtitles.
+            d.rounded_rectangle((96,1450,790,1540),radius=26,fill=accent)
             cta_ink = bg if bg in ('#221D1A','#101B30') else ink
-            text(d,(130,1552),'View product details',44,cta_ink)
+            text(d,(130,1467),'View product details',44,cta_ink)
+        else:
+            label_lines=wrap(labels,42)
+            if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
+            for row,line in enumerate(label_lines):text(d,(96,1435+row*52),line,42)
         # Brief fade-in at each cut, without changing the product itself.
         elapsed=t-boundaries[scene]
         if elapsed<.22:
