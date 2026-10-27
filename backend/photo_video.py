@@ -75,6 +75,14 @@ ASS_CAPTION_FONT_SIZE = 54
 ASS_CAPTION_MAX_WIDTH = 740  # Room for ASS outline and platform side controls.
 
 
+def ass_bgr(hex_color):
+    """Convert the selected theme ink/background into libass BGR color."""
+    value = hex_color.lstrip('#')
+    if len(value) != 6 or any(c not in '0123456789abcdefABCDEF' for c in value):
+        raise ValueError('Invalid caption theme color.')
+    return '&H00' + value[4:6] + value[2:4] + value[0:2]
+
+
 def measured_caption_chunks(phrase, measure):
     """Wrap spoken words using the actual ASS subtitle font, not a smaller font.
 
@@ -213,9 +221,10 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     def stamp(t):
         cs=round(t*100);return f'{cs//360000}:{cs//6000%60:02}:{cs//100%60:02}.{cs%100:02}'
     caption_family = font(ASS_CAPTION_FONT_SIZE).getname()[0].replace(',', ' ')
+    caption_primary, caption_outline = ass_bgr(ink), ass_bgr(bg)
     ass=('[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\n'
          'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'
-         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,-1,0,0,0,100,100,0,0,1,4,1,2,120,120,210,1\n'
+         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},{caption_primary},{caption_primary},{caption_outline},{caption_outline},-1,0,0,0,100,100,0,0,1,2,0,2,120,120,210,1\n'
          '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
