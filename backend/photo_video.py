@@ -157,6 +157,8 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
             "narration": phrase,
             "photo_index": photo,
             "photo_treatment": "real_photo_detail_crop" if closeup else "real_photo_full",
+            "layout": ("seller_fact_card" if available_photos == 1 and i in (2, 3)
+                       else "photo_hero"),
             "motion": "gentle_pan_zoom",
             "transition": "fade" if i else "opening",
             "demonstration": False,
@@ -296,10 +298,20 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         # A sizeable, alternating push/pull across real listing photos.
         # The whole product stays within the panel at every frame.
         photo_index=storyboard[scene]['photo_index']
-        fitted=(detail_photos[photo_index] if storyboard[scene]['photo_treatment']=='real_photo_detail_crop' else fitted_photos[photo_index])
-        width,height,x,y=scene_geometry(fitted.size,scene,local)
-        moving=fitted.resize((width,height),Image.Resampling.LANCZOS)
-        im.paste(moving,(x,y))
+        if storyboard[scene]['layout'] == 'seller_fact_card':
+            # With only one licensed photo, alternate truthful typography
+            # instead of showing the identical catalog image five times.
+            d.rounded_rectangle((112,550,968,1325),radius=46,fill=accent)
+            card_color = bg if bg in ('#221D1A','#101B30') else ink
+            card_lines=wrap(storyboard[scene]['narration'],44,750)
+            if len(card_lines)>8:raise ValueError('Seller fact card is too long.')
+            for row,line in enumerate(card_lines):
+                text(d,(150,655+row*66),line,44,card_color)
+        else:
+            fitted=(detail_photos[photo_index] if storyboard[scene]['photo_treatment']=='real_photo_detail_crop' else fitted_photos[photo_index])
+            width,height,x,y=scene_geometry(fitted.size,scene,local)
+            moving=fitted.resize((width,height),Image.Resampling.LANCZOS)
+            im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
         labels=storyboard[scene]['caption']
         label_lines=wrap(labels,36)
