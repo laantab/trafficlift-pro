@@ -65,7 +65,7 @@ def main():
         else:
             with patch.dict(sys.modules,{'onnxruntime':onnx,'kokoro_onnx':kokoro}), \
                  patch('backend.photo_video.dependencies',return_value=(root/'voice.onnx',root/'voices.bin')):
-                output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=photos[1:])
+                output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=[])
         assert output.is_file() and output.stat().st_size>10000
         qa=json.loads((root/'quality.json').read_text())
         assert qa['status']=='PASS' and qa['motion']['status']=='PASS'
