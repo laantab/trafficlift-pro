@@ -55,10 +55,11 @@ class Response:
 
 
 class Session:
-    def __init__(self, *, bad_platform=None, bad_video=None, cache="private, no-store",
-                 public=False, wrong_job=False):
+    def __init__(self, *, bad_platform=None, bad_video=None, denied_platform=None,
+                 cache="private, no-store", public=False, wrong_job=False):
         self.bad_platform = bad_platform
         self.bad_video = bad_video
+        self.denied_platform = denied_platform
         self.cache = cache
         self.public = public
         self.wrong_job = wrong_job
@@ -78,7 +79,7 @@ class Session:
             response = Response(200, MASTER, cache=self.cache, content_type="video/mp4")
         else:
             platform = url.rsplit("/", 1)[-1]
-            status = 401 if platform == self.bad_platform else 200
+            status = 401 if platform == self.denied_platform else 200
             video = self.bad_video if platform == self.bad_platform and self.bad_video is not None else MASTER
             response = Response(status, kit(platform, video=video,
                                            job="e" * 32 if self.wrong_job else JOB),
@@ -104,13 +105,13 @@ def test_existing_master_matches_all_three_kits_without_render(tmp_path):
     assert result["master_bytes"] == len(MASTER)
     assert session.posts == [BASE + "/api/v1/video-owner-login"]
     assert len(session.requests) == 5  # anonymous history + master + 3 ZIPs
-    assert all(response.closed for response in session.responses if response in session.responses)
+    assert all(response.closed for response in session.responses)
     assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize("problem", [
     {"bad_platform": "youtube-shorts", "bad_video": b"different-master"},
-    {"bad_platform": "instagram-reels"},
+    {"denied_platform": "instagram-reels"},
     {"cache": "public, no-store"},
     {"public": True},
     {"wrong_job": True},
