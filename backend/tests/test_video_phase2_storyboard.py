@@ -107,6 +107,7 @@ def test_ass_subtitle_chunks_fit_real_rendered_font_and_keep_every_word():
 
 def test_subtitle_style_matches_measured_font_and_stays_out_of_footer():
     """ASS layout must use the same font size measured during wrapping."""
+    from pathlib import Path
     from backend.photo_video import ASS_CAPTION_FONT_SIZE, ASS_CAPTION_MAX_WIDTH
     assert ASS_CAPTION_FONT_SIZE >= 48
     assert ASS_CAPTION_MAX_WIDTH <= 760
