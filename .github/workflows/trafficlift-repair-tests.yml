@@ -26,7 +26,7 @@ jobs:
 
   repair-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Check complete winner button and truthful card before costly setup
@@ -43,13 +43,16 @@ jobs:
         run: python -m pytest backend/tests/test_shopify_variant_child_selectors.py backend/tests/test_shopify_collection_history.py backend/tests/test_shopify_locale_unselected_history.py backend/tests/test_ounce_winner_history.py backend/tests/test_pack_count_history.py backend/tests/test_amazon_marketplace_history.py backend/tests/test_etsy_listing_history.py backend/tests/test_unicode_winner_history.py backend/tests/test_merchant_sku_history.py -q
       - name: Verify FFmpeg and FFprobe for owner MP4 decode acceptance
         run: |
-          # The live-acceptance regression builds a real MP4 during collection,
-          # and decodes it with both FFmpeg and FFprobe. Do not skip this gate.
+          # This regression decodes a real MP4 with FFmpeg and FFprobe.
+          # Three CI attempts timed out downloading 94 MB from the Azure apt
+          # mirror, while other jobs passed. Use the standard Ubuntu archive
+          # mirror for this job and bound both network phases; never skip QA.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            # Bound apt network stalls so a transient mirror outage fails
-            # clearly rather than consuming the entire ten-minute job budget.
-            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
-            timeout 120 sudo apt-get -y install ffmpeg
+            if test -f /etc/apt/apt-mirrors.txt; then
+              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt
+            fi
+            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 update
+            timeout 240 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -y install ffmpeg
           fi
           command -v ffmpeg
           command -v ffprobe
