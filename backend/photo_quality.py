@@ -36,6 +36,38 @@ def assess_photo(path):
                     review_scope='Resolution and image-detail heuristics only; product accuracy, marks and composition require visual review.')
 
 
+
+def _photo_fingerprint(path):
+    """Small perceptual signature for URL variants of the SAME listing photo.
+
+    A higher-resolution JPEG is not a second camera angle. Compare normalized
+    pixels AND a difference hash; both must agree before suppressing a source.
+    This deliberately favors keeping genuinely different views and colors.
+    """
+    from PIL import Image, ImageOps
+    import numpy as np
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source).convert('RGB')
+        aspect = image.width / image.height
+        pixels = np.asarray(
+            ImageOps.pad(image, (48, 48), color='white', method=Image.Resampling.LANCZOS),
+            dtype=np.int16,
+        )
+        gray = np.asarray(
+            ImageOps.pad(image.convert('L'), (9, 8), color=255, method=Image.Resampling.LANCZOS),
+            dtype=np.int16,
+        )
+        return aspect, pixels, gray[:, 1:] > gray[:, :-1]
+
+
+def _same_catalog_photo(first, second):
+    import numpy as np
+    if abs(first[0] / second[0] - 1) > .03:
+        return False
+    return (np.count_nonzero(first[2] != second[2]) <= 5
+            and float(np.abs(first[1] - second[1]).mean()) <= 7.0)
+
+
 def choose_photos(paths):
     candidates=[]
     for path in paths:
@@ -46,4 +78,19 @@ def choose_photos(paths):
         except (OSError,ValueError):continue
     if not candidates:raise ValueError('No usable product photo could be downloaded from this listing.')
     candidates.sort(key=lambda item:(not item[1]['concerns'],min(item[1]['width'],item[1]['height']),item[1]['detail_score']),reverse=True)
-    return candidates
+    # Resolution variants of a single catalog photo used to fill every scene,
+    # falsely reporting multiple approved photos. Keep the sharpest copy once.
+    distinct=[]
+    fingerprints=[]
+    for path, report in candidates:
+        try:
+            fingerprint=_photo_fingerprint(path)
+        except (OSError,ValueError):
+            continue
+        if any(_same_catalog_photo(fingerprint, seen) for seen in fingerprints):
+            continue
+        distinct.append((path,report))
+        fingerprints.append(fingerprint)
+    if not distinct:
+        raise ValueError('No readable product photo could be selected.')
+    return distinct
