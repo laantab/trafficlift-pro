@@ -81,3 +81,45 @@ def test_bare_retailer_urls_and_truncated_snippets_never_reach_narration():
                 'Adjustable arm with 360 degree swivel | see details'):
         with pytest.raises(ValueError, match='plain-text|formatting'):
             clean(raw)
+
+
+def test_night_light_overview_is_product_specific_without_invented_features():
+    result=build_sales_plan(
+        'JAS11242 LED Motion-Sensor Night Light Nickel Finish', '',
+        'https://seller.example/jas11242', 30)
+    assert result['creative_review']['status']=='PASS'
+    assert result['product'].startswith('JAS11242')
+    assert all('Picture your setup' not in phrase for phrase in result['phrases'])
+    assert all('Review listed features' not in phrase for phrase in result['phrases'])
+    assert all('Key item features' not in caption for caption in result['captions'])
+    assert 'JAS11242' in ' '.join(result['captions'])
+    assert 'JAS11242' in ' '.join(result['phrases'])
+    assert result['evidence']==[]
+
+
+@pytest.mark.parametrize('placeholder', [
+    'Review listed features', 'Picture your setup', 'Key item features',
+    'Explore Tech & Gadgets Ideas', 'Explore Useful Product Ideas',
+])
+def test_generic_creative_placeholders_are_rejected(placeholder):
+    from backend.sales_script import creative_copy_gate
+    plan = {'product':'JAS11242 Motion-Sensor Night Light',
+            'phrases':['Considering JAS11242 Motion-Sensor Night Light?',
+                       'Here is the exact JAS11242 Motion-Sensor Night Light.',
+                       'Check the exact seller listing.'],
+            'captions':['JAS11242 Motion-Sensor Night Light', placeholder, 'Check seller listing']}
+    with pytest.raises(ValueError, match='Generic placeholder'):
+        creative_copy_gate(plan)
+
+
+def test_creative_copy_must_identify_exact_product_on_screen_and_in_voice():
+    from backend.sales_script import creative_copy_gate
+    plan = {'product':'JAS11242 Motion-Sensor Night Light',
+            'phrases':['Considering a night light?', 'Compare its size.', 'See the listing.'],
+            'captions':['JAS11242 Motion-Sensor Night Light', 'Exact product', 'Listing']}
+    with pytest.raises(ValueError, match='Narration'):
+        creative_copy_gate(plan)
+    plan['phrases'][0]='Considering JAS11242 Motion-Sensor Night Light?'
+    plan['captions']=['Lighting ideas','Check details','See listing']
+    with pytest.raises(ValueError, match='captions'):
+        creative_copy_gate(plan)
