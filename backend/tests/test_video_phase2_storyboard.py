@@ -114,3 +114,14 @@ def test_subtitle_style_matches_measured_font_and_stays_out_of_footer():
     source = (Path(__file__).resolve().parents[1] / 'photo_video.py').read_text()
     assert "measured_caption_chunks(phrase, font(ASS_CAPTION_FONT_SIZE).getlength)" in source
     assert "MarginV" in source and "ASS_CAPTION_FONT_SIZE" in source
+
+
+def test_subtitle_uses_theme_ink_not_white_on_a_light_background():
+    from backend.photo_video import ass_bgr
+    # Clean theme uses dark green ink on a light background; the old white
+    # subtitles with a heavy black box were hard to read and looked unfinished.
+    assert ass_bgr('#173C32') == '&H00323C17'
+    assert ass_bgr('#F4F5EF') == '&H00EFF5F4'
+    assert ass_bgr('#FFFFFF') == '&H00FFFFFF'
+    with pytest.raises(ValueError):
+        ass_bgr('invalid')
