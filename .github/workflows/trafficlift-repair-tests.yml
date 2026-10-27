@@ -109,8 +109,13 @@ jobs:
           # must not stall the release smoke gate before any MP4 is tested.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
              ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
-            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
-            timeout 120 sudo apt-get -y install ffmpeg fonts-dejavu-core
+            # The Azure mirror timed out during the mandatory narrated-video gate.
+            # Use the standard Ubuntu archive; do not skip FFmpeg or the decode tests.
+            if test -f /etc/apt/apt-mirrors.txt; then
+              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt
+            fi
+            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 update
+            timeout 240 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -y install ffmpeg fonts-dejavu-core
           fi
           command -v ffmpeg
           command -v ffprobe
@@ -143,8 +148,13 @@ jobs:
           # If either prerequisite is absent, install it rather than skip QA.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
              ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
-            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
-            timeout 120 sudo apt-get -y install ffmpeg fonts-dejavu-core
+            # The Azure mirror timed out during the mandatory narrated-video gate.
+            # Use the standard Ubuntu archive; do not skip FFmpeg or the decode tests.
+            if test -f /etc/apt/apt-mirrors.txt; then
+              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt
+            fi
+            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 update
+            timeout 240 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -y install ffmpeg fonts-dejavu-core
           fi
           command -v ffmpeg
           command -v ffprobe
