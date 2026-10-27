@@ -1,7 +1,7 @@
 """Owned CPU photo-ad compositor. No provider calls; dependencies load on demand."""
 from pathlib import Path
 import json, os, shutil, subprocess, math, bisect
-from backend.sales_script import build_sales_plan
+from backend.sales_script import build_sales_plan, creative_copy_gate
 
 
 def dependencies():
@@ -166,9 +166,10 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
 
 def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
+    creative_copy_gate(sales_plan)
     if sales_plan["review"]["status"] != "PASS":
         raise ValueError("The sales script has not passed editorial review.")
-    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
     import numpy as np
     import soundfile as sf
     import onnxruntime as ort
@@ -253,6 +254,13 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             if path==image_path:raise
     if not fitted_photos:raise ValueError('A real product photo is required.')
     storyboard = build_scene_storyboard(sales_plan, len(fitted_photos), [d is not None for d in detail_photos])
+    # A soft-focus version of the SAME verified photo fills the background.
+    # This is a graphic treatment, never an invented lifestyle scene.
+    backdrops = []
+    for photo in fitted_photos:
+        backdrop = ImageOps.fit(photo, (1080, 1920), method=Image.Resampling.BICUBIC)
+        backdrop = backdrop.filter(ImageFilter.GaussianBlur(85))
+        backdrops.append(Image.blend(backdrop, Image.new('RGB', (1080, 1920), bg), .74))
     (root/'scene_storyboard.json').write_text(json.dumps(storyboard,indent=2),encoding='utf-8')
     def text(d,xy,value,size=44,color=ink):
         box=d.textbbox(xy,value,font=font(size))
@@ -263,7 +271,13 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     def frame(t):
         scene=min(len(phrases)-1,max(0,bisect.bisect_right(boundaries,t)-1))
         local=(t-boundaries[scene])/(boundaries[scene+1]-boundaries[scene])
-        im=Image.new('RGB',(1080,1920),bg);d=ImageDraw.Draw(im)
+        im=backdrops[storyboard[scene]['photo_index']].copy()
+        d=ImageDraw.Draw(im)
+        # Structured graphic panels replace the old large empty background.
+        d.rounded_rectangle((62,100,1018,455),radius=38,fill=bg)
+        d.rounded_rectangle((48,470,1032,1420),radius=45,fill=accent)
+        d.rounded_rectangle((65,487,1015,1403),radius=35,fill=bg)
+        d.rounded_rectangle((62,1425,1018,1635),radius=35,fill=bg)
         stage = storyboard[scene]['stage']
         text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
         # Use the full product title only for the opening shot, preventing
@@ -272,8 +286,13 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             for i,line in enumerate(title_lines):
                 text(d,(96,245+i*68),line,52)
         else:
-            scene_heading = {'product':'See the actual product', 'benefit':'Review listed features', 'routine':'Picture your setup', 'buying_details':'Check fit and options', 'cta':'Explore product details'}.get(stage,'Product overview')
-            text(d,(96,245),scene_heading,48)
+            # Every scene title comes from the product-specific reviewed plan,
+            # never an interchangeable template heading.
+            scene_heading = storyboard[scene]['caption']
+            heading_lines = wrap(scene_heading,48)
+            if len(heading_lines)>2:raise ValueError('Scene heading does not fit.')
+            for row,line in enumerate(heading_lines):
+                text(d,(96,245+row*62),line,48)
         # A sizeable, alternating push/pull across real listing photos.
         # The whole product stays within the panel at every frame.
         photo_index=storyboard[scene]['photo_index']
@@ -309,12 +328,52 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
+    quality['rendered_creative']=inspect_rendered_creative(out, seconds, root)
     quality['narration_audio']=narration_qa
-    quality['marketing_approval']='NOT_APPROVED: source and complete video need visual review'
+    quality['marketing_approval']='NOT_APPROVED: real product imagery and full video still need human review'
     quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out
+
+
+
+def inspect_rendered_creative(path, seconds, root):
+    """Review real decoded frames, not merely MP4 metadata.
+
+    Retain a six-frame contact sheet for the human release gate. A flat product
+    panel or visually unchanged scene sequence fails instead of being called a
+    polished ad. Synthetic CI fixtures are NOT proof of real-product accuracy.
+    """
+    from PIL import Image, ImageOps, ImageDraw, ImageStat, ImageChops
+    times = [max(.2, min(seconds - .3, seconds * ratio))
+             for ratio in (.07, .24, .41, .59, .78, .94)]
+    thumbs = []
+    for index, moment in enumerate(times):
+        frame = root / f'creative-frame-{index+1:02}.jpg'
+        subprocess.run(['ffmpeg','-y','-v','error','-ss',f'{moment:.2f}',
+                        '-i',str(path),'-frames:v','1','-q:v','3',str(frame)],
+                       check=True,timeout=45)
+        with Image.open(frame) as raw:
+            im=raw.convert('RGB')
+            panel=im.crop((90,520,990,1360))
+            if max(ImageStat.Stat(panel).stddev) < 9:
+                raise ValueError('Creative quality failed: product panel is visually empty.')
+            thumbs.append(ImageOps.contain(im,(270,480)))
+    changes = []
+    for left,right in zip(thumbs,thumbs[1:]):
+        diff=ImageChops.difference(left,right)
+        changes.append(sum(ImageStat.Stat(diff).mean)/3)
+    if sum(delta > 2.5 for delta in changes) < 2:
+        raise ValueError('Creative quality failed: video scenes look identical.')
+    sheet=Image.new('RGB',(270*3,480*2),'#ffffff')
+    for i,thumb in enumerate(thumbs):
+        sheet.paste(thumb,((i%3)*270,(i//3)*480))
+    sheet.save(root/'creative_contact_sheet.jpg',quality=90)
+    return {'status':'PASS', 'sample_seconds':[round(t,2) for t in times],
+            'distinct_transitions':sum(delta>2.5 for delta in changes),
+            'contact_sheet':'creative_contact_sheet.jpg',
+            'limitation':'Visual difference check only; human review and exact-product photo validation remain required'}
 
 
 def check_video(path,seconds):
