@@ -84,14 +84,35 @@ def _verify_kit(path, platform, job_id, master_size, master_digest):
             if manifest_info.file_size > 64 * 1024 or preview_info.file_size > 128 * 1024:
                 raise AcceptanceError(f"{platform}: oversized kit metadata")
             manifest = json.loads(archive.read("manifest.json"))
+            expected_label = {
+                "tiktok": "TikTok",
+                "youtube-shorts": "YouTube Shorts",
+                "instagram-reels": "Instagram Reels",
+            }[platform]
             if (not isinstance(manifest, dict)
                     or manifest.get("platform") != platform
+                    or manifest.get("platform_name") != expected_label
                     or manifest.get("job_id") != job_id
+                    or manifest.get("video") != "video.mp4"
                     or manifest.get("video_master_reused") is not True
                     or manifest.get("video_reencoded") is not False
                     or manifest.get("safe_zone_approval") != "MANUAL_REVIEW_REQUIRED"
+                    or manifest.get("marketing_approval") != "MANUAL_REVIEW_REQUIRED"
                     or manifest.get("safe_zone_preview") != "safe_zone_review.html"):
                 raise AcceptanceError(f"{platform}: manifest does not match finished master")
+            title, description = manifest.get("title"), manifest.get("description")
+            if (not isinstance(title, str) or not title.strip() or len(title) > 100
+                    or not isinstance(description, str) or not description.strip()
+                    or len(description) > 4096):
+                raise AcceptanceError(f"{platform}: posting metadata is missing")
+            if archive.getinfo("post.txt").file_size > 64 * 1024:
+                raise AcceptanceError(f"{platform}: oversized posting draft")
+            post = archive.read("post.txt").decode("utf-8")
+            if (not post.strip() or expected_label not in post
+                    or f"Title: {title}" not in post
+                    or f"Description:\\n{description}" not in post
+                    or "Video: video.mp4" not in post):
+                raise AcceptanceError(f"{platform}: posting draft does not match metadata")
             preview = archive.read("safe_zone_review.html").decode("utf-8")
             if ('src="video.mp4"' not in preview
                     or "illustrative" not in preview.lower()
