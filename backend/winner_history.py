@@ -512,19 +512,39 @@ def identity_keys(name, url):
                             ambiguous_child = True
                             break
                         child_selectors[selector_key] = selector_value
+                    # A seller may label the same selected option color or
+                    # colour. Preserve the original fingerprint for existing
+                    # permanent rows, and emit both spelling aliases so a
+                    # renamed listing cannot be recommended again. Never
+                    # equate conflicting simultaneous color choices.
+                    if ('color' in child_selectors and 'colour' in child_selectors
+                            and child_selectors['color'] != child_selectors['colour']):
+                        ambiguous_child = True
                     if child_selectors and not ambiguous_child:
-                        selection_hash = hashlib.sha256(
-                            urlencode(sorted(child_selectors.items())).encode()
-                        ).hexdigest()[:24]
+                        selections = [child_selectors]
+                        if 'color' in child_selectors or 'colour' in child_selectors:
+                            color_value = child_selectors.get(
+                                'color', child_selectors.get('colour'))
+                            base = {key: value for key, value in child_selectors.items()
+                                    if key not in {'color', 'colour'}}
+                            for spelling in ('color', 'colour'):
+                                alias = dict(base)
+                                alias[spelling] = color_value
+                                if alias not in selections:
+                                    selections.append(alias)
                         merchant_hosts = {host}
                         if host.startswith('m.') and host.count('.') >= 2:
                             merchant_hosts.add(host[2:])
                         elif not host.startswith('m.') and '.' in host:
                             merchant_hosts.add('m.' + host)
-                        for merchant_host in sorted(merchant_hosts):
-                            keys.append('shopify-child-' + hashlib.sha256(
-                                f'{merchant_host}:{variant}:{selection_hash}'.encode()
-                            ).hexdigest()[:24])
+                        for selection in selections:
+                            selection_hash = hashlib.sha256(
+                                urlencode(sorted(selection.items())).encode()
+                            ).hexdigest()[:24]
+                            for merchant_host in sorted(merchant_hosts):
+                                keys.append('shopify-child-' + hashlib.sha256(
+                                    f'{merchant_host}:{variant}:{selection_hash}'.encode()
+                                ).hexdigest()[:24])
         # Etsy listing IDs survive seller title/slug edits, mobile links and
         # recommendation click tracking. Only official Etsy hosts can claim
         # these identities. A selected variation is a different sellable

@@ -4,6 +4,7 @@ Some storefronts reuse a numeric variant for distinct size/custom-option
 selections. Those are different sellable products; presentation and tracking
 query fields, by contrast, do not change the selected item.
 """
+import pytest
 from backend.winner_history import WinnerHistory, identity_keys
 
 
@@ -109,3 +110,45 @@ def test_conflicting_child_selectors_do_not_claim_ambiguous_stable_identity():
     assert not any(key.startswith("shopify-child-") for key in keys), (
         "Conflicting child selections cannot be assigned a stable SKU"
     )
+
+
+@pytest.mark.parametrize("first_key, second_key", [
+    ("color", "colour"), ("colour", "color"),
+])
+def test_selected_child_color_spelling_cannot_recycle_relisted_winner(
+    tmp_path, first_key, second_key,
+):
+    """UK/US selector spelling must not make a selected child look fresh."""
+    history = WinnerHistory("returning-owner", tmp_path / "seen.sqlite3")
+    first = identity_keys(
+        "Compact Blue Shelf Bracket",
+        f"https://seller.example/products/old-bracket?variant=44332211009988&{first_key}=Blue",
+    )
+    renamed = identity_keys(
+        "Rebranded Wall Support Model X",
+        f"https://m.seller.example/en-us/products/new-support?{second_key}=Blue"
+        "&VARIANT=44332211009988&utm_source=pin",
+    )
+    assert history.claim(first)
+    assert not WinnerHistory("returning-owner", history.path).claim(renamed)
+
+
+def test_selected_child_color_spelling_keeps_different_colours_eligible(tmp_path):
+    history = WinnerHistory("returning-owner", tmp_path / "seen.sqlite3")
+    assert history.claim(identity_keys(
+        "Blue Custom Rack",
+        "https://seller.example/products/old?variant=44332211009988&color=Blue",
+    ))
+    assert history.claim(identity_keys(
+        "Red Custom Rack",
+        "https://m.seller.example/products/new?variant=44332211009988&colour=Red",
+    )), "A genuinely different color selection must remain eligible"
+
+
+def test_conflicting_color_and_colour_child_selectors_are_not_collapsed():
+    keys = identity_keys(
+        "Custom Shelf With Conflicting Options",
+        "https://seller.example/products/shelf?variant=44332211009988"
+        "&color=Blue&colour=Red",
+    )
+    assert not any(key.startswith("shopify-child-") for key in keys)
