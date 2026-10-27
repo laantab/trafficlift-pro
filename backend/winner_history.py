@@ -385,9 +385,15 @@ def identity_keys(name, url):
         # Shopify Markets can add a language/region prefix to product URLs.
         # The same numeric variant must stay excluded across locale changes,
         # even if the merchant also renames the product and URL slug.
-        # Only accept a root or single locale prefix, never arbitrary paths.
+        # Shopify collection landing pages are aliases of the same product:
+        # /collections/<collection>/products/<handle> and /products/<handle>.
+        # Permit only a root or single locale prefix and a simple collection
+        # handle; never infer product identity from arbitrary nested routes.
+        # Keep unknown selectors variant-sensitive, as below.
         shopify_product = re.fullmatch(
-            r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/([^/]+)/?',
+            r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?'
+            r'(?:collections/[A-Za-z0-9][A-Za-z0-9_-]*/)?'
+            r'products/([^/]+)/?',
             canonical_path, re.I
         )
         if shopify_product:
