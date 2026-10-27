@@ -71,6 +71,38 @@ def balanced_caption_chunks(phrase, max_words=7):
     return result
 
 
+ASS_CAPTION_FONT_SIZE = 54
+ASS_CAPTION_MAX_WIDTH = 740  # Room for ASS outline and platform side controls.
+
+
+def measured_caption_chunks(phrase, measure):
+    """Wrap spoken words using the actual ASS subtitle font, not a smaller font.
+
+    Each subtitle has at most two lines within the vertical master's safe width.
+    Wide text becomes more timed chunks instead of clipping or losing words.
+    """
+    def fit(words):
+        full = ' '.join(words)
+        if measure(full) <= ASS_CAPTION_MAX_WIDTH:
+            return [[full]]
+        if len(words) == 1:
+            raise ValueError('A subtitle word is too wide for the video.')
+        choices = []
+        for cut in range(1, len(words)):
+            left, right = ' '.join(words[:cut]), ' '.join(words[cut:])
+            left_width, right_width = measure(left), measure(right)
+            if max(left_width, right_width) <= ASS_CAPTION_MAX_WIDTH:
+                orphan = int(min(cut, len(words)-cut) == 1 and len(words) >= 4)
+                choices.append((orphan, abs(left_width-right_width), [left, right]))
+        if choices:
+            return [min(choices, key=lambda choice: choice[:2])[2]]
+        middle = len(words) // 2
+        return fit(words[:middle]) + fit(words[middle:])
+
+    return [lines for chunk in balanced_caption_chunks(phrase, max_words=5)
+            for lines in fit(chunk.split())]
+
+
 def check_narration_audio(path):
     """Reject a silent, clipped or nearly inaudible spoken track before MP4 export."""
     import numpy as np
@@ -180,15 +212,17 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     sf.write(root/'music.wav',music,rate)
     def stamp(t):
         cs=round(t*100);return f'{cs//360000}:{cs//6000%60:02}:{cs//100%60:02}.{cs%100:02}'
-    ass='[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,58,&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,-1,0,0,0,100,100,0,0,3,14,0,2,120,120,210,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
+    caption_family = font(ASS_CAPTION_FONT_SIZE).getname()[0].replace(',', ' ')
+    ass=('[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\n'
+         'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'
+         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},&H00FFFFFF,&H00FFFFFF,&H001A1D22,&H001A1D22,-1,0,0,0,100,100,0,0,1,4,1,2,120,120,210,1\n'
+         '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
-        chunks=balanced_caption_chunks(phrase, max_words=5)
-        total=sum(len(c.split()) for c in chunks);offset=0
-        for chunk in chunks:
-            chunk_duration=duration*len(chunk.split())/total
-            lines=wrap(chunk,26,760)
-            if len(lines)>2:raise ValueError('Caption cannot fit safely.')
+        chunks=measured_caption_chunks(phrase, font(ASS_CAPTION_FONT_SIZE).getlength)
+        total=sum(len(line.split()) for chunk in chunks for line in chunk);offset=0
+        for lines in chunks:
+            chunk_duration=duration*sum(len(line.split()) for line in lines)/total
             safe=r'\N'.join(lines).replace('{','').replace('}','')
             ass+=f'Dialogue: 0,{stamp(t+offset)},{stamp(t+offset+chunk_duration)},Default,,0,0,0,,'+safe+'\n'
             offset+=chunk_duration
@@ -244,8 +278,9 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         if len(label_lines)>2:raise ValueError('Shorten the buyer need so its caption fits.')
         for row,line in enumerate(label_lines):text(d,(96,1410+row*45),line,36)
         if scene==len(phrases)-1:
-            d.rounded_rectangle((96,1510,760,1610),radius=30,fill=accent)
-            text(d,(130,1530),'View product details',40,bg)
+            # Keep the CTA clear of the outlined two-line subtitles below.
+            d.rounded_rectangle((96,1495,760,1585),radius=26,fill=accent)
+            text(d,(130,1513),'View product details',38,bg)
         # Brief fade-in at each cut, without changing the product itself.
         elapsed=t-boundaries[scene]
         if elapsed<.22:
