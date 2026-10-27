@@ -72,3 +72,12 @@ def test_seller_html_or_code_must_not_become_ad_copy():
         clean('<script>Example</script>')
     with pytest.raises(ValueError):
         clean('broken {template} value')
+
+
+def test_bare_retailer_urls_and_truncated_snippets_never_reach_narration():
+    from backend.sales_script import clean
+    for raw in ('Adjustable arm with 360 degree swivel https://seller.example/product',
+                'Includes a weighted base...',
+                'Adjustable arm with 360 degree swivel | see details'):
+        with pytest.raises(ValueError, match='plain-text|formatting'):
+            clean(raw)
