@@ -110,7 +110,7 @@ def _verify_kit(path, platform, job_id, master_size, master_digest):
             post = archive.read("post.txt").decode("utf-8")
             if (not post.strip() or expected_label not in post
                     or f"Title: {title}" not in post
-                    or f"Description:\\n{description}" not in post
+                    or f"Description:\n{description}" not in post
                     or "Video: video.mp4" not in post):
                 raise AcceptanceError(f"{platform}: posting draft does not match metadata")
             preview = archive.read("safe_zone_review.html").decode("utf-8")
