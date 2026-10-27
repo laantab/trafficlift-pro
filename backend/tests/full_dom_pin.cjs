@@ -16,7 +16,7 @@ const dom=new JSDOM(html,{url:'http://127.0.0.1:8000/studio',runScripts:'dangero
 }});
 (async()=>{const w=dom.window;if(w.document.readyState==='loading')await new Promise(r=>w.document.addEventListener('DOMContentLoaded',r,{once:true}));w.document.querySelector('#channelGrid input').checked=true;w.document.getElementById('productUrl').value='https://link.amazon/share';await w.launchCampaign();for(let i=0;i<50&&!w.__lastPinDataUrl;i++)await new Promise(r=>setTimeout(r,20));
 assert(w.__lastPinDataUrl?.startsWith('data:image/jpeg'),'Real canvas pin must be exported');
-assert.equal(w.document.querySelector('#pinterestPackage [data-pin]')?.dataset.pin,'Make Lunchtime More Organized','New marketing headline must reach the actual Pinterest result');
+assert.equal(w.document.querySelector('#pinterestPackage [data-pin]')?.dataset.pin,'Verified Lunch Box','New marketing headline must reach the actual Pinterest result');
 assert(w.document.getElementById('pinterestPackage').textContent.includes('Editorial draft'),'Draft and claim-review notice must be visible');
 assert(!w.document.getElementById('executionOutput').classList.contains('hidden'),'Pin parent must be visible');
 assert(w.document.getElementById('emptyState').classList.contains('hidden'),'Completed campaign must hide Ready to generate');
