@@ -61,3 +61,17 @@ def test_raw_retailer_fragments_do_not_become_spoken_facts():
     assert usable_facts('Includes a weighted base...') == []
     assert usable_facts('Adjustable arm with 360 degree swivel | see details') == []
     assert usable_facts('Includes a weighted base.') == ['Includes a weighted base.']
+
+
+def test_retailer_prefix_is_not_spoken_as_part_of_product_name():
+    from backend.listing_photo import product_name
+    assert product_name('Amazon.com - SERVOMASTER Handheld Vacuum Cordless Car Vacuum') == 'SERVOMASTER Handheld Vacuum Cordless Car Vacuum'
+    assert product_name('Walmart - Orbit Desk Lamp') == 'Orbit Desk Lamp'
+    assert product_name('Amazon Basics Plastic Drawer Organizer') == 'Amazon Basics Plastic Drawer Organizer'
+
+
+def test_numbered_retailer_headings_and_warranty_nav_are_not_seller_facts():
+    from backend.listing_photo import usable_facts
+    assert usable_facts('4, Plastic Material: Made of plastic material, it has strong load-bearing capacity.') == []
+    assert usable_facts('Warranty and Support: Includes support information for buyers.') == []
+    assert usable_facts('Includes a weighted base for stability.') == ['Includes a weighted base for stability.']
