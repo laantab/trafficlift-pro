@@ -32,7 +32,7 @@ def clean(value, limit=160):
 
 GENERIC_CREATIVE = re.compile(
     r'\b(?:review listed features|picture your setup|key item features|'
-    r'explore (?:tech(?:\s*&\s*gadgets)?|gadgets|product|useful) ideas|product overview|'
+    r'explore (?:tech(?:\s*&\s*gadgets)?|gadgets|product|useful(?:\s+product)?) ideas|product overview|'
     r'think about where you would use this feature)\b', re.I
 )
 
@@ -53,7 +53,10 @@ def creative_copy_gate(plan):
     # Captions must not be interchangeable across unrelated products.
     identity_words = [word for word in re.findall(r'[A-Za-z0-9]+', product)
                       if len(word) >= 4]
-    if identity_words and not any(word.casefold() in visible.casefold() for word in identity_words):
+    visible_words = {word.casefold() for word in re.findall(r'[A-Za-z0-9]+', visible)}
+    model_words = [word for word in identity_words if any(char.isdigit() for char in word)]
+    required_words = model_words or identity_words
+    if required_words and not any(word.casefold() in visible_words for word in required_words):
         raise ValueError('On-screen captions must identify the product.')
     return {'status': 'PASS', 'product_identity': product, 'placeholder_copy': False}
 
