@@ -21,6 +21,10 @@ def clean(value, limit=160):
     value = re.sub(r'(?m)^\s*[-*]\s+', '', value)
     value = re.sub(r'[*_`]+', '', value)
     value = ' '.join(value.split())
+    # A bare URL or truncated retailer snippet is not clean spoken narration.
+    # Markdown links have already been reduced to their human-readable labels.
+    if re.search(r'https?://|www\.|\.{3,}|…|\||\b(?:read more|see more)\b', value, re.I):
+        raise ValueError('Use complete plain-text product facts without retailer fragments.')
     if len(value) > limit or any(c in value for c in '{}\\<>|'):
         raise ValueError('Use short plain-text product facts without formatting codes.')
     return value.rstrip('.!?')
