@@ -132,3 +132,13 @@ def test_subtitle_uses_theme_ink_not_white_on_a_light_background():
     assert ass_bgr('#FFFFFF') == '&H00FFFFFF'
     with pytest.raises(ValueError):
         ass_bgr('invalid')
+
+
+def test_cta_button_does_not_overlap_two_line_narration_subtitles():
+    from pathlib import Path
+    src=(Path(__file__).resolve().parents[1]/'photo_video.py').read_text()
+    assert 'd.rounded_rectangle((96,1450,790,1540)' in src
+    assert "if scene==len(phrases)-1:" in src
+    assert "for row,line in enumerate(label_lines):text(d,(96,1435+row*52),line,42)" in src
+    # Caption safe area begins around 1578 for two lines at 66px.
+    assert 1540 < 1578
