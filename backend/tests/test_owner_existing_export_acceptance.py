@@ -275,3 +275,24 @@ def test_existing_master_rejects_platform_incompatible_fps_audio_or_duration(
     monkeypatch.setattr("subprocess.run", fake_run)
     with pytest.raises(AcceptanceError):
         inspect_master_media(tmp_path / "existing.mp4")
+
+
+@pytest.mark.parametrize("rate,sample_rate,channels,duration", [
+    ("30000/1001", "44100", 1, "31.0"),
+    ("60/1", "48000", 2, "3.0"),
+    ("23/1", "48000", 2, "180.0"),
+])
+def test_existing_master_accepts_valid_shared_platform_boundaries(
+        monkeypatch, tmp_path, rate, sample_rate, channels, duration):
+    def fake_run(*args, **kwargs):
+        assert "avg_frame_rate" in args[0][args[0].index("-show_entries") + 1]
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264", "width": 1080,
+                 "height": 1920, "avg_frame_rate": rate},
+                {"codec_type": "audio", "codec_name": "aac",
+                 "sample_rate": sample_rate, "channels": channels},
+            ], "format": {"duration": duration},
+        }), stderr="")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert inspect_master_media(tmp_path / "existing.mp4")["video"] == "h264"
