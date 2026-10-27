@@ -83,3 +83,50 @@ def test_collection_unknown_selector_does_not_claim_parent(tmp_path):
         "Desk Tray Wide Green Edition",
         "https://seller.example/products/drawer-tray?size=large",
     )), "Unknown selectors cannot be merged into an unselected parent"
+
+
+def test_shopify_view_parameter_does_not_recycle_renamed_winner(tmp_path):
+    """Shopify ?view=quick is presentation, not a different sellable product."""
+    path = tmp_path / "history.sqlite3"
+    first = identity_keys(
+        "Natural Bamboo Drawer Tray",
+        "https://seller.example/products/drawer-tray",
+    )
+    renamed = identity_keys(
+        "Wooden Office Storage Organizer",
+        "https://m.seller.example/en-us/collections/office/products/drawer-tray?view=quick",
+    )
+    assert WinnerHistory("returning-owner", path).claim(first)
+    assert not WinnerHistory("returning-owner", path).claim(renamed)
+
+
+def test_shopify_view_first_then_direct_link_is_not_fresh(tmp_path):
+    """The first claim must also establish the stable product identity."""
+    path = tmp_path / "history.sqlite3"
+    first = identity_keys(
+        "Wooden Office Storage Organizer",
+        "https://seller.example/collections/office/products/drawer-tray?view=quick&sort_by=best-selling",
+    )
+    renamed = identity_keys(
+        "Natural Bamboo Drawer Tray",
+        "https://seller.example/products/drawer-tray",
+    )
+    assert WinnerHistory("returning-owner", path).claim(first)
+    assert not WinnerHistory("returning-owner", path).claim(renamed)
+
+
+def test_shopify_presentation_alias_does_not_merge_actual_options(tmp_path):
+    """Only known presentation keys may be ignored, never SKU selectors."""
+    history = WinnerHistory("returning-owner", tmp_path / "history.sqlite3")
+    assert history.claim(identity_keys(
+        "Desk Tray Narrow Blue Edition",
+        "https://seller.example/products/drawer-tray?view=quick&size=small",
+    ))
+    assert history.claim(identity_keys(
+        "Desk Tray Wide Green Edition",
+        "https://seller.example/products/drawer-tray?view=quick&size=large",
+    ))
+    assert history.claim(identity_keys(
+        "Another Merchant Desk Organizer",
+        "https://other.example/products/drawer-tray?view=quick",
+    ))
