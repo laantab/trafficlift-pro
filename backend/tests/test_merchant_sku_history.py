@@ -327,3 +327,52 @@ def test_ebay_international_host_allowlist_rejects_lookalikes():
         )
         assert not any(k.startswith("ebay-item-") or k.startswith("ebay-variant-")
                        for k in keys), host
+
+
+def test_mobile_merchant_sku_cannot_recycle_renamed_winner(tmp_path):
+    """An explicit SKU remains one winner across merchant desktop/mobile hosts."""
+    history = WinnerHistory("returning-owner", path=tmp_path / "seen.db")
+    desktop = identity_keys(
+        "Premium Bamboo Drawer Organizer Original",
+        "https://shop.example/products/bamboo-organizer?sku=MODEL-100&utm_source=ad",
+    )
+    mobile = identity_keys(
+        "Compact Wooden Storage Tray Updated",
+        "https://m.shop.example/products/storage-tray?SKU=MODEL-100&gclid=click",
+    )
+    assert history.claim(desktop)
+    assert not WinnerHistory("returning-owner", path=history.path).claim(mobile)
+
+
+def test_mobile_merchant_sku_first_cannot_recycle_desktop_winner(tmp_path):
+    """History written by mobile clients must exclude later desktop listings."""
+    history = WinnerHistory("returning-owner", path=tmp_path / "seen.db")
+    mobile = identity_keys(
+        "Compact Wooden Storage Tray Updated",
+        "https://m.shop.example/products/storage-tray?sku=MODEL-100",
+    )
+    desktop = identity_keys(
+        "Premium Bamboo Drawer Organizer Original",
+        "https://shop.example/products/bamboo-organizer?SKU=MODEL-100",
+    )
+    assert history.claim(mobile)
+    assert not WinnerHistory("returning-owner", path=history.path).claim(desktop)
+
+
+def test_mobile_sku_alias_preserves_merchants_and_selected_options(tmp_path):
+    """A mobile alias cannot merge another seller or distinct child options."""
+    history = WinnerHistory("returning-owner", path=tmp_path / "seen.db")
+    assert history.claim(identity_keys(
+        "Premium Bamboo Drawer Organizer Original",
+        "https://shop.example/products/one?sku=BASE-100",
+    ))
+    assert history.claim(identity_keys(
+        "Another Seller Wooden Storage Tray Updated",
+        "https://m.other.example/products/two?sku=BASE-100",
+    ))
+    child = identity_keys(
+        "Large Blue Drawer Tray Edition",
+        "https://m.shop.example/products/three?sku=BASE-100&size=large",
+    )
+    assert not any(key.startswith("merchant-sku-") for key in child)
+    assert history.claim(child)
