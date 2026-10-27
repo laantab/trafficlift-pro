@@ -341,8 +341,19 @@ def identity_keys(name, url):
                 and not other_selectors and safe_sku_path):
             sku = sku_values[0]
             if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{3,63}', sku):
-                keys.append('merchant-sku-' + hashlib.sha256(
-                    f'{host_name}:{sku}'.encode()).hexdigest()[:24])
+                # Merchant mobile storefronts can relist the same strong SKU
+                # under m.<host> with a different title and product slug.
+                # Emit both host spellings in either direction, including the
+                # original host-specific key for older permanent SQLite rows.
+                # Do not infer a parent for a two-label m.example hostname.
+                merchant_hosts = {host_name}
+                if host_name.startswith('m.') and host_name.count('.') >= 2:
+                    merchant_hosts.add(host_name[2:])
+                elif not host_name.startswith('m.') and '.' in host_name:
+                    merchant_hosts.add('m.' + host_name)
+                for merchant_host in sorted(merchant_hosts):
+                    keys.append('merchant-sku-' + hashlib.sha256(
+                        f'{merchant_host}:{sku}'.encode()).hexdigest()[:24])
         keys.append('url-' + hashlib.sha256(canonical.encode()).hexdigest()[:24])
         # Before query-key normalization, permanent SQLite history recorded
         # URL hashes for common uppercase/Title-case size and color selectors.
