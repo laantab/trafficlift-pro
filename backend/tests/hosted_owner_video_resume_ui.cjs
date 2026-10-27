@@ -150,6 +150,7 @@ function scenario(firstStatus, shared = {creates: 0, storage: new Map()}) {
     loadHostedAcceptanceSample: async () => {},
     waitForFreeVideoJob: async (id) => {assert.equal(id, ID); recovery.resumes++;},
     pendingHostedVideoJobId: ID,
+    hostedVideoSite: true,
   };
   vm.createContext(ownerContext);
   vm.runInContext(source.slice(unlockStart, unlockEnd), ownerContext);
