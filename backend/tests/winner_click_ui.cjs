@@ -15,9 +15,11 @@ function browser(response, {blockedStorage=false}={}) {
   if(match[1].includes('tailwind.config')) continue;
   vm.runInContext(match[1],context);
  }
+ // Preserve the real card renderer for customer-facing copy regression checks.
+ const renderRealWinnerCard=context.displayWinnerCard;
  // Replace visual drawing only; the click handler and request pipeline are real.
  context.displayWinnerCard=()=>{};context.renderPinterestResult=()=>{};context.renderPinPreview=()=>{};
- return {context,requests,nodes,events};
+ return {context,requests,nodes,events,renderRealWinnerCard};
 }
 const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',image_status:'verified',source:'discovery',discovery:{version:'3.0'},identity_keys:['one']};
 (async()=>{
@@ -80,5 +82,17 @@ const winner={id:'one',name:'Juicer',image_url:'https://example.com/image.jpg',i
  assert(launchCalls[0].url.includes('/analyze-product-url'));
  assert.equal(JSON.parse(launchCalls[1].options.body).product_payload.name,'Juicer');
  assert.equal(pinCalls,1);
+ // A researched seller product must not claim proven sales, MiniMax readiness,
+ // or an Amazon merchant when the listing belongs to a different retailer.
+ b=browser({ok:true,json:async()=>winner});
+ b.renderRealWinnerCard({...winner,category:'Home Organization',source:'discovery',
+   url:'https://seller.example/products/juicer',angle:'Verified listing to review',
+   research_status:'live',research_provider:'live',pin_title:'Juicer',pin_description:'Review details'});
+ const card=b.nodes.get('executionOutput').innerHTML;
+ assert(card.includes('Live research</span>'),'Discovery must be labeled as live research, not a curated fallback');
+ assert(!card.includes('Curated pool</span>'),'Live research must not be labeled as curated');
+ assert(!card.includes('MiniMax H3-Max'),'The card must not claim a paid video engine is ready');
+ assert(!card.includes('View on Amazon'),'A non-Amazon merchant must not be mislabeled Amazon');
+ assert(card.includes('View Product Listing'),'The merchant-neutral destination must be clear');
  console.log('PASS: actual button request, same origin, Pinterest continuation, visible failures, curated rejection');
 })().catch(e=>{console.error(e);process.exitCode=1});
