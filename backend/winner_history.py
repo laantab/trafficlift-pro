@@ -454,7 +454,18 @@ def identity_keys(name, url):
             # query keys bypass the merchant-scoped permanent winner history.
             # Conflicting values are ambiguous: never choose one arbitrarily.
             variants = {v.strip() for k, v in query_pairs if k.lower() == 'variant'}
-            if len(variants) == 1:
+            # A numeric Shopify variant is a stable item identifier only
+            # when no additional product option is selected. Some storefronts
+            # reuse that variant while size, color, selling_plan or a custom
+            # option_id chooses a different sellable child. Never attach the
+            # broad variant key in those cases; exact canonical URL keys
+            # still preserve repeat prevention for the selected combination.
+            # Presentation and known attribution fields are not child choices.
+            other_variant_selectors = [
+                key for key, _ in query
+                if key.lower() not in {'variant'} | _SKU_PRESENTATION_PARAMS
+            ]
+            if len(variants) == 1 and not other_variant_selectors:
                 variant = next(iter(variants))
                 if re.fullmatch(r'[0-9]{8,20}', variant):
                     # Shopify mobile storefront links commonly switch
