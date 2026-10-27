@@ -107,7 +107,7 @@ def measured_caption_chunks(phrase, measure):
         middle = len(words) // 2
         return fit(words[:middle]) + fit(words[middle:])
 
-    return [lines for chunk in balanced_caption_chunks(phrase, max_words=5)
+    return [lines for chunk in balanced_caption_chunks(phrase, max_words=4)
             for lines in fit(chunk.split())]
 
 
