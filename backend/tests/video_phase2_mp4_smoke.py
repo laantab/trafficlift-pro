@@ -45,14 +45,18 @@ def main():
             path=root/f'product-{index}.png'
             im.save(path);photos.append(path)
         plan={
+            'mode':'benefit_led',
             'product':'Desk Organizer',
-            'phrases':['Considering Desk Organizer?', 'Here is the actual Desk Organizer photo.',
-                       'Compare the Desk Organizer shape with your intended space.',
-                       'Check the seller listing for Desk Organizer dimensions.',
-                       'Open the Desk Organizer listing to review current options.'],
-            'captions':['Desk Organizer: closer look','Desk Organizer: actual photo',
-                        'Desk Organizer: check fit','Desk Organizer: dimensions',
-                        'Desk Organizer: listing options'],
+            'phrases':['Considering the Desk Organizer?',
+                       'The Desk Organizer has a tall rectangular body in this test photo.',
+                       'Notice the contrasting lower panel on the Desk Organizer.',
+                       'Compare the Desk Organizer shape with the space on your desk.',
+                       'See the Desk Organizer listing for exact dimensions.'],
+            'captions':['Desk Organizer: closer look','Desk Organizer: tall body',
+                        'Desk Organizer: contrasting base','Desk Organizer: check fit',
+                        'Desk Organizer: exact dimensions'],
+            'evidence':[{'text':'Tall rectangular body visible in synthetic fixture'},
+                        {'text':'Contrasting lower panel visible in synthetic fixture'}],
             'scenes':[{'stage':x} for x in ('hook','product','benefit','buying_details','cta')],
             'review':{'status':'PASS','evidence_status':'Synthetic smoke only'},
             'requested_seconds':15
