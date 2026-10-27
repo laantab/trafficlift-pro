@@ -39,19 +39,10 @@ jobs:
           pip install pytest tree-sitter tree-sitter-javascript numpy pillow soundfile
       - name: Fast permanent winner-history regression gate
         run: python -m pytest backend/tests/test_shopify_variant_child_selectors.py backend/tests/test_shopify_collection_history.py backend/tests/test_shopify_locale_unselected_history.py backend/tests/test_ounce_winner_history.py backend/tests/test_pack_count_history.py backend/tests/test_amazon_marketplace_history.py backend/tests/test_etsy_listing_history.py backend/tests/test_unicode_winner_history.py backend/tests/test_merchant_sku_history.py -q
-      - name: Verify FFmpeg and FFprobe for owner MP4 decode acceptance
-        run: |
-          # GitHub-hosted Ubuntu runners normally include both binaries.
-          # Avoid an unnecessary apt-index refresh that can stall the full
-          # release gate; never skip decoding tests if a binary is absent.
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
-            sudo apt-get -y install ffmpeg
-          fi
-          command -v ffmpeg
-          command -v ffprobe
-          ffmpeg -version | head -n 1
-          ffprobe -version | head -n 1
+      # Python owner-export acceptance uses mocked ffprobe responses here.
+      # Actual FFmpeg/FFprobe availability and real MP4 decoding/composition
+      # remain mandatory in both separate video smoke jobs below. Installing
+      # FFmpeg a second time here can stall on a transient Ubuntu apt mirror.
       - name: Run Find Winner regression suite
         run: |
           mkdir -p video
