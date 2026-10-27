@@ -2250,30 +2250,41 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 && !/\b(?:non[-\s]?expandable|not\s+expandable)\b/.test(productWords);
             topic = [expandable && 'expandable', bamboo && 'bamboo', 'drawer organizer']
                 .filter(Boolean).join(' ');
-            headline = 'Ideas for a More Organized Drawer';
+            headline = [expandable && 'Expandable', bamboo && 'Bamboo', 'Drawer Organizer'].filter(Boolean).join(' ');
             board = 'Kitchen Drawer Organization';
         } else if (/lunch box|bento/.test(searchText)) {
             topic = 'lunch box';
-            headline = 'Make Lunchtime More Organized';
+            headline = product.slice(0, 60);
             board = 'Lunch Organization Ideas';
         } else if (/water bottle|tumbler/.test(searchText)) {
             topic = 'water bottle';
-            headline = 'Find Your Everyday Water Bottle';
+            headline = product.slice(0, 60);
             board = 'Everyday Kitchen Essentials';
         } else if (/lamp|lighting/.test(searchText)) {
             topic = 'lamp';
-            headline = 'Explore Lighting Ideas for Your Space';
+            const model = (product.match(/\b[A-Z]{2,}\d{3,}[A-Z0-9-]*\b/) || [])[0] || '';
+            const motionSensor = /\bmotion[-\s]?sensor\b/i.test(product);
+            const nightLight = /\bnight[-\s]?light\b/i.test(product);
+            const deskLamp = /\bdesk\s+lamp\b/i.test(product);
+            headline = (model ? model + ' ' : '') +
+                (motionSensor && nightLight ? 'Motion-Sensor Night Light' :
+                 nightLight ? 'Night Light' :
+                 deskLamp ? ((/\badjustable\b/i.test(product) ? 'Adjustable ' : '') + 'Desk Lamp') :
+                 product.slice(0, 60));
             board = 'Home Lighting Ideas';
         } else if (/storage|organizer|shelf/.test(searchText)) {
             topic = 'home organizer';
-            headline = 'Explore Smarter Storage Ideas';
+            headline = product.slice(0, 60);
             board = 'Home Storage Ideas';
         } else {
             topic = product.replace(/^\S+\s+/, '').slice(0,65) || product || 'product';
-            headline = category ? ('Explore ' + category + ' Ideas').slice(0,55) : 'Explore Useful Product Ideas';
+            headline = product.slice(0, 60);
             board = category ? category + ' Ideas' : 'Useful Product Ideas';
         }
-        const title = headline.slice(0,100);
+        if (!product || !headline) throw new Error('A product-specific Pinterest headline requires the exact product name.');
+        const title = headline.slice(0, 65);
+        if (/^explore (?:tech|gadgets|product|useful).*ideas$/i.test(title))
+            throw new Error('Generic Pinterest headline rejected.');
         const description = ('Explore ' + topic + ' ideas with ' + product +
             '. Review the seller listing for exact size, materials, available options and current price before deciding. See product details.').slice(0,490);
         const original = rawTitle.toLowerCase();
@@ -2605,8 +2616,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const categoryKey = _categoryKeyFromText(
             (winner && winner.category) || (pkg && pkg.board_title) || ''
         );
-        const productName = (winner && winner.name) || 'Trending Product';
-        const pinTitle    = (pkg && pkg.pin_title) || 'Explore Product Ideas';
+        const productName = String((winner && winner.name) || '').trim();
+        const pinTitle = String((pkg && pkg.pin_title) || '').trim();
+        if (!productName || !pinTitle || /^(?:explore .* ideas|product ideas|trending product)$/i.test(pinTitle))
+            throw new Error('A designed pin needs a product-specific headline and verified product identity.');
         const cta         = (pkg && pkg.pin_cta_suggestion) || 'Shop now';
 
         // 1. HERO (0..900)
