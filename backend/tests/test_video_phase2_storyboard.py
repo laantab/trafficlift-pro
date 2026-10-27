@@ -89,3 +89,39 @@ def test_narration_quality_rejects_silence_and_clipping(tmp_path):
     sf.write(path,np.ones(rate*2,dtype=np.float32),rate, subtype='FLOAT')
     with pytest.raises(ValueError,match='clipped'):
         check_narration_audio(path)
+
+
+def test_ass_subtitle_chunks_fit_real_rendered_font_and_keep_every_word():
+    """Regression: measuring at 26px while ASS renders at 58px clipped long lines."""
+    from PIL import ImageFont
+    from backend.photo_video import measured_caption_chunks, ASS_CAPTION_FONT_SIZE, ASS_CAPTION_MAX_WIDTH
+    font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', ASS_CAPTION_FONT_SIZE)
+    phrase = ('Compare the current price and available sizes before deciding whether '
+              'this adjustable stainless steel storage organizer fits your space.')
+    chunks = measured_caption_chunks(phrase, font.getlength)
+    assert chunks and all(1 <= len(chunk) <= 2 for chunk in chunks)
+    assert all(font.getlength(line) <= ASS_CAPTION_MAX_WIDTH for chunk in chunks for line in chunk)
+    assert ' '.join(line for chunk in chunks for line in chunk) == phrase
+    assert all(len(line.split()) > 1 for chunk in chunks for line in chunk)
+
+
+def test_subtitle_style_matches_measured_font_and_stays_out_of_footer():
+    """ASS layout must use the same font size measured during wrapping."""
+    from pathlib import Path
+    from backend.photo_video import ASS_CAPTION_FONT_SIZE, ASS_CAPTION_MAX_WIDTH
+    assert ASS_CAPTION_FONT_SIZE >= 48
+    assert ASS_CAPTION_MAX_WIDTH <= 760
+    source = (Path(__file__).resolve().parents[1] / 'photo_video.py').read_text()
+    assert "measured_caption_chunks(phrase, font(ASS_CAPTION_FONT_SIZE).getlength)" in source
+    assert "MarginV" in source and "ASS_CAPTION_FONT_SIZE" in source
+
+
+def test_subtitle_uses_theme_ink_not_white_on_a_light_background():
+    from backend.photo_video import ass_bgr
+    # Clean theme uses dark green ink on a light background; the old white
+    # subtitles with a heavy black box were hard to read and looked unfinished.
+    assert ass_bgr('#173C32') == '&H00323C17'
+    assert ass_bgr('#F4F5EF') == '&H00EFF5F4'
+    assert ass_bgr('#FFFFFF') == '&H00FFFFFF'
+    with pytest.raises(ValueError):
+        ass_bgr('invalid')

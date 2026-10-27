@@ -53,3 +53,11 @@ def test_inline_emphasis_does_not_detach_qualification():
     from backend.listing_photo import usable_facts
     assert usable_facts('<p>Fits most holders, <b>except narrow ones.</b></p>')==['Fits most holders, except narrow ones.']
     assert usable_facts('<ul><li>Includes a weighted base.</li><li>Adjustable arm for positioning the light.</li></ul>')==['Includes a weighted base.','Adjustable arm for positioning the light.']
+
+
+def test_raw_retailer_fragments_do_not_become_spoken_facts():
+    from backend.listing_photo import usable_facts
+    assert usable_facts('Adjustable arm with 360 degree swivel https://seller.example/product') == []
+    assert usable_facts('Includes a weighted base...') == []
+    assert usable_facts('Adjustable arm with 360 degree swivel | see details') == []
+    assert usable_facts('Includes a weighted base.') == ['Includes a weighted base.']

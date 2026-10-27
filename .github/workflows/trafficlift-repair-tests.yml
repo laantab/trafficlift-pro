@@ -43,16 +43,16 @@ jobs:
         run: python -m pytest backend/tests/test_shopify_variant_child_selectors.py backend/tests/test_shopify_collection_history.py backend/tests/test_shopify_locale_unselected_history.py backend/tests/test_ounce_winner_history.py backend/tests/test_pack_count_history.py backend/tests/test_amazon_marketplace_history.py backend/tests/test_etsy_listing_history.py backend/tests/test_unicode_winner_history.py backend/tests/test_merchant_sku_history.py -q
       - name: Verify FFmpeg and FFprobe for owner MP4 decode acceptance
         run: |
-          # This regression decodes a real MP4 with FFmpeg and FFprobe.
-          # Three CI attempts timed out downloading 94 MB from the Azure apt
-          # mirror, while other jobs passed. Use the standard Ubuntu archive
-          # mirror for this job and bound both network phases; never skip QA.
+          # The Ubuntu apt mirror intermittently stalls for >120s. Use the same
+          # pinned static-ffmpeg dependency already used by the hosted runtime.
+          # Never skip decoding, libass subtitles or video acceptance tests.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            if test -f /etc/apt/apt-mirrors.txt; then
-              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt
-            fi
-            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 update
-            timeout 240 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -y install ffmpeg
+            # The downloader prints progress to stdout. Keep only the final
+            # executable directory; never put progress text into PATH.
+            FFMPEG_DIR="$(python -c 'import os; from static_ffmpeg.run import get_or_fetch_platform_executables_else_raise; print(os.path.dirname(get_or_fetch_platform_executables_else_raise()[0]))' | tail -n 1)"
+            test -x "$FFMPEG_DIR/ffmpeg" && test -x "$FFMPEG_DIR/ffprobe"
+            export PATH="$FFMPEG_DIR:$PATH"
+            echo "$FFMPEG_DIR" >> "$GITHUB_PATH"
           fi
           command -v ffmpeg
           command -v ffprobe
@@ -107,10 +107,21 @@ jobs:
           # Hosted Ubuntu runners normally have FFmpeg and DejaVu already.
           # Skip apt network refresh when both are present; a slow mirror
           # must not stall the release smoke gate before any MP4 is tested.
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
-             ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
-            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
-            timeout 120 sudo apt-get -y install ffmpeg fonts-dejavu-core
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            pip install static-ffmpeg==3.0
+            # The downloader prints progress to stdout. Keep only the final
+            # executable directory; never put progress text into PATH.
+            FFMPEG_DIR="$(python -c 'import os; from static_ffmpeg.run import get_or_fetch_platform_executables_else_raise; print(os.path.dirname(get_or_fetch_platform_executables_else_raise()[0]))' | tail -n 1)"
+            test -x "$FFMPEG_DIR/ffmpeg" && test -x "$FFMPEG_DIR/ffprobe"
+            export PATH="$FFMPEG_DIR:$PATH"
+            echo "$FFMPEG_DIR" >> "$GITHUB_PATH"
+          fi
+          # A missing font is a hard failure, not permission to skip captions.
+          # Ubuntu runners normally provide DejaVu; install only this small font
+          # package if the runner image is unusually minimal.
+          if ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
+            sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 update
+            sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -y install fonts-dejavu-core
           fi
           command -v ffmpeg
           command -v ffprobe
@@ -141,10 +152,21 @@ jobs:
           # Ubuntu runners generally include FFmpeg and DejaVu. Do not block
           # narrated-video acceptance on a redundant apt mirror refresh.
           # If either prerequisite is absent, install it rather than skip QA.
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
-             ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
-            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
-            timeout 120 sudo apt-get -y install ffmpeg fonts-dejavu-core
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            pip install static-ffmpeg==3.0
+            # The downloader prints progress to stdout. Keep only the final
+            # executable directory; never put progress text into PATH.
+            FFMPEG_DIR="$(python -c 'import os; from static_ffmpeg.run import get_or_fetch_platform_executables_else_raise; print(os.path.dirname(get_or_fetch_platform_executables_else_raise()[0]))' | tail -n 1)"
+            test -x "$FFMPEG_DIR/ffmpeg" && test -x "$FFMPEG_DIR/ffprobe"
+            export PATH="$FFMPEG_DIR:$PATH"
+            echo "$FFMPEG_DIR" >> "$GITHUB_PATH"
+          fi
+          # A missing font is a hard failure, not permission to skip captions.
+          # Ubuntu runners normally provide DejaVu; install only this small font
+          # package if the runner image is unusually minimal.
+          if ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
+            sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 update
+            sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -y install fonts-dejavu-core
           fi
           command -v ffmpeg
           command -v ffprobe
