@@ -387,6 +387,26 @@ def identity_keys(name, url):
         # even if the merchant also renames the product and URL slug.
         # Only accept a root or single locale prefix, never arbitrary paths.
         if re.fullmatch(r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/[^/]+/?', canonical_path, re.I):
+            # Shopify mobile storefronts also expose unselected product pages
+            # without ?variant. The same /products/<slug> on merchant.example
+            # and m.merchant.example is one winner even after a title rewrite.
+            # Add the opposite-host URL hash on BOTH forms so pre-upgrade
+            # desktop-only/mobile-only permanent rows remain effective.
+            # Only do this for an unselected product (no non-tracking query
+            # selectors): a size, custom option or variant may identify a
+            # different sellable item and must not inherit the parent key.
+            if not query:
+                alternate_host = None
+                if host.startswith('m.') and host.count('.') >= 2:
+                    alternate_host = host[2:]
+                elif not host.startswith('m.') and '.' in host:
+                    alternate_host = 'm.' + host
+                if alternate_host:
+                    alternate_url = urlunsplit(
+                        ('https', alternate_host, canonical_path, '', '')
+                    )
+                    keys.append('url-' + hashlib.sha256(
+                        alternate_url.encode()).hexdigest()[:24])
             # A seller redirect may append the same variant selector twice
             # (sometimes with different parameter capitalization). Those
             # identical values still name one SKU; do not let the duplicate
