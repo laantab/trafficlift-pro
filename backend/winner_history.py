@@ -386,27 +386,42 @@ def identity_keys(name, url):
         # The same numeric variant must stay excluded across locale changes,
         # even if the merchant also renames the product and URL slug.
         # Only accept a root or single locale prefix, never arbitrary paths.
-        if re.fullmatch(r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/[^/]+/?', canonical_path, re.I):
-            # Shopify mobile storefronts also expose unselected product pages
-            # without ?variant. The same /products/<slug> on merchant.example
-            # and m.merchant.example is one winner even after a title rewrite.
-            # Add the opposite-host URL hash on BOTH forms so pre-upgrade
-            # desktop-only/mobile-only permanent rows remain effective.
-            # Only do this for an unselected product (no non-tracking query
-            # selectors): a size, custom option or variant may identify a
-            # different sellable item and must not inherit the parent key.
+        shopify_product = re.fullmatch(
+            r'/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?products/([^/]+)/?',
+            canonical_path, re.I
+        )
+        if shopify_product:
+            # A Shopify-style unselected product may appear at /products/slug
+            # or /en-us/products/slug (and on the mobile merchant host). Its
+            # slug is stable across those presentation paths even when the
+            # retailer rewrites the title. Never attach this broad key to a
+            # selected variant, size or unknown query selector: those may
+            # represent different sellable items.
             if not query:
-                alternate_host = None
+                slug = shopify_product.group(1)
+                merchant_hosts = {host}
                 if host.startswith('m.') and host.count('.') >= 2:
-                    alternate_host = host[2:]
-                elif not host.startswith('m.') and '.' in host:
-                    alternate_host = 'm.' + host
-                if alternate_host:
-                    alternate_url = urlunsplit(
-                        ('https', alternate_host, canonical_path, '', '')
-                    )
-                    keys.append('url-' + hashlib.sha256(
-                        alternate_url.encode()).hexdigest()[:24])
+                    merchant_hosts.add(host[2:])
+                    merchant_identity = host[2:]
+                else:
+                    merchant_identity = host
+                    if '.' in host and not host.startswith('m.'):
+                        merchant_hosts.add('m.' + host)
+                keys.append('shopify-product-' + hashlib.sha256(
+                    f'{merchant_identity}:{slug}'.encode()).hexdigest()[:24])
+                # Old permanent rows store only URL hashes. Include both
+                # mobile/desktop URL forms and the unprefixed product path so
+                # existing root-path winners stay excluded after locale
+                # redirects. An unknown *older* locale cannot be recovered
+                # from a hash alone; new claims use the stable key above.
+                for merchant_host in sorted(merchant_hosts):
+                    for path_alias in {canonical_path, f'/products/{slug}'}:
+                        alternate_url = urlunsplit(
+                            ('https', merchant_host, path_alias, '', '')
+                        )
+                        if alternate_url != canonical:
+                            keys.append('url-' + hashlib.sha256(
+                                alternate_url.encode()).hexdigest()[:24])
             # A seller redirect may append the same variant selector twice
             # (sometimes with different parameter capitalization). Those
             # identical values still name one SKU; do not let the duplicate
