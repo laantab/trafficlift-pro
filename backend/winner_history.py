@@ -484,6 +484,47 @@ def identity_keys(name, url):
                         merchant_variant = f'{merchant_host}:{variant}'
                         keys.append('shopify-variant-' + hashlib.sha256(
                             merchant_variant.encode()).hexdigest()[:24])
+            # A selected Shopify child must also remain excluded if a seller
+            # changes the title, product handle, collection or locale. The
+            # broad numeric variant key above is intentionally unsafe when
+            # additional options are present (some shops reuse parent IDs).
+            # Instead identify the exact selected combination. Ignore only
+            # attribution/presentation; never ignore a child selector.
+            if len(variants) == 1 and other_variant_selectors:
+                variant = next(iter(variants))
+                if re.fullmatch(r'[0-9]{8,20}', variant):
+                    child_selectors = {}
+                    ambiguous_child = False
+                    # These known selector *keys* are case-insensitive, but
+                    # their values may be case-sensitive retailer SKU values.
+                    known_child_keys = {
+                        'size', 'color', 'colour', 'model', 'option_id',
+                        'selling_plan', 'sku',
+                    }
+                    for key, value in query:
+                        if key.lower() in {'variant'} | _SKU_PRESENTATION_PARAMS:
+                            continue
+                        selector_key = key.lower() if key.lower() in known_child_keys else key
+                        selector_value = (value.strip() if selector_key in
+                                          {'option_id', 'selling_plan', 'sku'} else value)
+                        if (selector_key in child_selectors
+                                and child_selectors[selector_key] != selector_value):
+                            ambiguous_child = True
+                            break
+                        child_selectors[selector_key] = selector_value
+                    if child_selectors and not ambiguous_child:
+                        selection_hash = hashlib.sha256(
+                            urlencode(sorted(child_selectors.items())).encode()
+                        ).hexdigest()[:24]
+                        merchant_hosts = {host}
+                        if host.startswith('m.') and host.count('.') >= 2:
+                            merchant_hosts.add(host[2:])
+                        elif not host.startswith('m.') and '.' in host:
+                            merchant_hosts.add('m.' + host)
+                        for merchant_host in sorted(merchant_hosts):
+                            keys.append('shopify-child-' + hashlib.sha256(
+                                f'{merchant_host}:{variant}:{selection_hash}'.encode()
+                            ).hexdigest()[:24])
         # Etsy listing IDs survive seller title/slug edits, mobile links and
         # recommendation click tracking. Only official Etsy hosts can claim
         # these identities. A selected variation is a different sellable
