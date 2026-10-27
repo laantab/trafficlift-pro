@@ -106,8 +106,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
                 'workflow': ['conversion_copy', 'visual_direction', 'editorial_review'],
                 'engine': 'local product-overview rules; no language-model calls'}
         plan['creative_review'] = creative_copy_gate(plan)
-        plan['creative_review'] = creative_copy_gate(plan)
-    plan['review'] = review(plan, seconds)
+        plan['review'] = review(plan, seconds)
         if plan['review']['errors']:
             raise ValueError(' '.join(plan['review']['errors']))
         return plan
@@ -147,6 +146,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
                     for stage,phrase in zip(stages,phrases)],
           'workflow':['buyer_research','conversion_copy','visual_direction','editorial_review'],
           'engine':'local evidence-led rules; no language-model calls'}
+    plan['creative_review'] = creative_copy_gate(plan)
     plan['review'] = review(plan, seconds)
     if plan['review']['errors']:
         raise ValueError(' '.join(plan['review']['errors']))
