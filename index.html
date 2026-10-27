@@ -2260,7 +2260,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             topic = 'water bottle';
             headline = product.slice(0, 60);
             board = 'Everyday Kitchen Essentials';
-        } else if (/lamp|lighting/.test(searchText)) {
+        } else if (/lamp|lighting|night[-\s]?light/.test(searchText)) {
             topic = 'lamp';
             const model = (product.match(/\b[A-Z]{2,}\d{3,}[A-Z0-9-]*\b/) || [])[0] || '';
             const motionSensor = /\bmotion[-\s]?sensor\b/i.test(product);
