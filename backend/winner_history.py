@@ -403,7 +403,16 @@ def identity_keys(name, url):
             # retailer rewrites the title. Never attach this broad key to a
             # selected variant, size or unknown query selector: those may
             # represent different sellable items.
-            if not query:
+            # Shopify ?view=quick and ?sort_by=... select a storefront
+            # presentation, not a different SKU. Preserve the original URL
+            # key for legacy rows, but also claim the stable product slug so
+            # a renamed item cannot return through a different view/locale.
+            # Unknown selectors and variant/size/color choices still block
+            # this broad identity: they may represent different products.
+            presentation_only = all(
+                key.lower() in _SKU_PRESENTATION_PARAMS for key, _ in query
+            )
+            if presentation_only:
                 slug = shopify_product.group(1)
                 merchant_hosts = {host}
                 if host.startswith('m.') and host.count('.') >= 2:
