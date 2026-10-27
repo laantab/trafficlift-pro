@@ -32,7 +32,7 @@ def clean(value, limit=160):
 
 GENERIC_CREATIVE = re.compile(
     r'\\b(?:review listed features|picture your setup|key item features|'
-    r'explore (?:tech|gadgets|product|useful) ideas|product overview|'
+    r'explore (?:tech(?:\\s*&\\s*gadgets)?|gadgets|product|useful) ideas|product overview|'
     r'think about where you would use this feature)\\b', re.I
 )
 
