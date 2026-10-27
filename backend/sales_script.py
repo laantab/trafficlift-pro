@@ -61,6 +61,29 @@ def creative_copy_gate(plan):
     return {'status': 'PASS', 'product_identity': product, 'placeholder_copy': False}
 
 
+
+def marketing_readiness_gate(plan):
+    """A photo-only overview is not a publishable narrated advertisement.
+
+    Preserve honest no-fact previews for research, but never spend CPU rendering
+    five generic seller-listing reminders as a finished product video.
+    Require two different product facts from the exact listing or an attributed
+    seller/manufacturer brief. This checks source presence, not truth of claims;
+    visual and factual human approval is still mandatory.
+    """
+    creative_copy_gate(plan)
+    if plan.get('mode') != 'benefit_led':
+        raise ValueError('Not enough product-specific seller facts for a narrated ad. No video was rendered.')
+    facts = {
+        re.sub(r'\W+', ' ', str(item.get('text') or '')).strip().casefold()
+        for item in (plan.get('evidence') or [])
+        if isinstance(item, dict) and str(item.get('text') or '').strip()
+    }
+    if len(facts) < 2:
+        raise ValueError('A narrated ad needs at least two distinct product facts from the exact listing. No video was rendered.')
+    return {'status': 'PASS', 'distinct_product_facts': len(facts)}
+
+
 def review(plan, seconds):
     errors = []
     if not plan['evidence'] and plan.get('mode') not in {'photo_preview','product_overview'}:

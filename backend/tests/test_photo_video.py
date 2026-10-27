@@ -91,6 +91,7 @@ def test_missing_file_cannot_download(client,tmp_path):
     assert client.get(f'/api/v1/photo-videos/{job}/video').status_code==404
 
 def test_worker_failure_records_and_releases_lock(client,tmp_path,payload):
+    payload['consideration']='Includes a weighted stand'  # Two seller facts pass the creative gate.
     request=api.VideoRequest(**payload);job='b'*32;directory=tmp_path/job;directory.mkdir()
     record={'id':job,'status':'queued'}
     with patch.object(api,'resolve_video_facts',return_value={}), patch.object(api,'_download_product_image',side_effect=ValueError('Bad photo')),patch.object(api,'lock') as lock:

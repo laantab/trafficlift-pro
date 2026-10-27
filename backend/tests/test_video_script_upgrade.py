@@ -72,20 +72,21 @@ def test_worker_rehydrates_history_product_and_uses_requested_preset(tmp_path):
     lock.release.assert_called_once()
 
 
-def test_missing_seller_details_completes_five_scene_overview(tmp_path):
+def test_missing_seller_details_never_renders_generic_ad(tmp_path):
     payload=VideoRequest.model_construct(name='Orbit Desk Lamp',image_url='https://example.com/lamp.jpg',
                          product_url='https://seller.example/products/lamp')
     record={'id':'d'*32,'status':'queued'}
     with patch('backend.photo_video_api.resolve_video_facts',return_value={}), \
-         patch('backend.photo_video_api._download_product_image',return_value=tmp_path/'photo.jpg'), \
+         patch('backend.photo_video_api._download_product_image') as download, \
          patch('backend.photo_video_api.render') as render, patch('backend.photo_video_api.lock') as lock:
         worker(record,payload,tmp_path)
-    assert record['status']=='succeeded'
+    assert record['status']=='failed'
     assert record['sales_plan']['mode']=='product_overview'
-    assert len(record['sales_plan']['phrases'])==5
     assert record['sales_plan']['evidence']==[]
-    assert 'benefit details unavailable' in record['message']
-    render.assert_called_once()
+    assert 'Not enough product-specific seller facts' in record['message']
+    assert record['video_url'] is None
+    download.assert_not_called()
+    render.assert_not_called()
     lock.release.assert_called_once()
 
 

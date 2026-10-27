@@ -123,3 +123,24 @@ def test_creative_copy_must_identify_exact_product_on_screen_and_in_voice():
     plan['captions']=['Lighting ideas','Check details','See listing']
     with pytest.raises(ValueError, match='captions'):
         creative_copy_gate(plan)
+
+
+def test_jas11242_photo_only_overview_is_not_approved_for_marketing_render():
+    from backend.sales_script import marketing_readiness_gate
+    overview=build_sales_plan('JAS11242 LED Motion-Sensor Night Light', '',
+                              'https://seller.example/jas11242', 30)
+    assert overview['mode']=='product_overview'
+    with pytest.raises(ValueError,match='Not enough product-specific seller facts'):
+        marketing_readiness_gate(overview)
+
+
+def test_marketing_render_requires_two_distinct_exact_product_facts():
+    from backend.sales_script import marketing_readiness_gate
+    single=build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                            'Nickel finish', 'https://seller.example/jas11242', 30)
+    with pytest.raises(ValueError,match='two distinct product facts'):
+        marketing_readiness_gate(single)
+    grounded=build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                              'Nickel finish', 'https://seller.example/jas11242', 30,
+                              feature_details=['Motion sensor is listed on the exact product page'])
+    assert marketing_readiness_gate(grounded)['distinct_product_facts']==2

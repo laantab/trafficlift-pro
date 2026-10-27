@@ -8,7 +8,7 @@ from backend.media_exports import EXPORT_LOCK, PLATFORMS, LockedExportResponse, 
 from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
 from backend.photo_video import dependencies, render
-from backend.sales_script import build_sales_plan
+from backend.sales_script import build_sales_plan, marketing_readiness_gate
 from backend.product_facts import resolve_video_facts
 from local_video.trafficlift_video_bridge import _download_product_image, _validate_public_https_url
 
@@ -215,6 +215,9 @@ def worker(record,payload,directory):
         if payload.consideration: facts['consideration']=payload.consideration
         benefit=facts.pop('benefit','')
         record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,120,**facts)
+        # Refuse a vague five-scene catalog slideshow before downloading media
+        # or spending CPU on speech and MP4 composition.
+        marketing_readiness_gate(record['sales_plan'])
         record['sales_plan']['requested_seconds']=payload.seconds
         record['seconds']=payload.seconds
         save(record,directory)
