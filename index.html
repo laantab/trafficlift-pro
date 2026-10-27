@@ -1516,6 +1516,20 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
             await loadFreeVideoHistory();
             await loadHostedAcceptanceSample();
+            // A 401 during polling never cancels the background render.
+            // After the owner unlocks again, resume its saved ID automatically.
+            // Do not POST another render or retain the access code.
+            if (hostedVideoSite && pendingHostedVideoJobId) {
+                note.textContent = 'Owner access restored. Reconnecting to your existing video without rendering again…';
+                try {
+                    await waitForFreeVideoJob(pendingHostedVideoJobId,
+                        document.getElementById('videoStatus'), document.getElementById('videoResult'));
+                    note.textContent = 'Owner access restored. Your saved video is ready.';
+                } catch (resumeError) {
+                    note.textContent = 'Owner access restored. ' + (resumeError.message || String(resumeError))
+                        + ' Check Past Videos before starting another render.';
+                }
+            }
         } catch (error) { note.textContent = error.message; }
     }
 
@@ -1954,6 +1968,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     function displayWinnerCard(data) {
+        // A newly selected product must never inherit the previous product's
+        // designed pin, even while the next asynchronous preview is rendering.
+        window.__pinRenderGeneration++;
+        window.__lastPinDataUrl = null;
+        window.__lastPinFilename = null;
         const outputArea = document.getElementById('executionOutput')
                         || document.getElementById('execution-output');
         if (!outputArea) return;
@@ -2654,7 +2673,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function copyPinBundle(title, desc, tags, imageUrl, productUrl) {
-        // 1. Format the text matching Pinterest's logical structure
+        // This legacy winner-card action previously stretched the retailer's
+        // raw photo into a 1000x1500 JPEG. Never distribute that as a pin.
+        // Copy text, then use only the actual designed pin preview export.
         const fullText = `${decodeURIComponent(title)}\n\n${decodeURIComponent(desc)} ${decodeURIComponent(tags)}`;
         try {
             await navigator.clipboard.writeText(fullText);
@@ -2665,52 +2686,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             document.body.appendChild(ta); ta.select();
             document.execCommand('copy'); document.body.removeChild(ta);
         }
-
-        // 2. Download as a 2:3 Vertical JPEG (1000x1500) for Pinterest compliance
-        try {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.src = imageUrl;
-
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-            });
-
-            const canvas = document.createElement('canvas');
-            // Set strict Pinterest 2:3 vertical ratio
-            canvas.width = 1000;
-            canvas.height = 1500;
-            const ctx = canvas.getContext('2d');
-
-            // Fill white background for padding if image doesn't fill 2:3
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // Center and scale image to fit nicely within the 2:3 canvas
-            const hRatio = canvas.width / img.naturalWidth;
-            const vRatio = canvas.height / img.naturalHeight;
-            const ratio = Math.max(hRatio, vRatio);
-            const centerShiftX = (canvas.width - img.naturalWidth * ratio) / 2;
-            const centerShiftY = (canvas.height - img.naturalHeight * ratio) / 2;
-
-            ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, centerShiftX, centerShiftY, img.naturalWidth * ratio, img.naturalHeight * ratio);
-
-            canvas.toBlob((blob) => {
-                const blobUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = 'pinterest-optimized-pin.jpg';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(blobUrl);
-                showToast('', 'Pin copied & 2:3 vertical JPEG downloaded!', 'success');
-            }, 'image/jpeg', 0.95);
-
-        } catch (err) {
-            console.error('Canvas conversion failed:', err);
-            showToast('', 'Pin text copied! (Check image download)', 'warning');
+        if (typeof window.__lastPinDataUrl === 'string' &&
+            window.__lastPinDataUrl.startsWith('data:image/jpeg;base64,')) {
+            downloadPinImage();
+        } else {
+            showToast('Pin text copied', 'Generate the Pinterest package to download the designed 1000x1500 pin. No raw product photo was downloaded.', 'warning');
         }
     }
 
