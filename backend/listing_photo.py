@@ -25,6 +25,10 @@ def usable_facts(value):
             continue
         if re.search(r"\b(shop|buy now|free shipping|guaranteed|best ever|selling out|hurry|limited time|customers|reviews)\b|[$£€]|\d+\s*%\s*off", sentence, re.I):
             continue
+        # Raw URLs, ellipses and retailer navigation fragments are not facts.
+        # Never have Kokoro speak an unfinished scraped listing snippet.
+        if re.search(r'https?://|www\.|\.{3,}|…|\||\b(?:read more|see more)\b', sentence, re.I):
+            continue
         if not re.search(r'\b(for|with|includes?|tracks?|adjustable|removable|designed|features?|supports?|provides?|helps?|allows?|made|fits?|waterproof|rechargeable|wireless|stainless steel|wide feed chute|reverse function|easy to clean|dishwasher safe)\b', sentence, re.I):
             continue
         if sentence not in facts:
