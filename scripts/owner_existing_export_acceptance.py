@@ -127,8 +127,10 @@ def verify_existing_exports(session, access_code, job_id, *, temp_root=None):
             session, base + "/video", root / "master.mp4",
             label="Master MP4", mime="video/mp4", limit=MAX_MASTER_BYTES,
         )
-        if (root / "master.mp4").read_bytes()[:12][4:8] != b"ftyp":
-            raise AcceptanceError("Master download is not a plausible MP4")
+        with (root / "master.mp4").open("rb") as master:
+            master.seek(4)
+            if master.read(4) != b"ftyp":
+                raise AcceptanceError("Master download is not a plausible MP4")
         for platform in PLATFORMS:
             path = root / (platform + ".zip")
             _download(session, base + "/exports/" + platform, path,
