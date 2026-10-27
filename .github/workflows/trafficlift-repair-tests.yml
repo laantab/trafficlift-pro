@@ -106,8 +106,8 @@ jobs:
           # must not stall the release smoke gate before any MP4 is tested.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
              ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
-            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
-            sudo apt-get -y install ffmpeg fonts-dejavu-core
+            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
+            timeout 120 sudo apt-get -y install ffmpeg fonts-dejavu-core
           fi
           command -v ffmpeg
           command -v ffprobe
@@ -140,8 +140,8 @@ jobs:
           # If either prerequisite is absent, install it rather than skip QA.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || \
              ! test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf; then
-            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
-            sudo apt-get -y install ffmpeg fonts-dejavu-core
+            timeout 120 sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=10 update
+            timeout 120 sudo apt-get -y install ffmpeg fonts-dejavu-core
           fi
           command -v ffmpeg
           command -v ffprobe
