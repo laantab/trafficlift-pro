@@ -71,7 +71,7 @@ def balanced_caption_chunks(phrase, max_words=7):
     return result
 
 
-ASS_CAPTION_FONT_SIZE = 54
+ASS_CAPTION_FONT_SIZE = 66
 ASS_CAPTION_MAX_WIDTH = 740  # Room for ASS outline and platform side controls.
 
 
@@ -227,7 +227,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     caption_primary, caption_outline = ass_bgr(ink), ass_bgr(bg)
     ass=('[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\n'
          'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'
-         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},{caption_primary},{caption_primary},{caption_outline},{caption_outline},-1,0,0,0,100,100,0,0,1,2,0,2,120,120,210,1\n'
+         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},{caption_primary},{caption_primary},{caption_outline},{caption_outline},-1,0,0,0,100,100,0,0,1,4,1,2,120,120,210,1\n'
          '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
