@@ -18,18 +18,30 @@ MASTER = b"\x00\x00\x00\x18ftypisom" + b"fixture-video-data" * 100
 
 
 def kit(platform, *, video=MASTER, job=JOB):
+    labels = {"tiktok": "TikTok", "youtube-shorts": "YouTube Shorts",
+              "instagram-reels": "Instagram Reels"}
+    tags = {"tiktok": "#ProductFinds #ShoppingTips",
+            "youtube-shorts": "#Shorts #ProductFinds",
+            "instagram-reels": "#Reels #ProductFinds"}
+    description = "Desk Organizer — a closer look.\n" + tags[platform]
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         archive.writestr("video.mp4", video)
         archive.writestr("manifest.json", json.dumps({
-            "platform": platform, "job_id": job,
-            "video_master_reused": True, "video_reencoded": False,
+            "platform": platform, "platform_name": labels[platform],
+            "job_id": job, "title": "Desk Organizer", "description": description,
+            "video": "video.mp4", "video_master_reused": True,
+            "video_reencoded": False,
             "safe_zone_approval": "MANUAL_REVIEW_REQUIRED",
+            "marketing_approval": "MANUAL_REVIEW_REQUIRED",
             "safe_zone_preview": "safe_zone_review.html",
         }))
         archive.writestr("safe_zone_review.html",
                          '<video src="video.mp4"></video>Illustrative caution overlays; manual review')
-        archive.writestr("post.txt", "Review before publishing")
+        archive.writestr("post.txt",
+                         f"{labels[platform]} posting kit — review before publishing\n"
+                         "Title: Desk Organizer\nDescription:\n"
+                         + description + "\nVideo: video.mp4 is an exact copy of the finished master.")
     return data.getvalue()
 
 
