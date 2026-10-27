@@ -46,8 +46,13 @@ def main():
             im.save(path);photos.append(path)
         plan={
             'product':'Desk Organizer',
-            'phrases':['Consider the organizer','See the actual product','Compare the available details','Review the seller listing','See your options'],
-            'captions':['Explore the product','A closer look','Review the details','Check the listing','See product details'],
+            'phrases':['Considering Desk Organizer?', 'Here is the actual Desk Organizer photo.',
+                       'Compare the Desk Organizer shape with your intended space.',
+                       'Check the seller listing for Desk Organizer dimensions.',
+                       'Open the Desk Organizer listing to review current options.'],
+            'captions':['Desk Organizer: closer look','Desk Organizer: actual photo',
+                        'Desk Organizer: check fit','Desk Organizer: dimensions',
+                        'Desk Organizer: listing options'],
             'scenes':[{'stage':x} for x in ('hook','product','benefit','buying_details','cta')],
             'review':{'status':'PASS','evidence_status':'Synthetic smoke only'},
             'requested_seconds':15
@@ -56,17 +61,21 @@ def main():
             from backend.photo_video import dependencies
             model, voices = dependencies()
             assert model.stat().st_size > 1_000_000 and voices.stat().st_size > 1_000_000
-            output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=photos[1:])
+            output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=[])
         else:
             with patch.dict(sys.modules,{'onnxruntime':onnx,'kokoro_onnx':kokoro}), \
                  patch('backend.photo_video.dependencies',return_value=(root/'voice.onnx',root/'voices.bin')):
-                output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=photos[1:])
+                output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=[])
         assert output.is_file() and output.stat().st_size>10000
         qa=json.loads((root/'quality.json').read_text())
         assert qa['status']=='PASS' and qa['motion']['status']=='PASS'
-        assert qa['scene_count']==5 and qa['photo_count']==2
+        assert qa['scene_count']==5 and qa['photo_count']==1
+        assert sum(scene['layout']=='seller_fact_card' for scene in qa['storyboard'])==2
         assert qa['duration']>=15 and qa['duration']<=120
         assert qa['narration_audio']['status']=='PASS'
+        assert qa['rendered_creative']['status']=='PASS'
+        assert qa['rendered_creative']['distinct_transitions'] >= 2
+        assert (root/'creative_contact_sheet.jpg').is_file()
         assert (root/'scene_storyboard.json').is_file()
         # CI retains its /tmp artifact convention; hosted acceptance uses an
         # isolated persistent-disk staging directory supplied by the bootstrap.
@@ -75,7 +84,10 @@ def main():
         dest = output_dir / ('trafficlift-phase2-real-kokoro.mp4' if real_voice else 'trafficlift-phase2-smoke.mp4')
         dest.write_bytes(output.read_bytes())
         (output_dir / 'trafficlift-phase2-quality.json').write_text(json.dumps(qa, indent=2))
-        print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 5 scenes, 2 photos, decoded and motion-checked')
+        (output_dir / ('trafficlift-phase2-real-kokoro-frames.jpg' if real_voice
+                       else 'trafficlift-phase2-smoke-frames.jpg')).write_bytes(
+                           (root/'creative_contact_sheet.jpg').read_bytes())
+        print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 5 scenes, 1 photo + two fact cards, decoded and motion-checked')
 
 
 if __name__=='__main__':main()

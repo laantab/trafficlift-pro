@@ -24,6 +24,10 @@ def test_one_photo_never_invents_additional_photographs():
     scenes = build_scene_storyboard(plan(), 1, [False])
     assert {x["photo_index"] for x in scenes} == {0}
     assert {x["photo_treatment"] for x in scenes} == {"real_photo_full"}
+    assert [x["layout"] for x in scenes] == [
+        "photo_hero", "photo_hero", "seller_fact_card",
+        "seller_fact_card", "photo_hero",
+    ]
 
 
 def test_missing_product_photo_rejected():
@@ -53,6 +57,9 @@ def test_render_uses_distinct_stage_titles_and_larger_photo_panel():
     assert "if scene == 0:" in src
     assert "scene_heading =" in src
     assert "labels=storyboard[scene]['caption']" in src
+    assert "seller_fact_card" in src
+    assert "Review listed features" not in src
+    assert "Picture your setup" not in src
 
 
 def test_blank_photo_margin_is_trimmed_without_clipping():

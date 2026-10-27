@@ -136,6 +136,7 @@ jobs:
           name: phase2-smoke-mp4
           path: |
             /tmp/trafficlift-phase2-smoke.mp4
+            /tmp/trafficlift-phase2-smoke-frames.jpg
             /tmp/trafficlift-phase2-quality.json
           if-no-files-found: ignore
 
@@ -202,5 +203,6 @@ jobs:
           name: phase2-real-kokoro-video
           path: |
             /tmp/trafficlift-phase2-real-kokoro.mp4
+            /tmp/trafficlift-phase2-real-kokoro-frames.jpg
             /tmp/trafficlift-phase2-quality.json
           if-no-files-found: ignore
