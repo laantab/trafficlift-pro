@@ -9,9 +9,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import zipfile
 
@@ -101,6 +103,46 @@ def _verify_kit(path, platform, job_id, master_size, master_digest):
         raise AcceptanceError(f"{platform}: invalid ZIP or metadata") from exc
 
 
+
+def inspect_master_media(path):
+    """Fail closed unless ffprobe confirms the required shared master format.
+
+    This reads the already-downloaded file only. It never transcodes, renders,
+    publishes, or uploads media. Do not expose untrusted ffprobe metadata.
+    """
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "stream=codec_type,codec_name,width,height:format=duration",
+             "-of", "json", str(path)],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=30, check=False, text=True,
+        )
+        if result.returncode != 0:
+            raise AcceptanceError("Master MP4 could not be inspected by ffprobe")
+        payload = json.loads(result.stdout)
+        streams = payload.get("streams")
+        if not isinstance(streams, list):
+            raise AcceptanceError("Master MP4 is missing media streams")
+        video = any(
+            isinstance(stream, dict) and stream.get("codec_type") == "video"
+            and stream.get("codec_name") == "h264"
+            and stream.get("width") == 1080 and stream.get("height") == 1920
+            for stream in streams
+        )
+        audio = any(
+            isinstance(stream, dict) and stream.get("codec_type") == "audio"
+            and stream.get("codec_name") == "aac"
+            for stream in streams
+        )
+        duration = float(payload.get("format", {}).get("duration", 0))
+        if not video or not audio or not math.isfinite(duration) or duration <= 0:
+            raise AcceptanceError("Master must be 1080x1920 H.264/AAC with positive duration")
+        return {"video": "h264", "audio": "aac", "width": 1080, "height": 1920}
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError,
+            ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+        raise AcceptanceError("Master MP4 media inspection failed; ffprobe is required") from exc
+
 def verify_existing_exports(session, access_code, job_id, *, temp_root=None):
     """Download and verify one existing master plus 3 kits; no POST except login."""
     if not access_code:
@@ -131,6 +173,7 @@ def verify_existing_exports(session, access_code, job_id, *, temp_root=None):
             master.seek(4)
             if master.read(4) != b"ftyp":
                 raise AcceptanceError("Master download is not a plausible MP4")
+        media_format = inspect_master_media(root / "master.mp4")
         for platform in PLATFORMS:
             path = root / (platform + ".zip")
             _download(session, base + "/exports/" + platform, path,
@@ -139,6 +182,7 @@ def verify_existing_exports(session, access_code, job_id, *, temp_root=None):
             _verify_kit(path, platform, job_id, master_size, master_hash)
             path.unlink()
     return {"job_id": job_id, "master_bytes": master_size,
+            "master_format": media_format,
             "platforms": list(PLATFORMS), "render_started": False,
             "visual_approval": "PENDING"}
 

@@ -4,11 +4,12 @@ These tests never contact Render, authenticate, or start a video render.
 """
 import io
 import json
+from types import SimpleNamespace
 import zipfile
 
 import pytest
 
-from scripts.owner_existing_export_acceptance import AcceptanceError, verify_existing_exports
+from scripts.owner_existing_export_acceptance import AcceptanceError, verify_existing_exports, inspect_master_media
 
 BASE = "https://trafficlift-pro.onrender.com"
 JOB = "d" * 32
@@ -97,7 +98,8 @@ class Session:
         return response
 
 
-def test_existing_master_matches_all_three_kits_without_render(tmp_path):
+def test_existing_master_matches_all_three_kits_without_render(tmp_path, monkeypatch):
+    monkeypatch.setattr('scripts.owner_existing_export_acceptance.inspect_master_media', lambda path: {'video': 'h264', 'audio': 'aac', 'width': 1080, 'height': 1920})
     session = Session()
     result = verify_existing_exports(session, "fixture-secret", JOB, temp_root=tmp_path)
     assert result["job_id"] == JOB
@@ -116,7 +118,8 @@ def test_existing_master_matches_all_three_kits_without_render(tmp_path):
     {"public": True},
     {"wrong_job": True},
 ])
-def test_existing_export_verification_fails_closed_without_render(tmp_path, problem):
+def test_existing_export_verification_fails_closed_without_render(tmp_path, problem, monkeypatch):
+    monkeypatch.setattr('scripts.owner_existing_export_acceptance.inspect_master_media', lambda path: {'video': 'h264', 'audio': 'aac', 'width': 1080, 'height': 1920})
     session = Session(**problem)
     with pytest.raises(AcceptanceError):
         verify_existing_exports(session, "fixture-secret", JOB, temp_root=tmp_path)
@@ -132,3 +135,50 @@ def test_invalid_job_or_missing_code_never_contacts_host(tmp_path):
     with pytest.raises(AcceptanceError):
         verify_existing_exports(session, "", JOB, temp_root=tmp_path)
     assert session.posts == [] and session.requests == []
+
+
+@pytest.mark.parametrize("streams", [
+    [{"codec_type": "video", "codec_name": "hevc", "width": 1080, "height": 1920},
+     {"codec_type": "audio", "codec_name": "aac"}],
+    [{"codec_type": "video", "codec_name": "h264", "width": 720, "height": 1280},
+     {"codec_type": "audio", "codec_name": "aac"}],
+    [{"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920}],
+    [{"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920},
+     {"codec_type": "audio", "codec_name": "mp3"}],
+])
+def test_existing_master_rejects_wrong_codec_resolution_or_missing_audio(monkeypatch, tmp_path, streams):
+    def fake_run(*args, **kwargs):
+        assert args[0][0] == "ffprobe"
+        assert kwargs["timeout"] <= 30
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "streams": streams, "format": {"duration": "31.0"}
+        }), stderr="")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    with pytest.raises(AcceptanceError):
+        inspect_master_media(tmp_path / "existing.mp4")
+
+
+def test_existing_master_accepts_h264_aac_1080x1920(monkeypatch, tmp_path):
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920},
+                {"codec_type": "audio", "codec_name": "aac"},
+            ], "format": {"duration": "31.0"}
+        }), stderr="")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert inspect_master_media(tmp_path / "existing.mp4") == {
+        "video": "h264", "audio": "aac", "width": 1080, "height": 1920
+    }
+
+
+def test_existing_export_acceptance_fails_closed_if_master_probe_rejects(monkeypatch, tmp_path):
+    def reject(_path):
+        raise AcceptanceError("Wrong codec")
+    monkeypatch.setattr("scripts.owner_existing_export_acceptance.inspect_master_media", reject)
+    session = Session()
+    with pytest.raises(AcceptanceError, match="Wrong codec"):
+        verify_existing_exports(session, "fixture-secret", JOB, temp_root=tmp_path)
+    assert len(session.requests) == 2  # anonymous check and master only
+    assert all(response.closed for response in session.responses)
+    assert list(tmp_path.iterdir()) == []

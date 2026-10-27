@@ -102,7 +102,7 @@ in the trusted terminal and run:
 python scripts/owner_existing_export_acceptance.py --job-id <existing-32-character-job-id>
 ```
 
-This authenticated check downloads the **existing** master MP4 and the TikTok,
+Install local `ffprobe` before running this acceptance check; it fails closed if the binary is missing. It now verifies that the downloaded master has a 1080 × 1920 H.264 video stream, an AAC audio stream, and positive duration, in addition to checking the MP4 file header. This is a codec/geometry inspection, not a full-frame decode or a visual-quality certification.\n\nThis authenticated check downloads the **existing** master MP4 and the TikTok,
 YouTube Shorts, and Instagram Reels ZIPs sequentially. It verifies that each
 ZIP contains an exact SHA-256-matching copy of the original master, correct
 job/platform metadata, a posting draft, and an offline illustrative safe-zone
