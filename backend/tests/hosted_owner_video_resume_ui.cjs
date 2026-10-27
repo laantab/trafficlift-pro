@@ -125,5 +125,59 @@ function scenario(firstStatus, shared = {creates: 0, storage: new Map()}) {
   await failed.context.submitFreeVideo(failed.get('videoStatus'), failed.get('videoResult'));
   assert.strictEqual(failed.count(), 2,
     'terminal failed jobs must release the pending guard for a deliberate new render');
+  // Regression: after an expired owner cookie, unlocking must automatically
+  // resume the saved job, without another POST or manual render click.
+  const unlockStart = source.indexOf('    async function unlockHostedOwnerVideo()');
+  const unlockEnd = source.indexOf('    async function loadHostedAcceptanceSample()', unlockStart);
+  assert(unlockStart > 0 && unlockEnd > unlockStart);
+  const accessNodes = new Map();
+  const accessNode = id => {
+    if (!accessNodes.has(id)) accessNodes.set(id, new (class {
+      constructor() {this.value = ''; this.textContent = ''; this.classList = {remove() {}};}
+    })());
+    return accessNodes.get(id);
+  };
+  accessNode('videoOwnerAccessCode').value = 'private-fixture-code';
+  const recovery = {logins: 0, resumes: 0, histories: 0};
+  const ownerContext = {
+    document: {getElementById: accessNode},
+    freeVideoRequest: async (path, opts) => {
+      assert.equal(path, '/api/v1/video-owner-login');
+      assert.equal(JSON.parse(opts.body).access_code, 'private-fixture-code');
+      recovery.logins++;
+    },
+    loadFreeVideoHistory: async () => {recovery.histories++;},
+    loadHostedAcceptanceSample: async () => {},
+    waitForFreeVideoJob: async (id) => {assert.equal(id, ID); recovery.resumes++;},
+    pendingHostedVideoJobId: ID,
+  };
+  vm.createContext(ownerContext);
+  vm.runInContext(source.slice(unlockStart, unlockEnd), ownerContext);
+  await ownerContext.unlockHostedOwnerVideo();
+  assert.equal(recovery.logins, 1);
+  assert.equal(recovery.histories, 1);
+  assert.equal(recovery.resumes, 1, 'unlock must resume the preserved render job');
+
+  // Regression: the old Copy Pin path downloaded a raw retailer photo.
+  // It must invoke only the existing 1000x1500 designed-pin download.
+  const pinStart = source.indexOf('    async function copyPinBundle(');
+  const pinEnd = source.indexOf('    // ── Clean one-click Find Winner', pinStart);
+  assert(pinStart > 0 && pinEnd > pinStart);
+  const pinCalls = {downloads: 0, notices: []};
+  const pinContext = {
+    navigator: {clipboard: {writeText: async () => {}}},
+    window: {__lastPinDataUrl: 'data:image/jpeg;base64,fixture'},
+    downloadPinImage: () => {pinCalls.downloads++;},
+    showToast: (...args) => {pinCalls.notices.push(args);},
+  };
+  vm.createContext(pinContext);
+  vm.runInContext(source.slice(pinStart, pinEnd), pinContext);
+  await pinContext.copyPinBundle('Title', 'Description', 'Tags', 'https://seller.example/raw.jpg', '');
+  assert.equal(pinCalls.downloads, 1, 'Copy Pin must download the designed pin, not a product photo');
+  pinContext.window.__lastPinDataUrl = null;
+  await pinContext.copyPinBundle('Title', 'Description', 'Tags', 'https://seller.example/raw.jpg', '');
+  assert.equal(pinCalls.downloads, 1, 'No design must mean no image download');
+  assert(pinCalls.notices.length, 'Missing design must explain how to generate one');
+
   console.log('PASS: owner browser resumes interrupted job, links protected MP4, and releases failed job');
 })().catch(error => {console.error(error); process.exitCode = 1;});
