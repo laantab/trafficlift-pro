@@ -183,11 +183,12 @@ def test_pin_photo_rejects_unsafe_and_remote(client):
 
 
 def test_vertical_video_subtitle_legibility_guard():
-    """Prevent regression to unreadably tiny captions on mobile video."""
-    from pathlib import Path
+    """ASS subtitle size and the width used for wrapping must agree."""
     import inspect
     from backend import photo_video
     source = inspect.getsource(photo_video)
-    assert 'Style: Default,Arial,58,' in source
-    assert 'chunks=balanced_caption_chunks(phrase, max_words=5)' in source
-    assert 'lines=wrap(chunk,26,760)' in source
+    assert photo_video.ASS_CAPTION_FONT_SIZE >= 48
+    assert photo_video.ASS_CAPTION_MAX_WIDTH <= 760
+    assert 'f\'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},' in source
+    assert 'measured_caption_chunks(phrase, font(ASS_CAPTION_FONT_SIZE).getlength)' in source
+    assert 'lines=wrap(chunk,26,760)' not in source
