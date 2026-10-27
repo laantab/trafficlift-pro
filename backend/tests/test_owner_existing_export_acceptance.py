@@ -3,13 +3,14 @@
 These tests never contact Render, authenticate, or start a video render.
 """
 import io
+import hashlib
 import json
 from types import SimpleNamespace
 import zipfile
 
 import pytest
 
-from scripts.owner_existing_export_acceptance import AcceptanceError, verify_existing_exports, inspect_master_media
+from scripts.owner_existing_export_acceptance import AcceptanceError, verify_existing_exports, inspect_master_media, _verify_kit
 
 BASE = "https://trafficlift-pro.onrender.com"
 JOB = "d" * 32
@@ -17,18 +18,30 @@ MASTER = b"\x00\x00\x00\x18ftypisom" + b"fixture-video-data" * 100
 
 
 def kit(platform, *, video=MASTER, job=JOB):
+    labels = {"tiktok": "TikTok", "youtube-shorts": "YouTube Shorts",
+              "instagram-reels": "Instagram Reels"}
+    tags = {"tiktok": "#ProductFinds #ShoppingTips",
+            "youtube-shorts": "#Shorts #ProductFinds",
+            "instagram-reels": "#Reels #ProductFinds"}
+    description = "Desk Organizer — a closer look.\n" + tags[platform]
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         archive.writestr("video.mp4", video)
         archive.writestr("manifest.json", json.dumps({
-            "platform": platform, "job_id": job,
-            "video_master_reused": True, "video_reencoded": False,
+            "platform": platform, "platform_name": labels[platform],
+            "job_id": job, "title": "Desk Organizer", "description": description,
+            "video": "video.mp4", "video_master_reused": True,
+            "video_reencoded": False,
             "safe_zone_approval": "MANUAL_REVIEW_REQUIRED",
+            "marketing_approval": "MANUAL_REVIEW_REQUIRED",
             "safe_zone_preview": "safe_zone_review.html",
         }))
         archive.writestr("safe_zone_review.html",
                          '<video src="video.mp4"></video>Illustrative caution overlays; manual review')
-        archive.writestr("post.txt", "Review before publishing")
+        archive.writestr("post.txt",
+                         f"{labels[platform]} posting kit — review before publishing\n"
+                         "Title: Desk Organizer\nDescription:\n"
+                         + description + "\nVideo: video.mp4 is an exact copy of the finished master.")
     return data.getvalue()
 
 
@@ -182,3 +195,52 @@ def test_existing_export_acceptance_fails_closed_if_master_probe_rejects(monkeyp
     assert len(session.requests) == 2  # anonymous check and master only
     assert all(response.closed for response in session.responses)
     assert list(tmp_path.iterdir()) == []
+
+
+# The kit's MP4 can be byte-perfect while its customer-facing posting draft is
+# empty, mislabelled or inconsistent with the manifest. Reject such packages.
+def _posting_kit(tmp_path, *, changes=None, post=None):
+    manifest = {
+        "platform": "tiktok", "platform_name": "TikTok", "job_id": JOB,
+        "title": "Desk Organizer",
+        "description": "Desk Organizer — a closer look.\n#ProductFinds #ShoppingTips",
+        "video": "video.mp4", "video_master_reused": True,
+        "video_reencoded": False, "safe_zone_approval": "MANUAL_REVIEW_REQUIRED",
+        "marketing_approval": "MANUAL_REVIEW_REQUIRED",
+        "safe_zone_preview": "safe_zone_review.html",
+    }
+    manifest.update(changes or {})
+    if post is None:
+        post = ("TikTok posting kit — review before publishing\n"
+                "Title: Desk Organizer\nDescription:\n"
+                "Desk Organizer — a closer look.\n#ProductFinds #ShoppingTips\n"
+                "Video: video.mp4 is an exact copy of the finished master.")
+    path = tmp_path / "posting.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("video.mp4", MASTER)
+        archive.writestr("manifest.json", json.dumps(manifest))
+        archive.writestr("post.txt", post)
+        archive.writestr("safe_zone_review.html",
+                         '<video src="video.mp4"></video>Illustrative; manual review')
+    return path
+
+
+def test_existing_export_acceptance_validates_real_posting_copy(tmp_path):
+    path = _posting_kit(tmp_path)
+    _verify_kit(path, "tiktok", JOB, len(MASTER), hashlib.sha256(MASTER).hexdigest())
+
+
+@pytest.mark.parametrize("changes,post", [
+    ({"title": ""}, None),
+    ({"description": ""}, None),
+    ({"platform_name": "Instagram Reels"}, None),
+    ({"video": "different.mp4"}, None),
+    ({"marketing_approval": "APPROVED"}, None),
+    ({}, ""),
+    ({}, "Generic posting copy without the product or description"),
+])
+def test_existing_export_acceptance_rejects_empty_or_inconsistent_posting_metadata(
+        tmp_path, changes, post):
+    path = _posting_kit(tmp_path, changes=changes, post=post)
+    with pytest.raises(AcceptanceError):
+        _verify_kit(path, "tiktok", JOB, len(MASTER), hashlib.sha256(MASTER).hexdigest())

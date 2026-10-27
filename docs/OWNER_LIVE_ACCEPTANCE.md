@@ -105,7 +105,7 @@ python scripts/owner_existing_export_acceptance.py --job-id <existing-32-charact
 Install local `ffprobe` before running this acceptance check; it fails closed if the binary is missing. It now verifies that the downloaded master has a 1080 × 1920 H.264 video stream, an AAC audio stream, and positive duration, in addition to checking the MP4 file header. This is a codec/geometry inspection, not a full-frame decode or a visual-quality certification.\n\nThis authenticated check downloads the **existing** master MP4 and the TikTok,
 YouTube Shorts, and Instagram Reels ZIPs sequentially. It verifies that each
 ZIP contains an exact SHA-256-matching copy of the original master, correct
-job/platform metadata, a posting draft, and an offline illustrative safe-zone
+job/platform metadata, a nonempty platform-labelled posting draft whose title and description match the manifest, explicit pending marketing approval, and an offline illustrative safe-zone
 review. It uses bounded temporary disk storage, removes downloaded files, and
 never starts a render, publishes media, changes account state, or consumes a
 hosted video-render slot. The only POST is the existing owner login.
