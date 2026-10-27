@@ -1,7 +1,7 @@
 """Owned CPU photo-ad compositor. No provider calls; dependencies load on demand."""
 from pathlib import Path
 import json, os, shutil, subprocess, math, bisect
-from backend.sales_script import build_sales_plan, creative_copy_gate
+from backend.sales_script import build_sales_plan, creative_copy_gate, marketing_readiness_gate
 
 
 def dependencies():
@@ -169,6 +169,7 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
 def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
     creative_copy_gate(sales_plan)
+    marketing_readiness_gate(sales_plan)
     if sales_plan["review"]["status"] != "PASS":
         raise ValueError("The sales script has not passed editorial review.")
     from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
