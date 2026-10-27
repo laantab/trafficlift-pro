@@ -6,8 +6,10 @@ from bs4 import BeautifulSoup
 from backend.url_resolver import _safe_get
 
 def product_name(name):
+    # Storefront prefixes are page metadata, not product brands.
+    # Only strip separated labels, preserving brands like Amazon Basics.
+    name = re.sub(r"^(?:Amazon\.com|Walmart(?:\.com)?|Target|Etsy|Home Depot|Lowes|Lowe's)\s*[-|–—:]\s*", '', str(name).strip(), flags=re.I)
     return re.sub(r"\s*(?:[-|–—:]\s*)(?:Target|Walmart(?:\.com)?|Amazon(?:\.com)?|Etsy|Home Depot|Lowes|Lowe's)\s*$", '', name, flags=re.I).strip()
-
 
 def usable_facts(value):
     """Keep complete factual sentences; never cut a qualification in half."""
@@ -21,6 +23,12 @@ def usable_facts(value):
     facts = []
     for sentence in re.split(r'(?<=[.!?])\s+|[•\n]', text):
         sentence = sentence.strip()
+        # Numbered listing headings and navigation labels are not usable
+        # product claims; speaking them makes the advertisement choppy.
+        if re.match(r'^\d{1,2}\s*[,.)-]\s*', sentence):
+            continue
+        if re.match(r'^(?:warranty\s*(?:&|and)\s*support|customer service|returns? policy)\s*[:,-]', sentence, re.I):
+            continue
         if not 15 <= len(sentence) <= 160 or any(c in sentence for c in '{}\\'):
             continue
         if re.search(r"\b(shop|buy now|free shipping|guaranteed|best ever|selling out|hurry|limited time|customers|reviews)\b|[$£€]|\d+\s*%\s*off", sentence, re.I):
