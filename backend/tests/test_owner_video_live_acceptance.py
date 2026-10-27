@@ -88,7 +88,7 @@ class FakeSession:
             })
         if url.endswith("/photo-videos"):
             return Response(self.unauthorized)
-        if url.endswith("/exports/tiktok") and not self.logged_in:
+        if any(url.endswith("/exports/" + platform) for platform in ("tiktok", "youtube-shorts", "instagram-reels")) and not self.logged_in:
             self.probe_export = Response(self.export_public)
             return self.probe_export
         if url.endswith("/video-owner-acceptance/mp4") and not self.logged_in:
@@ -135,6 +135,8 @@ def test_readonly_preflight_checks_health_and_denied_history_without_login_or_re
         BASE + "/api/v1/photo-videos/" + ID,
         BASE + "/api/v1/photo-videos/" + ID + "/video",
         BASE + "/api/v1/photo-videos/" + ID + "/exports/tiktok",
+        BASE + "/api/v1/photo-videos/" + ID + "/exports/youtube-shorts",
+        BASE + "/api/v1/photo-videos/" + ID + "/exports/instagram-reels",
         BASE + "/api/v1/video-owner-acceptance",
         BASE + "/api/v1/video-owner-acceptance/mp4",
         BASE + "/api/v1/video-readiness",
@@ -373,3 +375,20 @@ def test_owner_status_rejects_public_or_fake_no_store_cache_directives(tmp_path,
     assert session.posts == [BASE + "/api/v1/video-owner-login"]
     assert session.download is None, "never download after unsafe status headers"
     assert not output.exists()
+
+
+@pytest.mark.parametrize("platform", ("youtube-shorts", "instagram-reels"))
+def test_readonly_preflight_rejects_public_non_tiktok_export(platform):
+    """A public Shorts/Reels ZIP must fail the zero-quota owner security gate."""
+    class PublicPlatformSession(FakeSession):
+        def get(self, url, **kwargs):
+            if url.endswith("/exports/" + platform):
+                self.public_export = Response(status=200)
+                return self.public_export
+            return super().get(url, **kwargs)
+
+    session = PublicPlatformSession()
+    with pytest.raises(AcceptanceError, match="Unauthenticated video export"):
+        preflight(session)
+    assert session.public_export.closed, "The accidental public ZIP stream must be closed"
+    assert session.posts == [], "Security preflight must not log in or render"

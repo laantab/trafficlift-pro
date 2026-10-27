@@ -117,15 +117,19 @@ def preflight(session):
     finally:
         mp4.close()
 
-    # The platform posting ZIP is another private download surface. Keep
-    # streaming disabled for body reads and close even on an unexpected 200.
-    exported = session.get(probe_url + "/exports/tiktok", timeout=20,
-                           allow_redirects=False, stream=True)
-    try:
-        if exported.status_code != 401:
-            raise AcceptanceError("Unauthenticated video export did not return HTTP 401")
-    finally:
-        exported.close()
+    # All three posting ZIPs are private download surfaces. An exposed
+    # Shorts/Reels route must fail the same gate as TikTok. Stream and close
+    # each response without reading any private media or consuming quota.
+    for platform in ("tiktok", "youtube-shorts", "instagram-reels"):
+        exported = session.get(probe_url + "/exports/" + platform, timeout=20,
+                               allow_redirects=False, stream=True)
+        try:
+            if exported.status_code != 401:
+                raise AcceptanceError(
+                    f"Unauthenticated video export ({platform}) did not return HTTP 401"
+                )
+        finally:
+            exported.close()
 
     # The genuine Kokoro sample is owner-only too. This is a status check,
     # not permission to publish the sample or render a new product video.
