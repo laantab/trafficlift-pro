@@ -61,7 +61,7 @@ def main():
             from backend.photo_video import dependencies
             model, voices = dependencies()
             assert model.stat().st_size > 1_000_000 and voices.stat().st_size > 1_000_000
-            output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=photos[1:])
+            output=render(photos[0],root,'Desk Organizer','', 'https://seller.example/product',15,'clean',lambda _:None,sales_plan=plan,extra_images=[])
         else:
             with patch.dict(sys.modules,{'onnxruntime':onnx,'kokoro_onnx':kokoro}), \
                  patch('backend.photo_video.dependencies',return_value=(root/'voice.onnx',root/'voices.bin')):
@@ -69,7 +69,8 @@ def main():
         assert output.is_file() and output.stat().st_size>10000
         qa=json.loads((root/'quality.json').read_text())
         assert qa['status']=='PASS' and qa['motion']['status']=='PASS'
-        assert qa['scene_count']==5 and qa['photo_count']==2
+        assert qa['scene_count']==5 and qa['photo_count']==1
+        assert sum(scene['layout']=='seller_fact_card' for scene in qa['storyboard'])==2
         assert qa['duration']>=15 and qa['duration']<=120
         assert qa['narration_audio']['status']=='PASS'
         assert qa['rendered_creative']['status']=='PASS'
@@ -86,7 +87,7 @@ def main():
         (output_dir / ('trafficlift-phase2-real-kokoro-frames.jpg' if real_voice
                        else 'trafficlift-phase2-smoke-frames.jpg')).write_bytes(
                            (root/'creative_contact_sheet.jpg').read_bytes())
-        print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 5 scenes, 2 photos, decoded and motion-checked')
+        print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 5 scenes, 1 photo + two fact cards, decoded and motion-checked')
 
 
 if __name__=='__main__':main()
