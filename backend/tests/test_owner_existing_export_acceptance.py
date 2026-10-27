@@ -191,7 +191,7 @@ def _posting_kit(tmp_path, *, changes=None, post=None):
     manifest = {
         "platform": "tiktok", "platform_name": "TikTok", "job_id": JOB,
         "title": "Desk Organizer",
-        "description": "Desk Organizer — a closer look.\\n#ProductFinds #ShoppingTips",
+        "description": "Desk Organizer — a closer look.\n#ProductFinds #ShoppingTips",
         "video": "video.mp4", "video_master_reused": True,
         "video_reencoded": False, "safe_zone_approval": "MANUAL_REVIEW_REQUIRED",
         "marketing_approval": "MANUAL_REVIEW_REQUIRED",
@@ -199,9 +199,9 @@ def _posting_kit(tmp_path, *, changes=None, post=None):
     }
     manifest.update(changes or {})
     if post is None:
-        post = ("TikTok posting kit — review before publishing\\n"
-                "Title: Desk Organizer\\nDescription:\\n"
-                "Desk Organizer — a closer look.\\n#ProductFinds #ShoppingTips\\n"
+        post = ("TikTok posting kit — review before publishing\n"
+                "Title: Desk Organizer\nDescription:\n"
+                "Desk Organizer — a closer look.\n#ProductFinds #ShoppingTips\n"
                 "Video: video.mp4 is an exact copy of the finished master.")
     path = tmp_path / "posting.zip"
     with zipfile.ZipFile(path, "w") as archive:
