@@ -38,7 +38,7 @@ jobs:
           pip install -r requirements.txt
           pip install pytest tree-sitter tree-sitter-javascript numpy pillow soundfile
       - name: Fast permanent winner-history regression gate
-        run: python -m pytest backend/tests/test_shopify_locale_unselected_history.py backend/tests/test_ounce_winner_history.py backend/tests/test_pack_count_history.py backend/tests/test_amazon_marketplace_history.py backend/tests/test_etsy_listing_history.py backend/tests/test_unicode_winner_history.py -q
+        run: python -m pytest backend/tests/test_shopify_collection_history.py backend/tests/test_shopify_locale_unselected_history.py backend/tests/test_ounce_winner_history.py backend/tests/test_pack_count_history.py backend/tests/test_amazon_marketplace_history.py backend/tests/test_etsy_listing_history.py backend/tests/test_unicode_winner_history.py -q
       - name: Verify FFmpeg and FFprobe for owner MP4 decode acceptance
         run: |
           # GitHub-hosted Ubuntu runners normally include both binaries.
