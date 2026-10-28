@@ -134,6 +134,16 @@ def test_subtitle_uses_theme_ink_not_white_on_a_light_background():
         ass_bgr('invalid')
 
 
+def test_narration_subtitles_have_a_dedicated_contrast_card():
+    """Regression from actual six-frame review: second caption line escaped footer."""
+    from pathlib import Path
+    source=(Path(__file__).resolve().parents[1]/'photo_video.py').read_text()
+    assert "d.rounded_rectangle((62,1625,1018,1855),radius=35,fill=bg)" in source
+    assert "120,120,110,1" in source, "ASS subtitle baseline must sit inside its own card"
+    assert "subtitle_panel_color=bg" in source
+    assert "narration captions lack their backing card" in source
+
+
 def test_cta_button_does_not_overlap_two_line_narration_subtitles():
     from pathlib import Path
     src=(Path(__file__).resolve().parents[1]/'photo_video.py').read_text()
