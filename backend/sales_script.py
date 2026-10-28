@@ -169,7 +169,9 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     from backend.listing_photo import product_name
     name = clean(product_name(name), 90)
     benefit = reject_retailer_fragment(clean(benefit))
-    need = clean(buyer_need, 100)
+    # Buyer-need hooks are spoken too; reject storefront section headings and
+    # numbered listing scraps here just as we do for factual narration.
+    need = reject_retailer_fragment(clean(buyer_need, 100)) if benefit else ''
     consideration = reject_retailer_fragment(clean(consideration, 120))
     routine = reject_retailer_fragment(clean(routine, 160))
     details = [reject_retailer_fragment(clean(fact,160)) for fact in (feature_details or [])[:2]]

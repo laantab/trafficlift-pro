@@ -272,3 +272,28 @@ def test_video_cta_heading_is_product_identity_not_duplicate_listing_instruction
     assert 'listing' not in result['captions'][-1].casefold()
     assert result['phrases'][-1].startswith('Tap the product link')
     assert result['review']['status'] == 'PASS'
+
+
+@pytest.mark.parametrize('fragment', [
+    '4, plastic material',
+    '4. Plastic material, made of plastic material',
+    'Warranty and support',
+    'Warranty & Support. 4, Plastic material',
+    'Product Description: view details',
+])
+def test_retailer_fragments_cannot_become_spoken_video_hooks(fragment):
+    """Buyer-need text reaches the opening narration, not just metadata."""
+    with pytest.raises(ValueError, match='Seller section headings'):
+        plan(buyer_need=fragment)
+
+
+def test_real_numeric_buyer_need_is_not_mistaken_for_listing_bullet():
+    result = plan(buyer_need='Organizing 4-piece drawer sets')
+    assert result['phrases'][0] == 'Organizing 4-piece drawer sets?'
+
+
+def test_photo_only_preview_ignores_untrusted_buyer_need():
+    """No seller facts means no buyer-need hook and no narrated ad."""
+    result = plan(benefit='', buyer_need='Warranty and support')
+    assert result['mode'] == 'product_overview'
+    assert 'Warranty' not in ' '.join(result['phrases'])
