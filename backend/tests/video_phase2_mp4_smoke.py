@@ -80,6 +80,8 @@ def main():
         assert qa['duration']>=15 and qa['duration']<=120
         assert qa['narration_audio']['status']=='PASS'
         assert qa['rendered_creative']['status']=='PASS'
+        assert qa['rendered_creative']['rendered_subtitles']['status']=='PASS'
+        assert qa['rendered_creative']['rendered_subtitles']['sampled_captions'] >= 3
         assert qa['rendered_creative']['distinct_transitions'] >= 2
         assert (root/'creative_contact_sheet.jpg').is_file()
         assert (root/'scene_storyboard.json').is_file()
