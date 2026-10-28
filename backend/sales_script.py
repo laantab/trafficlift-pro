@@ -33,7 +33,8 @@ def clean(value, limit=160):
 GENERIC_CREATIVE = re.compile(
     r'\b(?:review listed features|picture your setup|key item features|'
     r'explore (?:tech(?:\s*&\s*gadgets)?|gadgets|product|useful(?:\s+product)?) ideas|product overview|'
-    r'think about where you would use this feature)\b', re.I
+    r'think about where you would use this feature|'
+    r'looking for (?:a|an) (?:useful|handy|practical|simple) addition to (?:your|the) (?:daily )?routine)\b', re.I
 )
 
 def concise_caption(value, limit=65):
@@ -172,6 +173,10 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     # Buyer-need hooks are spoken too; reject storefront section headings and
     # numbered listing scraps here just as we do for factual narration.
     need = reject_retailer_fragment(clean(buyer_need, 100)) if benefit else ''
+    # A seller's interchangeable lifestyle teaser is not a product-specific hook.
+    # Replace it with the exact product identity rather than narrating boilerplate.
+    if GENERIC_CREATIVE.search(need):
+        need = f'Considering {name}'
     consideration = reject_retailer_fragment(clean(consideration, 120))
     routine = reject_retailer_fragment(clean(routine, 160))
     details = [reject_retailer_fragment(clean(fact,160)) for fact in (feature_details or [])[:2]]
