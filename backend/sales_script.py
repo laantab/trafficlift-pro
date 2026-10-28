@@ -96,6 +96,13 @@ def creative_copy_gate(plan):
     captions = plan.get('captions') or []
     if not product or len(phrases) < 3 or len(phrases) != len(captions):
         raise ValueError('Creative review needs one identified product and matching scenes.')
+    # Treat the final review as a trust boundary: plans can be restored from
+    # saved jobs or supplied by callers that bypass build_sales_plan().
+    # Recheck every spoken and visible scene, not just the initial seller facts.
+    for value in [*phrases, *captions]:
+        if not isinstance(value, str):
+            raise ValueError('Creative review requires plain-text scene copy.')
+        reject_retailer_fragment(clean(value, 240))
     spoken = ' '.join(phrases)
     visible = ' '.join(captions)
     if GENERIC_CREATIVE.search(spoken + ' ' + visible):
