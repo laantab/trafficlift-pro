@@ -176,8 +176,14 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
             "narration": phrase,
             "photo_index": photo,
             "photo_treatment": "real_photo_detail_crop" if closeup else "real_photo_full",
-            "layout": ("seller_fact_card" if available_photos == 1 and i in (2, 3)
-                       and i < len(phrases) - 1 else "photo_hero"),
+            # A single licensed catalog photo cannot truthfully provide multiple
+            # camera angles. Show it for the product reveal and final CTA, use
+            # a genuine high-resolution detail crop where available, and make
+            # every other interior scene a seller-supported fact card. This
+            # prevents three or four near-identical catalog shots in one ad.
+            "layout": ("seller_fact_card" if available_photos == 1
+                       and 0 < i < len(phrases) - 1 and not closeup
+                       else "photo_hero"),
             "motion": "gentle_pan_zoom",
             "transition": "fade" if i else "opening",
             "demonstration": False,
