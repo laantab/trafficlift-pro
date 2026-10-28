@@ -167,3 +167,26 @@ def test_four_scene_sparse_ad_keeps_cta_on_actual_product_photo():
     ]
     assert scenes[-1]['stage'] == 'cta'
     assert scenes[-1]['photo_index'] == 0
+
+
+def test_rendered_subtitle_ink_gate_rejects_empty_card_and_accepts_readable_text():
+    """A present background panel is not evidence that ASS rendered captions."""
+    from PIL import Image, ImageDraw, ImageFont
+    from backend.photo_video import subtitle_ink_pixels
+    background = (244, 245, 239)
+    frame = Image.new('RGB', (1080, 1920), background)
+    assert subtitle_ink_pixels(frame, background) == 0
+    draw = ImageDraw.Draw(frame)
+    font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 66)
+    draw.text((240, 1700), 'Motion sensor night light', font=font, fill=(23, 60, 50))
+    assert subtitle_ink_pixels(frame, background) >= 500
+
+
+def test_rendered_subtitle_inspection_requires_actual_timed_ass_events(tmp_path):
+    """No missing or empty subtitle track may silently pass creative QA."""
+    from backend.photo_video import inspect_rendered_subtitles
+    with pytest.raises(ValueError, match='subtitle file is missing'):
+        inspect_rendered_subtitles(tmp_path/'video.mp4', 15, tmp_path, '#F4F5EF')
+    (tmp_path/'captions.ass').write_text('[Events]\\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='no timed narration subtitles'):
+        inspect_rendered_subtitles(tmp_path/'video.mp4', 15, tmp_path, '#F4F5EF')
