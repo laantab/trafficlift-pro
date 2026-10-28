@@ -203,6 +203,7 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.56.1 @napi-rs/canvas@0.1.96
           npx playwright install --with-deps chromium
           node backend/tests/integrated_owned_pin.cjs
+          node backend/tests/hosted_owner_browser_recovery.cjs
           pip install fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1 requests==2.32.3
           TRAFFICLIFT_TEST_REAL_KOKORO=1 python -m backend.tests.integrated_release_acceptance
       - name: Retain narrated MP4 and quality report for visual review
