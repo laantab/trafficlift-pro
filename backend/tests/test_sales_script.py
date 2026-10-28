@@ -189,3 +189,20 @@ def test_long_seller_fact_keeps_specific_caption_without_cutting_a_word():
     assert len(result)<=65
     assert text.startswith(result)
     assert result[-1].isalpha()
+
+
+def test_second_fact_with_new_attribute_is_not_over_deduplicated():
+    from backend.sales_script import marketing_readiness_gate
+    result=build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                            'Nickel finish', 'https://seller.example/jas11242', 60,
+                            feature_details=['Nickel finish with motion sensor'])
+    assert marketing_readiness_gate(result)['distinct_product_facts']==2
+
+
+def test_fact_repeated_with_seller_boilerplate_is_not_a_new_attribute():
+    from backend.sales_script import marketing_readiness_gate
+    result=build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                            'Nickel finish', 'https://seller.example/jas11242', 60,
+                            feature_details=['Nickel finish on this product'])
+    with pytest.raises(ValueError, match='two distinct product facts'):
+        marketing_readiness_gate(result)
