@@ -13,13 +13,18 @@ const { createCanvas } = require('@napi-rs/canvas');
   c.fillStyle='#222'; c.fillRect(310,90,180,540);
   c.fillRect(200,610,400,55);
   const png=fixture.toBuffer('image/png');
+  const tiny = createCanvas(300,300);
+  const tinyCtx = tiny.getContext('2d');
+  tinyCtx.fillStyle='#f8fafc'; tinyCtx.fillRect(0,0,300,300);
+  tinyCtx.fillStyle='#222'; tinyCtx.fillRect(110,40,80,220);
+  const tinyPng=tiny.toBuffer('image/png');
   const browser=await chromium.launch({headless:true});
   try {
     const page=await browser.newPage({viewport:{width:1280,height:900},acceptDownloads:true});
     await page.addInitScript(()=>{window.lucide={createIcons(){}};});
     await page.route('http://127.0.0.1:8000/**',async route=>{
       const u=route.request().url();
-      if(u.includes('/api/v1/product-image?'))return route.fulfill({status:200,contentType:'image/png',body:png});
+      if(u.includes('/api/v1/product-image?'))return route.fulfill({status:200,contentType:'image/png',body:u.includes('lowres.png')?tinyPng:png});
       if(u.endsWith('/studio'))return route.fulfill({status:200,contentType:'text/html',body:source});
       return route.fulfill({status:200,contentType:'application/json',body:'{}'});
     });
@@ -66,6 +71,22 @@ const { createCanvas } = require('@napi-rs/canvas');
     // Failed preview invalidates the cached download; never export the
     // preceding winner's designed pin for a newly selected product.
     assert.equal(await page.evaluate(() => window.__lastPinDataUrl),null);
+    // Even a correctly identified product must not export a blurry upscale
+    // of a tiny catalog thumbnail disguised as a 1000x1500 designed pin.
+    const lowResolution = await page.evaluate(async () => {
+      try {
+        const winner = {name:'JAS11242 LED Motion-Sensor Night Light',
+                        image_url:'https://images.example/lowres.png'};
+        await renderPinPreview(winner, {
+          pin_title:'JAS11242 Motion-Sensor Night Light',
+          pin_cta_suggestion:'See Product Details'
+        });
+        return 'unexpected success';
+      } catch (error) { return error.message; }
+    });
+    assert.match(lowResolution,/photo resolution is too low/);
+    assert.equal(await page.evaluate(() => window.__lastPinDataUrl),null,
+      'A failed low-resolution pin must not leave a downloadable stale design');
     // A real browser with blocked storage must never issue a new winner request
     // under a temporary identity that disappears on reload.
     let discoveryRequests=0;
