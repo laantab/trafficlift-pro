@@ -55,6 +55,25 @@ def crop_uniform_photo_margin(photo):
     return photo.crop(bounds)
 
 
+
+def validate_video_photo_resolution(size, max_upscale=1.35):
+    """Refuse blurry video heroes disguised as 1080p by enlarging thumbnails.
+
+    The real product photo is contained inside an 888x888 panel. Preserve its
+    original aspect ratio and do not invent detail with a high-resolution MP4.
+    """
+    width, height = size
+    if width <= 0 or height <= 0:
+        raise ValueError('Product photo has invalid dimensions.')
+    scale = min(888 / width, 888 / height)
+    if scale > max_upscale:
+        raise ValueError(
+            'Product photo resolution is too low for a clear video. '
+            'Use a higher-resolution verified photo of this exact product.'
+        )
+    return round(scale, 3)
+
+
 def balanced_caption_chunks(phrase, max_words=7):
     """Preserve the spoken words while avoiding orphaned one-word subtitles."""
     words = str(phrase or '').split()
@@ -247,6 +266,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
                 if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
                 photo=crop_uniform_photo_margin(ImageOps.exif_transpose(source).convert('RGB'))
                 if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
+                validate_video_photo_resolution(photo.size)
                 fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
                 if min(photo.size)>=1400:
                     w,h=photo.size
