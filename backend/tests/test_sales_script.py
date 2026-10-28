@@ -14,7 +14,8 @@ def test_script_uses_product_fact_source_and_one_cta():
     assert result['review']['status']=='PASS'
     assert result['phrases'][0]=='Easier sipping at your desk?'
     assert 'Handle and straw' in result['phrases'][1]
-    assert 'Includes a straw' in result['phrases'][3]
+    assert 'Includes a straw' in result['phrases'][2]
+    assert len(result['phrases']) == 4
     assert sum('Tap the product link' in x for x in result['phrases'])==1
     assert len(result['hook_candidates'])==3
     assert result['evidence'][0]['source_url']=='https://example.com/exact-model'
@@ -156,7 +157,9 @@ def test_jas11242_grounded_render_copy_has_specific_fact_headlines():
     assert marketing_readiness_gate(result)['distinct_product_facts']==2
     assert result['captions'][1].startswith('Nickel finish')
     assert result['captions'][2].startswith('Motion sensor')
-    assert result['captions'][3].startswith('Motion sensor')
+    assert result['captions'][3].startswith('JAS11242')
+    assert len(result['phrases']) == 4
+    assert sum('Motion sensor switches on' in phrase for phrase in result['phrases']) == 1
     assert 'JAS11242' in result['captions'][0]
     assert not any('seller-listed details' in x.lower() or 'size and options' in x.lower()
                    for x in result['captions'])
@@ -227,3 +230,28 @@ def test_real_numeric_product_facts_are_not_mistaken_for_list_numbers():
                   feature_details=['Includes 4 adjustable sections'])
     assert result['review']['status'] == 'PASS'
     assert '4-piece plastic organizer' in result['phrases'][1]
+
+
+def test_two_fact_ad_does_not_repeat_one_seller_detail_as_another_scene():
+    from backend.sales_script import marketing_readiness_gate
+    result = build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                              'Nickel finish', 'https://seller.example/jas11242', 30,
+                              feature_details=['Motion sensor switches on the light when movement is detected'])
+    assert marketing_readiness_gate(result)['distinct_product_facts'] == 2
+    assert len(result['phrases']) == len(result['captions']) == len(result['scenes']) == 4
+    assert result['scenes'][-1]['stage'] == 'cta'
+    assert result['phrases'][2].startswith('Motion sensor switches')
+    assert result['captions'][2].startswith('Motion sensor switches')
+    assert result['phrases'][3].startswith('Tap the product link')
+    assert sum('Motion sensor switches' in text for text in result['phrases']) == 1
+
+
+def test_three_fact_ad_assigns_one_unique_fact_per_factual_scene():
+    result = build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                              'Nickel finish', 'https://seller.example/jas11242', 60,
+                              feature_details=['Motion sensor activates the light',
+                                               'Warm white light output'])
+    assert len(result['phrases']) == 5
+    assert result['phrases'][2] == 'Motion sensor activates the light.'
+    assert result['phrases'][3] == 'Warm white light output.'
+    assert result['captions'][2] != result['captions'][3]
