@@ -37,9 +37,23 @@ const { createCanvas } = require('@napi-rs/canvas');
       return {width:img.width,height:img.height,headline:pkg.pin_title,cta:pkg.pin_cta_suggestion,darkPixels:dark,jpeg};
     });
     assert.equal(result.width,1000);assert.equal(result.height,1500);
-    assert(!result.headline.includes('Mainstays'),'Listing title leaked to pin');
+    assert(result.headline.includes('Mainstays'),'Designed pin must identify the exact brand');
     assert(!result.headline.includes('…')&&!result.headline.includes('...'),'Headline truncated');
     assert(result.darkPixels>25000,'Hero subject not visible');
+    // A saved or legacy pin package must never download a category-only
+    // title for the selected model, even when its product photo is valid.
+    const stale = await page.evaluate(async () => {
+      try {
+        await renderPinPreview(
+          {name:'JAS11242 LED Motion-Sensor Night Light', image_url:'https://images.example/lamp.png'},
+          {pin_title:'Motion-Sensor Night Light',pin_cta_suggestion:'See Product Details'});
+        return 'unexpected success';
+      } catch (error) { return error.message; }
+    });
+    assert.match(stale,/exact product/);
+    // Failed preview invalidates the cached download; never export the
+    // preceding winner's designed pin for a newly selected product.
+    assert.equal(await page.evaluate(() => window.__lastPinDataUrl),null);
     // Exercise the actual browser download, not just the canvas preview.
     const downloadEvent=page.waitForEvent('download');
     await page.evaluate(()=>downloadPinImage());
