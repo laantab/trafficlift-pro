@@ -115,8 +115,19 @@ def creative_copy_gate(plan):
                       if len(word) >= 4]
     visible_words = {word.casefold() for word in re.findall(r'[A-Za-z0-9]+', visible)}
     model_words = [word for word in identity_words if any(char.isdigit() for char in word)]
-    required_words = model_words or identity_words
-    if required_words and not any(word.casefold() in visible_words for word in required_words):
+    if model_words:
+        # A model number alone is not a meaningful product-specific headline.
+        # Require the actual model AND at least two distinguishing product
+        # descriptors when available. "JAS11242" with interchangeable
+        # "Explore Lighting Ideas" captions must not pass final review.
+        if not all(word.casefold() in visible_words for word in model_words):
+            raise ValueError('On-screen captions must identify the exact product model.')
+        descriptors = [word.casefold() for word in identity_words
+                       if not any(char.isdigit() for char in word)
+                       and word.casefold() not in {'model', 'series', 'color', 'finish'}]
+        if len(set(descriptors) & visible_words) < min(2, len(set(descriptors))):
+            raise ValueError('On-screen captions must identify the product type, not only its model.')
+    elif identity_words and not any(word.casefold() in visible_words for word in identity_words):
         raise ValueError('On-screen captions must identify the product.')
     return {'status': 'PASS', 'product_identity': product, 'placeholder_copy': False}
 
