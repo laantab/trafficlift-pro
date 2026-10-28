@@ -61,7 +61,9 @@ def require_media(path: Path, quality: dict):
     assert quality["rendered_creative"]["rendered_subtitles"]["status"] == "PASS"
     assert quality["rendered_creative"]["rendered_subtitles"]["sampled_captions"] >= 2
     assert quality["photo_count"] == 1
-    assert sum(s["layout"] == "seller_fact_card" for s in quality["storyboard"]) == 2
+    assert sum(s["layout"] == "seller_fact_card" for s in quality["storyboard"]) == 1
+    assert quality["detail_scene_count"] == 1
+    assert sum(s["photo_treatment"] == "real_photo_detail_crop" for s in quality["storyboard"]) == 1
     serialized = json.dumps(quality).lower()
     assert all(phrase not in serialized for phrase in FORBIDDEN)
     assert PRODUCT.lower() in serialized
