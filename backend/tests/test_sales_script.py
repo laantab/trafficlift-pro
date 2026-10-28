@@ -378,3 +378,46 @@ def test_final_creative_review_preserves_real_numeric_product_specifications():
         ],
     }
     assert creative_copy_gate(data)['status'] == 'PASS'
+
+
+def test_model_only_caption_cannot_pass_as_product_specific_ad():
+    """A readable model code without the actual item type is still generic."""
+    from backend.sales_script import creative_copy_gate
+    plan = {
+        'product': 'JAS11242 LED Motion-Sensor Night Light Nickel Finish',
+        'phrases': [
+            'Considering JAS11242 LED Motion-Sensor Night Light Nickel Finish?',
+            'The seller lists motion sensing and a nickel finish.',
+            'Tap the product link to check details.',
+        ],
+        'captions': [
+            'JAS11242',
+            'Explore lighting options',
+            'View the listing',
+        ],
+    }
+    with pytest.raises(ValueError, match='product type'):
+        creative_copy_gate(plan)
+    # The same verified narration passes when the visible ad names the
+    # actual item instead of relying on the model code alone.
+    plan['captions'][0] = 'JAS11242 Motion-Sensor Night Light'
+    assert creative_copy_gate(plan)['status'] == 'PASS'
+
+
+def test_wrong_model_cannot_be_hidden_by_correct_product_category():
+    from backend.sales_script import creative_copy_gate
+    plan = {
+        'product': 'JAS11242 LED Motion-Sensor Night Light Nickel Finish',
+        'phrases': [
+            'Considering JAS11242 LED Motion-Sensor Night Light Nickel Finish?',
+            'The seller lists motion sensing and a nickel finish.',
+            'Tap the product link to check details.',
+        ],
+        'captions': [
+            'JAS12201 Motion-Sensor Night Light',
+            'Nickel finish',
+            'View the listing',
+        ],
+    }
+    with pytest.raises(ValueError, match='exact product model'):
+        creative_copy_gate(plan)
