@@ -2237,6 +2237,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const rawTitle = String(pkg?.pin_title || '').trim();
         const category = String(winner?.category || '').trim();
         const searchText = (product + ' ' + category).toLowerCase();
+        // Keep an exact-product identifier in designed pins, rather than a
+        // category-only headline that could describe any competing listing.
+        const firstWord = (product.match(/^[A-Za-z][A-Za-z0-9-]{1,23}\b/) || [])[0] || '';
+        const descriptor = /^(?:expandable|bamboo|drawer|silverware|utensil|storage|plastic|wooden|metal|adjustable|non-expandable|large|small|smart|led|usb|portable|motion-sensor|night-light|desk|home|kitchen|set)$/i;
+        const brandPrefix = descriptor.test(firstWord) ? '' : firstWord;
         let topic = '';
         let headline = '';
         let board = '';
@@ -2250,7 +2255,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 && !/\b(?:non[-\s]?expandable|not\s+expandable)\b/.test(productWords);
             topic = [expandable && 'expandable', bamboo && 'bamboo', 'drawer organizer']
                 .filter(Boolean).join(' ');
-            headline = [expandable && 'Expandable', bamboo && 'Bamboo', 'Drawer Organizer'].filter(Boolean).join(' ');
+            headline = [brandPrefix, expandable && 'Expandable', bamboo && 'Bamboo', 'Drawer Organizer'].filter(Boolean).join(' ');
             board = 'Kitchen Drawer Organization';
         } else if (/lunch box|bento/.test(searchText)) {
             topic = 'lunch box';
@@ -2266,7 +2271,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const motionSensor = /\bmotion[-\s]?sensor\b/i.test(product);
             const nightLight = /\bnight[-\s]?light\b/i.test(product);
             const deskLamp = /\bdesk\s+lamp\b/i.test(product);
-            headline = (model ? model + ' ' : '') +
+            headline = ((model || brandPrefix) ? (model || brandPrefix) + ' ' : '') +
                 (motionSensor && nightLight ? 'Motion-Sensor Night Light' :
                  nightLight ? 'Night Light' :
                  deskLamp ? ((/\badjustable\b/i.test(product) ? 'Adjustable ' : '') + 'Desk Lamp') :
@@ -2607,6 +2612,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
         async function renderPinPreview(winner, pkg) {
+        // Clear the previous winner's export before any validation can fail.
+        // Otherwise a stale 1000x1500 pin could be downloaded for a new item.
+        window.__lastPinDataUrl = null;
+        window.__lastPinFilename = null;
         const W = 1000, H = 1500;
         const canvas = document.createElement('canvas');
         canvas.width = W;
@@ -2620,6 +2629,20 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const pinTitle = String((pkg && pkg.pin_title) || '').trim();
         if (!productName || !pinTitle || /^(?:explore .* ideas|product ideas|trending product)$/i.test(pinTitle))
             throw new Error('A designed pin needs a product-specific headline and verified product identity.');
+        // Reject a generic or stale title even if a caller bypasses the
+        // package editor (e.g. a saved campaign or an older winner card).
+        const model = (productName.match(/\b[A-Z]{2,}\d{3,}[A-Z0-9-]*\b/) || [])[0] || '';
+        const firstWord = (productName.match(/^[A-Za-z][A-Za-z0-9-]{1,23}\b/) || [])[0] || '';
+        const descriptor = /^(?:expandable|bamboo|drawer|silverware|utensil|storage|plastic|wooden|metal|adjustable|non-expandable|large|small|smart|led|usb|portable|motion-sensor|night-light|desk|home|kitchen|set)$/i;
+        const identity = model || (descriptor.test(firstWord) ? '' : firstWord);
+        if (identity && !pinTitle.toLowerCase().split(/[^a-z0-9-]+/).includes(identity.toLowerCase()))
+            throw new Error('The designed pin headline must identify this exact product.');
+        if (!identity) {
+            const meaningful = (productName.toLowerCase().match(/[a-z0-9]+/g) || []).filter(w => w.length >= 4);
+            const titleWords = new Set(pinTitle.toLowerCase().match(/[a-z0-9]+/g) || []);
+            if (!meaningful.length || meaningful.filter(w => titleWords.has(w)).length < Math.min(2, meaningful.length))
+                throw new Error('The designed pin headline must identify this product, not just its category.');
+        }
         const cta         = (pkg && pkg.pin_cta_suggestion) || 'Shop now';
 
         // 1. HERO (0..900)
