@@ -3965,10 +3965,13 @@ def test_tavily_images_dict_shape_handled():
     }
     with mock.patch.dict("os.environ", {"TAVILY_API_KEY": "fake-key-for-test"}), \
          mock.patch("backend.live_research.requests.post", return_value=fake_response):
-        from backend.live_research import research
-        env = research("q")
+        # Unit-test the Tavily image parser, not the public-provider
+        # fallback (which may legitimately return a different envelope).
+        from backend.live_research import _query_tavily
+        hits, images = _query_tavily("q", 6)
 
-    assert env.research_image_urls == [
+    assert hits == []
+    assert images == [
         "https://cdn.shopify.com/p1.jpg",
         "https://m.media-amazon.com/p2.jpg",
     ]
