@@ -36,6 +36,43 @@ GENERIC_CREATIVE = re.compile(
     r'think about where you would use this feature)\b', re.I
 )
 
+def concise_caption(value, limit=65):
+    """Preserve product-specific on-screen text without generic headings."""
+    value = clean(value)
+    if len(value) <= limit:
+        return value
+    words = []
+    for word in value.split():
+        if len(' '.join(words + [word])) > limit:
+            break
+        words.append(word)
+    while words and words[-1].casefold().rstrip('.,;:') in {
+        'a', 'an', 'the', 'and', 'or', 'for', 'to', 'of', 'in', 'on',
+        'at', 'by', 'with', 'through', 'from', 'is', 'are',
+    }:
+        words.pop()
+    if len(words) < 2:
+        raise ValueError('Product fact needs a shorter complete caption.')
+    return ' '.join(words).rstrip('.,;:')
+
+
+GENERIC_EVIDENCE = re.compile(
+    r'^(?:check|review|compare|see|tap|visit|choose|browse)\b.*'
+    r'\b(?:listing|listed|price|options|details|specifications|features|seller)\b'
+    r'|^(?:warranty and support|product description|key item features)$', re.I
+)
+
+
+def _fact_tokens(value):
+    return frozenset(
+        token for token in re.findall(r'[a-z0-9]+', value.casefold())
+        if token not in {'a', 'an', 'the', 'and', 'or', 'for', 'to', 'of', 'in',
+                         'on', 'at', 'by', 'with', 'through', 'from', 'is', 'are',
+                         'item', 'product', 'seller', 'page', 'exact', 'listed',
+                         'this', 'that', 'these', 'those', 'as', 'has', 'have'}
+    )
+
+
 def creative_copy_gate(plan):
     """Fail closed on generic ad placeholders and missing product identity."""
     product = str(plan.get('product') or '').strip()
@@ -74,14 +111,24 @@ def marketing_readiness_gate(plan):
     creative_copy_gate(plan)
     if plan.get('mode') != 'benefit_led':
         raise ValueError('Not enough product-specific seller facts for a narrated ad. No video was rendered.')
-    facts = {
-        re.sub(r'\W+', ' ', str(item.get('text') or '')).strip().casefold()
-        for item in (plan.get('evidence') or [])
-        if isinstance(item, dict) and str(item.get('text') or '').strip()
-    }
-    if len(facts) < 2:
+    distinct = []
+    for item in (plan.get('evidence') or []):
+        if not isinstance(item, dict):
+            continue
+        fact = str(item.get('text') or '').strip()
+        if not fact or GENERIC_CREATIVE.search(fact) or GENERIC_EVIDENCE.search(fact):
+            continue
+        tokens = _fact_tokens(fact)
+        if not tokens:
+            continue
+        # Identical facts with formatting or boilerplate changes count once;
+        # a longer fact adding a genuine new attribute still counts separately.
+        if tokens in distinct:
+            continue
+        distinct.append(tokens)
+    if len(distinct) < 2:
         raise ValueError('A narrated ad needs at least two distinct product facts from the exact listing. No video was rendered.')
-    return {'status': 'PASS', 'distinct_product_facts': len(facts)}
+    return {'status': 'PASS', 'distinct_product_facts': len(distinct)}
 
 
 def review(plan, seconds):
@@ -149,24 +196,28 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     hooks=[f'{need}?',f'Could {name} fit your routine?',f'Considering {name}?']
     body=f'{name}: {benefit}.'
     feature=('. '.join(details)+'.') if details else (routine+'.' if routine else
-              f'For {name}, compare the seller photo and full specifications.')
-    buying=(consideration+'.') if consideration else 'Check the listed size and what is included to choose the right option.'
+              (consideration+'.' if consideration else
+               f'For {name}, compare the seller photo and full specifications.'))
+    buying=(consideration+'.') if consideration else (
+        details[-1]+'.' if details else (routine+'.' if routine else
+        f'For {name}, check the current seller listing for exact fit.'))
     phrases=[hooks[0],body,feature,buying,
              'Tap the product link to compare the current price and options, then choose what fits your needs.']
     status={'matched_seller_page':'Facts retrieved from the identity-matched seller page; seller claims are not independently tested',
             'indexed_seller_description':'Facts from research text attached to this exact seller listing; not independently tested',
             'reviewed_manufacturer_packet':f'Manufacturer information editorially checked {evidence_checked}; not a live lookup'}.get(
                 evidence_origin,'Seller text supplied by user; not independently verified')
-    caption=benefit if len(benefit)<=65 else f'{name[:36]}: seller-listed details'
-    if 'sleep' in benefit.lower() and 'activity' in benefit.lower():caption='Sleep and activity insights'
+    caption=concise_caption(benefit)
+    feature_caption=concise_caption(details[0] if details else (routine or consideration or benefit))
+    buying_caption=concise_caption(consideration or (details[-1] if details else (routine or benefit)))
     stages=['hook','benefit','routine','buying_details','cta']
     plan={'version':'3.0','mode':'benefit_led','product':name,'buyer_need':need,
           'hook_candidates':hooks,'selected_hook':0,'phrases':phrases,
-          'captions':[need if len(need)<=65 else f'{name[:40]}: a closer look',
+          'captions':[concise_caption(need),
                       caption,
-                      (details[0][:65] if details else f'{name[:38]}: exact listing photo'),
-                      f'{name[:38]}: size and options',
-                      f'{name[:38]}: see listing'],
+                      feature_caption,
+                      buying_caption,
+                      f'{concise_caption(name, 38)}: see current listing'],
           'destination':destination,'evidence':evidence,'evidence_status':status,
           'scenes':[{'stage':stage,'narration':phrase,'visual':'Move across the actual product photo; do not imply a performance test'}
                     for stage,phrase in zip(stages,phrases)],

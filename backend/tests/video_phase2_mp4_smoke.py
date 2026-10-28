@@ -44,23 +44,24 @@ def main():
             d.rectangle((240,620,560,700),fill='#CD8D44')
             path=root/f'product-{index}.png'
             im.save(path);photos.append(path)
-        plan={
-            'mode':'benefit_led',
-            'product':'Desk Organizer',
-            'phrases':['Considering the Desk Organizer?',
-                       'The Desk Organizer has a tall rectangular body in this test photo.',
-                       'Notice the contrasting lower panel on the Desk Organizer.',
-                       'Compare the Desk Organizer shape with the space on your desk.',
-                       'See the Desk Organizer listing for exact dimensions.'],
-            'captions':['Desk Organizer: closer look','Desk Organizer: tall body',
-                        'Desk Organizer: contrasting base','Desk Organizer: check fit',
-                        'Desk Organizer: exact dimensions'],
-            'evidence':[{'text':'Tall rectangular body visible in synthetic fixture'},
-                        {'text':'Contrasting lower panel visible in synthetic fixture'}],
-            'scenes':[{'stage':x} for x in ('hook','product','benefit','buying_details','cta')],
-            'review':{'status':'PASS','evidence_status':'Synthetic smoke only'},
-            'requested_seconds':15
-        }
+        # Exercise the actual evidence-led copy builder, not a hand-authored
+        # storyboard that can hide generic-template regressions.
+        from backend.sales_script import build_sales_plan, marketing_readiness_gate
+        plan = build_sales_plan(
+            'Desk Organizer',
+            'Tall rectangular body visible in this synthetic fixture',
+            'https://seller.example/product', 120,
+            buyer_need='Considering the Desk Organizer',
+            feature_details=['Contrasting orange lower panel visible in this synthetic fixture'],
+            consideration='Rounded top corners visible in this synthetic fixture',
+            evidence_origin='synthetic_fixture')
+        assert marketing_readiness_gate(plan)['distinct_product_facts'] == 3
+        assert not any('seller-listed details' in caption.lower() or
+                       'size and options' in caption.lower() or
+                       'review listed features' in caption.lower()
+                       for caption in plan['captions'])
+        plan['review']['evidence_status'] = 'Synthetic smoke only; not a real listing'
+        plan['requested_seconds'] = 15
         if real_voice:
             from backend.photo_video import dependencies
             model, voices = dependencies()

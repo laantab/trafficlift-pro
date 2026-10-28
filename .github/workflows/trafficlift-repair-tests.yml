@@ -126,7 +126,7 @@ jobs:
           command -v ffmpeg
           command -v ffprobe
           test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
-          pip install numpy pillow soundfile pytest
+          pip install numpy pillow soundfile pytest beautifulsoup4
       - name: Render real Phase 2 MP4 with synthetic test speech
         run: python -m backend.tests.video_phase2_mp4_smoke
       - name: Preserve synthetic MP4 and QA report
@@ -172,7 +172,7 @@ jobs:
           command -v ffmpeg
           command -v ffprobe
           test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
-          pip install numpy pillow soundfile kokoro-onnx==0.6.1 onnxruntime==1.30.0
+          pip install numpy pillow soundfile beautifulsoup4 kokoro-onnx==0.6.1 onnxruntime==1.30.0
       - name: Download verified local Kokoro model and voice data
         run: |
           python - <<'PY'
