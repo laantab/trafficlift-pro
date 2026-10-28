@@ -191,6 +191,15 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
     return storyboard
 
 
+def photo_scene_heading(product, caption, scene, scene_count):
+    """Use the product identity above a photo, not the same claim twice.
+
+    Opening/CTA already have distinct footer treatments. For interior photo
+    scenes, the product title heads the card and the seller fact stays below.
+    """
+    return product if 0 < scene < scene_count - 1 else caption
+
+
 def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
     creative_copy_gate(sales_plan)
@@ -314,8 +323,8 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         d.rounded_rectangle((62,1625,1018,1855),radius=35,fill=bg)
         stage = storyboard[scene]['stage']
         text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
-        # Use the full product title only for the opening shot, preventing
-        # five nearly identical title cards.
+        # Keep photo headings and seller facts distinct: never print the same
+        # fact as both the top headline and the bottom footer.
         if scene == 0 or storyboard[scene]['layout'] == 'seller_fact_card':
             # Fact cards show product identity once above the unique seller
             # claim. Never repeat that same claim as heading, card and footer.
@@ -324,9 +333,9 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         else:
             # Every photo scene title comes from the product-specific reviewed plan,
             # never an interchangeable template heading.
-            scene_heading = storyboard[scene]['caption']
+            scene_heading = photo_scene_heading(sales_plan['product'], storyboard[scene]['caption'], scene, len(phrases))
             heading_lines = wrap(scene_heading,48)
-            if len(heading_lines)>2:raise ValueError('Scene heading does not fit.')
+            if len(heading_lines)>3:raise ValueError('Scene heading does not fit.')
             for row,line in enumerate(heading_lines):
                 text(d,(96,245+row*62),line,48)
         # A sizeable, alternating push/pull across real listing photos.
