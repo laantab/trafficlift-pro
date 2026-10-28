@@ -74,7 +74,7 @@ def main():
         qa=json.loads((root/'quality.json').read_text())
         assert qa['status']=='PASS' and qa['motion']['status']=='PASS'
         assert qa['scene_count']==4 and qa['photo_count']==1
-        assert sum(scene['layout']=='seller_fact_card' for scene in qa['storyboard'])==1
+        assert sum(scene['layout']=='seller_fact_card' for scene in qa['storyboard'])==2
         assert qa['storyboard'][-1]['stage']=='cta'
         assert qa['storyboard'][-1]['layout']=='photo_hero'
         assert qa['duration']>=15 and qa['duration']<=120
