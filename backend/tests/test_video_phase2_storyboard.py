@@ -258,3 +258,13 @@ def test_one_source_photo_never_repeats_same_detail_crop_across_scenes():
         assert sum(scene['photo_treatment'] == 'real_photo_detail_crop' for scene in scenes) == 1
         assert scenes[0]['layout'] == scenes[-1]['layout'] == 'photo_hero'
         assert scenes[2]['layout'] == 'seller_fact_card'
+
+
+def test_photo_scene_heading_does_not_repeat_the_seller_fact_in_footer():
+    """Real rendered fixture exposed identical photo headline and footer copy."""
+    from backend.photo_video import photo_scene_heading
+    product = 'Desk Organizer'
+    claim = 'Tall rectangular body visible in this synthetic fixture'
+    assert photo_scene_heading(product, claim, 1, 4) == product
+    assert photo_scene_heading(product, claim, 0, 4) == claim
+    assert photo_scene_heading(product, claim, 3, 4) == claim
