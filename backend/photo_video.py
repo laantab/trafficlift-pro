@@ -228,7 +228,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     caption_primary, caption_outline = ass_bgr(ink), ass_bgr(bg)
     ass=('[Script Info]\nPlayResX: 1080\nPlayResY: 1920\n[V4+ Styles]\n'
          'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n'
-         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},{caption_primary},{caption_primary},{caption_outline},{caption_outline},-1,0,0,0,100,100,0,0,1,4,1,2,120,120,210,1\n'
+         f'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},{caption_primary},{caption_primary},{caption_outline},{caption_outline},-1,0,0,0,100,100,0,0,1,4,1,2,120,120,110,1\n'
          '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
     # Split long captions into readable timed chunks. Phrase-level approximate alignment.
     for phrase,t,duration in zip(phrases,starts,lengths):
@@ -281,6 +281,10 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         d.rounded_rectangle((48,470,1032,1420),radius=45,fill=accent)
         d.rounded_rectangle((65,487,1015,1403),radius=35,fill=bg)
         d.rounded_rectangle((62,1425,1018,1635),radius=35,fill=bg)
+        # Narration subtitles need their own high-contrast backing card.
+        # A two-line 66px ASS caption with MarginV=110 sits at ~1650-1810;
+        # the old footer stopped at 1635 and left words on the photo backdrop.
+        d.rounded_rectangle((62,1625,1018,1855),radius=35,fill=bg)
         stage = storyboard[scene]['stage']
         text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
         # Use the full product title only for the opening shot, preventing
@@ -344,7 +348,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Checking video')
     quality=check_video(out,seconds)
     quality['motion']=check_motion(out,seconds)
-    quality['rendered_creative']=inspect_rendered_creative(out, seconds, root)
+    quality['rendered_creative']=inspect_rendered_creative(out, seconds, root, subtitle_panel_color=bg)
     quality['narration_audio']=narration_qa
     quality['marketing_approval']='NOT_APPROVED: real product imagery and full video still need human review'
     quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
@@ -354,14 +358,14 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
 
 
 
-def inspect_rendered_creative(path, seconds, root):
+def inspect_rendered_creative(path, seconds, root, subtitle_panel_color=None):
     """Review real decoded frames, not merely MP4 metadata.
 
     Retain a six-frame contact sheet for the human release gate. A flat product
     panel or visually unchanged scene sequence fails instead of being called a
     polished ad. Synthetic CI fixtures are NOT proof of real-product accuracy.
     """
-    from PIL import Image, ImageOps, ImageDraw, ImageStat, ImageChops
+    from PIL import Image, ImageOps, ImageDraw, ImageStat, ImageChops, ImageColor
     times = [max(.2, min(seconds - .3, seconds * ratio))
              for ratio in (.07, .24, .41, .59, .78, .94)]
     thumbs = []
@@ -372,6 +376,11 @@ def inspect_rendered_creative(path, seconds, root):
                        check=True,timeout=45)
         with Image.open(frame) as raw:
             im=raw.convert('RGB')
+            if subtitle_panel_color:
+                expected = ImageColor.getrgb(subtitle_panel_color)
+                actual = im.getpixel((90, 1740))
+                if max(abs(a-b) for a,b in zip(actual, expected)) > 32:
+                    raise ValueError('Creative quality failed: narration captions lack their backing card.')
             panel=im.crop((90,520,990,1360))
             if max(ImageStat.Stat(panel).stddev) < 9:
                 raise ValueError('Creative quality failed: product panel is visually empty.')
