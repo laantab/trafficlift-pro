@@ -196,6 +196,15 @@ jobs:
           TRAFFICLIFT_VOICE_MODEL: models/kokoro-v1.0.int8.onnx
           TRAFFICLIFT_VOICES: models/voices-v1.0.bin
         run: python -m backend.tests.video_phase2_mp4_smoke
+      - name: Run one owned-fixture Pinterest to narrated-video export acceptance
+        run: |
+          # The owned drawing is the same Desk Organizer fixture used by the
+          # real Kokoro compositor. No seller photo, owner secret or paid call.
+          npm install --no-save --no-package-lock playwright@1.56.1 @napi-rs/canvas@0.1.96
+          npx playwright install --with-deps chromium
+          node backend/tests/integrated_owned_pin.cjs
+          pip install fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1 requests==2.32.3
+          TRAFFICLIFT_TEST_REAL_KOKORO=1 python -m backend.tests.integrated_release_acceptance
       - name: Retain narrated MP4 and quality report for visual review
         if: always()
         uses: actions/upload-artifact@v4
@@ -205,4 +214,7 @@ jobs:
             /tmp/trafficlift-phase2-real-kokoro.mp4
             /tmp/trafficlift-phase2-real-kokoro-frames.jpg
             /tmp/trafficlift-phase2-quality.json
+            /tmp/trafficlift-integrated-pin.jpg
+            /tmp/trafficlift-integrated-pin-evidence.json
+            /tmp/trafficlift-integrated-acceptance.json
           if-no-files-found: ignore
