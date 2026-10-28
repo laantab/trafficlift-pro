@@ -191,6 +191,15 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
     return storyboard
 
 
+def photo_scene_heading(product, caption, scene, scene_count):
+    """Use the product identity above a photo, not the same claim twice.
+
+    Opening/CTA already have distinct footer treatments. For interior photo
+    scenes, the product title heads the card and the seller fact stays below.
+    """
+    return product if 0 < scene < scene_count - 1 else caption
+
+
 def render(image_path, directory, name, benefit, destination, seconds, style, progress, sales_plan=None, extra_images=None):
     sales_plan = sales_plan or build_sales_plan(name, benefit, destination, seconds)
     creative_copy_gate(sales_plan)
@@ -314,8 +323,8 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         d.rounded_rectangle((62,1625,1018,1855),radius=35,fill=bg)
         stage = storyboard[scene]['stage']
         text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
-        # Use the full product title only for the opening shot, preventing
-        # five nearly identical title cards.
+        # Keep photo headings and seller facts distinct: never print the same
+        # fact as both the top headline and the bottom footer.
         if scene == 0 or storyboard[scene]['layout'] == 'seller_fact_card':
             # Fact cards show product identity once above the unique seller
             # claim. Never repeat that same claim as heading, card and footer.
@@ -324,9 +333,9 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         else:
             # Every photo scene title comes from the product-specific reviewed plan,
             # never an interchangeable template heading.
-            scene_heading = storyboard[scene]['caption']
+            scene_heading = photo_scene_heading(sales_plan['product'], storyboard[scene]['caption'], scene, len(phrases))
             heading_lines = wrap(scene_heading,48)
-            if len(heading_lines)>2:raise ValueError('Scene heading does not fit.')
+            if len(heading_lines)>3:raise ValueError('Scene heading does not fit.')
             for row,line in enumerate(heading_lines):
                 text(d,(96,245+row*62),line,48)
         # A sizeable, alternating push/pull across real listing photos.
@@ -385,7 +394,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     quality['rendered_creative']=inspect_rendered_creative(out, seconds, root, subtitle_panel_color=bg)
     quality['narration_audio']=narration_qa
     quality['marketing_approval']='NOT_APPROVED: real product imagery and full video still need human review'
-    quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(1 for i in [1,2] if detail_photos[i%len(fitted_photos)] is not None), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
+    quality.update(storyboard=storyboard, phase2_storyboard='PASS', visual_review_required=True, narration_word_count=sum(len(p.split()) for p in phrases), narration_seconds=round(sum(lengths),2), scene_count=len(phrases), photo_count=len(fitted_photos), detail_scene_count=sum(scene['photo_treatment'] == 'real_photo_detail_crop' for scene in storyboard), requested_seconds=sales_plan.get('requested_seconds'), preset_extended=(seconds > int(sales_plan.get('requested_seconds') or seconds)), script=phrases,destination=destination,caption_alignment='Approximate chunk timing within measured phrases',claims=sales_plan['review']['evidence_status'],sales_review=sales_plan['review'],sales_plan=sales_plan)
     (root/'quality.json').write_text(json.dumps(quality,indent=2))
     for name in ['base.mp4','voice.wav','music.wav']: (root/name).unlink(missing_ok=True)
     return out

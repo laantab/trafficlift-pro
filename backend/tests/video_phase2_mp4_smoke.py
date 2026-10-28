@@ -38,10 +38,14 @@ def main():
         (root/'voices.bin').touch()
         photos = []
         for index in range(2):
-            im=Image.new('RGB',(800,800),'#fcfcfc')
+            im=Image.new('RGB',(1600,1600),'#fcfcfc')
             d=ImageDraw.Draw(im)
-            d.rounded_rectangle((190+index*40,110,610,690),radius=35,fill='#264653' if index else '#235F68')
-            d.rectangle((240,620,560,700),fill='#CD8D44')
+            # The contrasting top edge prevents uniform-margin trimming from
+            # silently shrinking this high-resolution, owned synthetic photo.
+            # The real rendered test must exercise the detail-crop path.
+            d.rectangle((0,0,1599,150),fill='#e6f2ee')
+            d.rounded_rectangle((380+index*80,220,1220,1380),radius=70,fill='#264653' if index else '#235F68')
+            d.rectangle((480,1240,1120,1400),fill='#CD8D44')
             path=root/f'product-{index}.png'
             im.save(path);photos.append(path)
         # Exercise the actual evidence-led copy builder, not a hand-authored
@@ -74,7 +78,12 @@ def main():
         qa=json.loads((root/'quality.json').read_text())
         assert qa['status']=='PASS' and qa['motion']['status']=='PASS'
         assert qa['scene_count']==4 and qa['photo_count']==1
-        assert sum(scene['layout']=='seller_fact_card' for scene in qa['storyboard'])==2
+        assert sum(scene['layout']=='seller_fact_card' for scene in qa['storyboard'])==1
+        assert [scene['layout'] for scene in qa['storyboard']] == [
+            'photo_hero', 'photo_hero', 'seller_fact_card', 'photo_hero']
+        assert [scene['photo_treatment'] for scene in qa['storyboard']] == [
+            'real_photo_full', 'real_photo_detail_crop', 'real_photo_full', 'real_photo_full']
+        assert qa['detail_scene_count'] == 1, 'Report the detail crop actually used, not available crops'
         assert qa['storyboard'][-1]['stage']=='cta'
         assert qa['storyboard'][-1]['layout']=='photo_hero'
         assert qa['duration']>=15 and qa['duration']<=120
@@ -95,7 +104,7 @@ def main():
         (output_dir / ('trafficlift-phase2-real-kokoro-frames.jpg' if real_voice
                        else 'trafficlift-phase2-smoke-frames.jpg')).write_bytes(
                            (root/'creative_contact_sheet.jpg').read_bytes())
-        print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 4 scenes, 1 photo + one fact card, decoded and motion-checked')
+        print('PASS: actual 15-second MP4, 1080x1920 H264, AAC, 4 scenes, 1 high-resolution owned photo + one verified detail crop + one fact card, decoded and motion-checked')
 
 
 if __name__=='__main__':main()
