@@ -165,7 +165,13 @@ def main():
                         assert PRODUCT in archive.read("post.txt").decode()
                         assert PRODUCT in archive.read("captions.srt").decode()
                         assert "safe_zone_review.html" in archive.namelist()
-                        kits[platform] = {"zip_bytes": len(response.content), "master_sha256": digest}
+                        # Fixture-only evidence: preserve the actual authenticated
+                        # response ZIP for offline reviewer inspection.
+                        kit_path = output / ("trafficlift-integrated-" + platform + ".zip")
+                        kit_path.write_bytes(response.content)
+                        kits[platform] = {"zip_bytes": len(response.content),
+                                          "master_sha256": digest,
+                                          "artifact": kit_path.name}
         finally:
             api.worker, api.reserve_hosted_render = original_worker, original_reserve
 
