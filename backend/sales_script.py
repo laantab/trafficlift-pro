@@ -79,10 +79,10 @@ def reject_retailer_fragment(value):
     A numeric product specification such as '4-piece' is not a list marker.
     Cleaning Markdown remains separate so other callers can format headings.
     """
-    if re.match(r'^\\s*\\d{1,2}\\s*[,.)]\\s+', value) or re.match(
-        r'^(?:warranty\\s*(?:and|&)\\s*support|product description|'
+    if re.match(r'^\s*\d{1,2}\s*[,.)]\s+', value) or re.match(
+        r'^(?:warranty\s*(?:and|&)\s*support|product description|'
         r'customer reviews?|product information|frequently bought together)'
-        r'(?:\\s*$|\\s*[.,:;]\\s+)', value, re.I
+        r'(?:\s*$|\s*[.,:;]\s+)', value, re.I
     ):
         raise ValueError('Seller section headings and numbered listing fragments are not product facts.')
     return value
