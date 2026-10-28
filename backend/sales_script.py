@@ -215,7 +215,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     # same specification in both the feature and buying-details scenes.
     factual = []
     seen_facts = {_fact_tokens(benefit)}
-    for fact in [*details, consideration, routine]:
+    for fact in [*details, routine, consideration]:
         tokens = _fact_tokens(fact)
         if (not tokens or tokens in seen_facts or GENERIC_EVIDENCE.search(fact)):
             continue
