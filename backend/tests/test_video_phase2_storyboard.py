@@ -63,12 +63,12 @@ def test_one_high_resolution_photo_uses_only_genuine_detail_crops():
     # It must never be mislabeled as a different angle or lifestyle photo.
     scenes = build_scene_storyboard(plan(), 1, [True])
     assert [x["layout"] for x in scenes] == [
-        "photo_hero", "photo_hero", "photo_hero",
+        "photo_hero", "photo_hero", "seller_fact_card",
         "seller_fact_card", "photo_hero",
     ]
     assert [x["photo_treatment"] for x in scenes] == [
         "real_photo_full", "real_photo_detail_crop",
-        "real_photo_detail_crop", "real_photo_full", "real_photo_full",
+        "real_photo_full", "real_photo_full", "real_photo_full",
     ]
     assert {x["photo_index"] for x in scenes} == {0}
     assert not any(x["demonstration"] for x in scenes)
@@ -245,3 +245,16 @@ def test_rendered_subtitle_inspection_requires_actual_timed_ass_events(tmp_path)
     (tmp_path/'captions.ass').write_text('[Events]\\n', encoding='utf-8')
     with pytest.raises(ValueError, match='no timed narration subtitles'):
         inspect_rendered_subtitles(tmp_path/'video.mp4', 15, tmp_path, '#F4F5EF')
+
+
+def test_one_source_photo_never_repeats_same_detail_crop_across_scenes():
+    """Actual JAS11242 review: repeated near-identical product photos are not an ad."""
+    for count in (4, 5):
+        base = plan()
+        base['phrases'] = base['phrases'][:count]
+        base['captions'] = base['captions'][:count]
+        base['scenes'] = base['scenes'][:count]
+        scenes = build_scene_storyboard(base, 1, [True])
+        assert sum(scene['photo_treatment'] == 'real_photo_detail_crop' for scene in scenes) == 1
+        assert scenes[0]['layout'] == scenes[-1]['layout'] == 'photo_hero'
+        assert scenes[2]['layout'] == 'seller_fact_card'
