@@ -1499,6 +1499,19 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
         await loadFreeVideoHistory();
         await loadHostedAcceptanceSample();
+        // A valid cookie on reload should resume the accepted background job
+        // automatically. Never submit another POST or retain an access code.
+        if (pendingHostedVideoJobId) {
+            const statusEl = document.getElementById('videoStatus');
+            statusEl.textContent = 'Reconnecting to your saved video; no new render started.';
+            try {
+                await waitForFreeVideoJob(pendingHostedVideoJobId, statusEl,
+                    document.getElementById('videoResult'));
+            } catch (error) {
+                statusEl.textContent = (error.message || String(error))
+                    + ' Check Past Videos before starting another render.';
+            }
+        }
     }
     async function unlockHostedOwnerVideo() {
         const field = document.getElementById('videoOwnerAccessCode');
