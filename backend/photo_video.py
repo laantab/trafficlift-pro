@@ -167,7 +167,7 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
     storyboard = []
     for i, (phrase, caption) in enumerate(zip(phrases, captions)):
         photo = i % available_photos
-        closeup = i == 1 and photo < len(details) and bool(details[photo])
+        closeup = (i in (1, 2) if available_photos > 1 else i == 1) and photo < len(details) and bool(details[photo])
         storyboard.append({
             "scene": i + 1,
             "stage": (sales_plan.get("scenes") or [{}] * len(phrases))[i].get("stage", stages[min(i, len(stages)-1)])
