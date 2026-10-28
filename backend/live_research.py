@@ -459,7 +459,10 @@ def research(
         # Accept the Tavily response when EITHER results OR images are
         # non-empty. Some Tavily responses return images without text
         # results (or vice versa) and we still want the data we got.
-        if tav_hits or tav_images:
+        # Images alone cannot establish a real product or its listing.
+        # Continue to independent text-source providers when Tavily only
+        # supplies images; discovery requires research_sources, not pixels.
+        if tav_hits:
             # Defensive: also pick up any image URLs hidden in result URLs
             # (covers rare older Tavily responses without a dedicated
             # images field).
@@ -498,7 +501,8 @@ def research(
                 research_summary='Configured research provider failed; check research credentials or quota.',
                 research_query=q, research_errors=errors)
         if not errors:
-            _problem('Tavily returned no usable results')
+            _problem('Tavily returned images without source evidence' if tav_images
+                     else 'Tavily returned no usable results')
 
     # Prefer the public provider that actually returns constrained listing
     # results. DDG often serves a 202 challenge and Bing RSS can lose intent.
@@ -545,6 +549,21 @@ def research(
             research_sources=[asdict(source) for source in bing_hits],
             research_summary=_summarize_sources(q,bing_hits), research_query=q,
             research_image_urls=bing_images, research_errors=list(_DIAGNOSTICS.errors))
+
+    # Preserve the existing image-only envelope for image consumers when
+    # independent public providers also return no text. Discovery itself
+    # requires research_sources, so this can never qualify as a winner.
+    if _is_tavily_configured() and tav_images:
+        return ResearchEnvelope(
+            research_status="partial",
+            research_timestamp=_now_iso(),
+            research_provider="tavily",
+            research_sources=[],
+            research_image_urls=tav_images,
+            research_summary="Tavily returned images but no product source evidence.",
+            research_query=q,
+            research_errors=list(_DIAGNOSTICS.errors),
+        )
 
     # 3. No evidence anywhere
     return ResearchEnvelope(

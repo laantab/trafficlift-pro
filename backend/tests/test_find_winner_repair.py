@@ -3965,10 +3965,13 @@ def test_tavily_images_dict_shape_handled():
     }
     with mock.patch.dict("os.environ", {"TAVILY_API_KEY": "fake-key-for-test"}), \
          mock.patch("backend.live_research.requests.post", return_value=fake_response):
-        from backend.live_research import research
-        env = research("q")
+        # Unit-test the Tavily image parser, not the public-provider
+        # fallback (which may legitimately return a different envelope).
+        from backend.live_research import _query_tavily
+        hits, images = _query_tavily("q", 6)
 
-    assert env.research_image_urls == [
+    assert hits == []
+    assert images == [
         "https://cdn.shopify.com/p1.jpg",
         "https://m.media-amazon.com/p2.jpg",
     ]
@@ -4536,3 +4539,37 @@ def test_all_providers_empty_does_not_invent_product(monkeypatch):
     assert not result.research_sources
     assert result.research_provider == "none"
     assert "Tavily HTTP 502" in result.research_errors
+
+
+def test_tavily_images_without_text_do_not_short_circuit_independent_research(monkeypatch):
+    """Image-only Tavily results are not product evidence for _discover_batch."""
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-test-key")
+    monkeypatch.setattr(live_research.requests, "post",
+        lambda *a, **k: SimpleNamespace(status_code=200,
+            json=lambda: {"results": [], "images": ["https://images.example.test/unverified.jpg"]}))
+    monkeypatch.setattr(live_research, "_query_brave", lambda q, n: (_public_hits(), []))
+    result = live_research.research(PRODUCT)
+    assert result.research_provider == "brave_web"
+    assert result.research_status in {"live", "partial"}
+    assert {s["url"] for s in result.research_sources} == {
+        LISTING, "https://review.example.test/jas11242"}
+    assert result.research_image_urls == []  # No unverified Tavily image leakage.
+    assert "Tavily returned images without source evidence" in result.research_errors
+
+
+def test_tavily_images_only_all_public_sources_empty_is_not_a_winner(monkeypatch):
+    """A photograph without a matching listing must never become a winner."""
+    monkeypatch.setenv("TAVILY_API_KEY", "fake-test-key")
+    monkeypatch.setattr(live_research.requests, "post",
+        lambda *a, **k: SimpleNamespace(status_code=200,
+            json=lambda: {"results": [], "images": ["https://images.example.test/unverified.jpg"]}))
+    for provider in ("_query_brave", "_query_duckduckgo", "_query_bing_html", "_query_bing_rss"):
+        monkeypatch.setattr(live_research, provider, lambda *a, **k: ([], []))
+    result = live_research.research(PRODUCT)
+    # Keep the existing image-only API contract, but this is not product
+    # evidence: _discover_batch cannot qualify without research_sources.
+    assert result.research_status == "partial"
+    assert result.research_provider == "tavily"
+    assert result.research_sources == []
+    assert result.research_image_urls == ["https://images.example.test/unverified.jpg"]
+    assert "Tavily returned images without source evidence" in result.research_errors
