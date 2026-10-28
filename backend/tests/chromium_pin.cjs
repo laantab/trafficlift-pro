@@ -40,6 +40,18 @@ const { createCanvas } = require('@napi-rs/canvas');
     assert(result.headline.includes('Mainstays'),'Designed pin must identify the exact brand');
     assert(!result.headline.includes('…')&&!result.headline.includes('...'),'Headline truncated');
     assert(result.darkPixels>25000,'Hero subject not visible');
+    // Exercise the actual browser download, not just the canvas preview.
+    const downloadEvent=page.waitForEvent('download');
+    await page.evaluate(()=>downloadPinImage());
+    const download=await downloadEvent;
+    assert.match(download.suggestedFilename(),/^pinterest-.*-1000x1500\.jpg$/);
+    const saved=fs.readFileSync(await download.path());
+    assert(saved.length>10000,'Downloaded JPEG is unexpectedly empty');
+    assert.equal(saved[0],0xff);assert.equal(saved[1],0xd8);
+    const savedImage=new (require('@napi-rs/canvas').Image)();
+    savedImage.src=saved;
+    assert.equal(savedImage.width,1000);assert.equal(savedImage.height,1500);
+    fs.writeFileSync('/tmp/trafficlift-chromium-lamp.jpg',Buffer.from(result.jpeg.split(',')[1],'base64'));
     // A saved or legacy pin package must never download a category-only
     // title for the selected model, even when its product photo is valid.
     const stale = await page.evaluate(async () => {
@@ -54,18 +66,6 @@ const { createCanvas } = require('@napi-rs/canvas');
     // Failed preview invalidates the cached download; never export the
     // preceding winner's designed pin for a newly selected product.
     assert.equal(await page.evaluate(() => window.__lastPinDataUrl),null);
-    // Exercise the actual browser download, not just the canvas preview.
-    const downloadEvent=page.waitForEvent('download');
-    await page.evaluate(()=>downloadPinImage());
-    const download=await downloadEvent;
-    assert.match(download.suggestedFilename(),/^pinterest-.*-1000x1500\.jpg$/);
-    const saved=fs.readFileSync(await download.path());
-    assert(saved.length>10000,'Downloaded JPEG is unexpectedly empty');
-    assert.equal(saved[0],0xff);assert.equal(saved[1],0xd8);
-    const savedImage=new (require('@napi-rs/canvas').Image)();
-    savedImage.src=saved;
-    assert.equal(savedImage.width,1000);assert.equal(savedImage.height,1500);
-    fs.writeFileSync('/tmp/trafficlift-chromium-lamp.jpg',Buffer.from(result.jpeg.split(',')[1],'base64'));
     // A real browser with blocked storage must never issue a new winner request
     // under a temporary identity that disappears on reload.
     let discoveryRequests=0;
