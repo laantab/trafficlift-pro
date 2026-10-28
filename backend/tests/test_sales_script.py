@@ -297,3 +297,38 @@ def test_photo_only_preview_ignores_untrusted_buyer_need():
     result = plan(benefit='', buyer_need='Warranty and support')
     assert result['mode'] == 'product_overview'
     assert 'Warranty' not in ' '.join(result['phrases'])
+
+
+@pytest.mark.parametrize('generic_need', [
+    'Looking for a useful addition to your daily routine',
+    'Looking for a practical addition to your routine',
+    'Looking for a handy addition to the daily routine',
+])
+def test_generic_buyer_hooks_become_exact_product_identity(generic_need):
+    """The actual seller listing teaser must never become video narration."""
+    from backend.sales_script import marketing_readiness_gate
+    result = plan(buyer_need=generic_need, feature_details=['Includes a straw'])
+    assert result['phrases'][0] == 'Considering Stanley Quencher 30 oz?'
+    assert generic_need not in ' '.join(result['phrases'])
+    assert result['captions'][0] == 'Considering Stanley Quencher 30 oz'
+    assert marketing_readiness_gate(result)['status'] == 'PASS'
+
+
+def test_generic_buyer_hook_is_rejected_by_final_creative_gate():
+    """Plans bypassing the script builder must also fail closed."""
+    from backend.sales_script import creative_copy_gate
+    data = {
+        'product': 'JAS11242 LED Motion-Sensor Night Light',
+        'phrases': [
+            'Looking for a useful addition to your daily routine?',
+            'JAS11242 LED Motion-Sensor Night Light has a nickel finish.',
+            'Tap the product link to compare the current options.'
+        ],
+        'captions': [
+            'JAS11242 LED Motion-Sensor Night Light',
+            'Nickel finish',
+            'View product details'
+        ],
+    }
+    with pytest.raises(ValueError, match='Generic placeholder'):
+        creative_copy_gate(data)
