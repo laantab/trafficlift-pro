@@ -206,3 +206,24 @@ def test_fact_repeated_with_seller_boilerplate_is_not_a_new_attribute():
                             feature_details=['Nickel finish on this product'])
     with pytest.raises(ValueError, match='two distinct product facts'):
         marketing_readiness_gate(result)
+
+
+@pytest.mark.parametrize('fragment', [
+    '4, plastic material',
+    '4. Plastic material, made of plastic material',
+    'Warranty and support',
+    'Warranty & Support. 4, Plastic material',
+    'Product Description: view details',
+])
+def test_raw_retailer_fragments_are_not_spoken_as_product_facts(fragment):
+    with pytest.raises(ValueError, match='Seller section headings'):
+        plan(benefit=fragment)
+    with pytest.raises(ValueError, match='Seller section headings'):
+        plan(feature_details=[fragment])
+
+
+def test_real_numeric_product_facts_are_not_mistaken_for_list_numbers():
+    result = plan(benefit='4-piece plastic organizer with clear trays',
+                  feature_details=['Includes 4 adjustable sections'])
+    assert result['review']['status'] == 'PASS'
+    assert '4-piece plastic organizer' in result['phrases'][1]
