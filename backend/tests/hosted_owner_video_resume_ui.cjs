@@ -180,5 +180,37 @@ function scenario(firstStatus, shared = {creates: 0, storage: new Map()}) {
   assert.equal(pinCalls.downloads, 1, 'No design must mean no image download');
   assert(pinCalls.notices.length, 'Missing design must explain how to generate one');
 
+  // A valid HttpOnly cookie after a page reload must resume the saved job
+  // without requiring another Unlock or Render click. Invalid cookies must
+  // never poll protected jobs or initiate a render.
+  const restoreStart = source.indexOf('    async function restoreHostedOwnerSession()');
+  const restoreEnd = source.indexOf('    async function unlockHostedOwnerVideo()', restoreStart);
+  assert(restoreStart > 0 && restoreEnd > restoreStart);
+  for (const authorized of [true, false]) {
+    const restored = {preflights: 0, histories: 0, resumes: 0};
+    const statusNode = {textContent: ''};
+    const restoreContext = {
+      hostedVideoSite: true,
+      pendingHostedVideoJobId: ID,
+      document: {getElementById: id => id === 'videoStatus' ? statusNode : {textContent: '', classList: {remove() {}}}},
+      freeVideoRequest: async path => {
+        assert.equal(path, '/api/v1/video-owner-acceptance');
+        restored.preflights++;
+        if (!authorized) throw new Error('Owner session expired');
+      },
+      loadFreeVideoHistory: async () => {restored.histories++;},
+      loadHostedAcceptanceSample: async () => {},
+      waitForFreeVideoJob: async (id) => {assert.equal(id, ID); restored.resumes++;},
+    };
+    vm.createContext(restoreContext);
+    vm.runInContext(source.slice(restoreStart, restoreEnd), restoreContext);
+    await restoreContext.restoreHostedOwnerSession();
+    assert.equal(restored.preflights, 1);
+    assert.equal(restored.histories, authorized ? 1 : 0);
+    assert.equal(restored.resumes, authorized ? 1 : 0,
+      'reload may resume an existing job only after valid owner authentication');
+    if (authorized) assert.match(statusNode.textContent, /no new render started/);
+  }
+
   console.log('PASS: owner browser resumes interrupted job, links protected MP4, and releases failed job');
 })().catch(error => {console.error(error); process.exitCode = 1;});
