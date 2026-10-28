@@ -217,4 +217,7 @@ jobs:
             /tmp/trafficlift-integrated-pin.jpg
             /tmp/trafficlift-integrated-pin-evidence.json
             /tmp/trafficlift-integrated-acceptance.json
+            /tmp/trafficlift-integrated-tiktok.zip
+            /tmp/trafficlift-integrated-youtube-shorts.zip
+            /tmp/trafficlift-integrated-instagram-reels.zip
           if-no-files-found: ignore
