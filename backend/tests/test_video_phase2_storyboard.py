@@ -74,6 +74,17 @@ def test_one_high_resolution_photo_uses_only_genuine_detail_crops():
     assert not any(x["demonstration"] for x in scenes)
 
 
+def test_fact_card_has_one_central_fact_not_duplicate_heading_and_footer():
+    # This is a source-contract regression; the FFmpeg smoke separately
+    # decodes actual pixels and retains a six-frame visual contact sheet.
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'photo_video.py').read_text()
+    assert "if scene == 0 or storyboard[scene]['layout'] == 'seller_fact_card':" in source
+    assert "if storyboard[scene]['layout'] == 'seller_fact_card':" in source
+    assert "first_row_y = max(620, 930 - len(card_lines)*38)" in source
+    assert "d.rounded_rectangle((62,1425,1018,1635),radius=35,fill=bg)" in source
+
+
 def test_missing_product_photo_rejected():
     with pytest.raises(ValueError, match="photo"):
         build_scene_storyboard(plan(), 0)
