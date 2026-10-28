@@ -152,3 +152,18 @@ def test_cta_button_does_not_overlap_two_line_narration_subtitles():
     assert "for row,line in enumerate(label_lines):text(d,(96,1435+row*52),line,42)" in src
     # Caption safe area begins around 1578 for two lines at 66px.
     assert 1540 < 1578
+
+
+def test_four_scene_sparse_ad_keeps_cta_on_actual_product_photo():
+    sparse = {
+        'phrases': ['Hook', 'Seller benefit', 'Distinct seller fact', 'Call to action'],
+        'captions': ['Product', 'Benefit', 'Fact', 'Visit product'],
+        'scenes': [{'stage': stage} for stage in ['hook', 'benefit', 'routine', 'cta']],
+    }
+    scenes = build_scene_storyboard(sparse, 1, [False])
+    assert len(scenes) == 4
+    assert [item['layout'] for item in scenes] == [
+        'photo_hero', 'photo_hero', 'seller_fact_card', 'photo_hero'
+    ]
+    assert scenes[-1]['stage'] == 'cta'
+    assert scenes[-1]['photo_index'] == 0

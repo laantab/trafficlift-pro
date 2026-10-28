@@ -158,7 +158,7 @@ def build_scene_storyboard(sales_plan, available_photos, detail_available=None):
             "photo_index": photo,
             "photo_treatment": "real_photo_detail_crop" if closeup else "real_photo_full",
             "layout": ("seller_fact_card" if available_photos == 1 and i in (2, 3)
-                       else "photo_hero"),
+                       and i < len(phrases) - 1 else "photo_hero"),
             "motion": "gentle_pan_zoom",
             "transition": "fade" if i else "opening",
             "demonstration": False,
