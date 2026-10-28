@@ -102,7 +102,7 @@ def creative_copy_gate(plan):
     for value in [*phrases, *captions]:
         if not isinstance(value, str):
             raise ValueError('Creative review requires plain-text scene copy.')
-        reject_retailer_fragment(clean(value, 240))
+        reject_retailer_fragment(clean(value, 360))
     spoken = ' '.join(phrases)
     visible = ' '.join(captions)
     if GENERIC_CREATIVE.search(spoken + ' ' + visible):
