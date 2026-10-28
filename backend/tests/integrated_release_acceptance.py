@@ -134,7 +134,7 @@ def main():
                 signature = hmac.new(OWNER_SECRET.encode(),
                     ("video-session:" + issued).encode(), hashlib.sha256).hexdigest()
                 owner.cookies.set("trafficlift_video_session", issued + "." + signature,
-                                  domain="trafficlift-pro.onrender.com", path="/", secure=True)
+                                  domain="trafficlift-pro.onrender.com", path="/")
                 assert owner.get(url).status_code == 401
                 owner.cookies.clear()
                 assert owner.post("/api/v1/video-owner-login", json={"access_code": OWNER_SECRET},
