@@ -483,12 +483,13 @@ def research(
         # to supply actual URLs; a fallback is never a fabricated product.
         errors = list(_DIAGNOSTICS.errors)
         retryable = not errors or all(
-            error in {'Tavily HTTP 500', 'Tavily HTTP 502',
-                      'Tavily HTTP 503', 'Tavily HTTP 504',
-                      'Tavily request failed: Timeout',
-                      'Tavily request failed: ConnectTimeout',
-                      'Tavily request failed: ReadTimeout',
-                      'Tavily request failed: ConnectionError'}
+            (error.startswith('Tavily HTTP ') and
+             error.removeprefix('Tavily HTTP ').isdigit() and
+             500 <= int(error.removeprefix('Tavily HTTP ')) < 600)
+            or error in {'Tavily request failed: Timeout',
+                         'Tavily request failed: ConnectTimeout',
+                         'Tavily request failed: ReadTimeout',
+                         'Tavily request failed: ConnectionError'}
             for error in errors
         )
         if not retryable:
@@ -522,6 +523,7 @@ def research(
             research_summary=_summarize_sources(q, ddg_hits),
             research_query=q,
             research_image_urls=ddg_images,
+            research_errors=list(_DIAGNOSTICS.errors),
         )
 
     # Prefer full web results; RSS sometimes drops site/path constraints.
