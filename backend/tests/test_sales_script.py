@@ -255,3 +255,20 @@ def test_three_fact_ad_assigns_one_unique_fact_per_factual_scene():
     assert result['phrases'][2] == 'Motion sensor activates the light.'
     assert result['phrases'][3] == 'Warm white light output.'
     assert result['captions'][2] != result['captions'][3]
+
+
+def test_video_cta_heading_is_product_identity_not_duplicate_listing_instruction():
+    """The actual MP4 has a separate 'View product details' button.
+
+    Do not put 'see current listing' in the large heading as well; that
+    creates two interchangeable calls to action in the same rendered frame.
+    """
+    result = build_sales_plan(
+        'JAS11242 LED Motion-Sensor Night Light', 'Nickel finish',
+        'https://seller.example/jas11242', 30,
+        feature_details=['Motion sensor switches on the light when movement is detected'],
+    )
+    assert result['captions'][-1] == result['product']
+    assert 'listing' not in result['captions'][-1].casefold()
+    assert result['phrases'][-1].startswith('Tap the product link')
+    assert result['review']['status'] == 'PASS'

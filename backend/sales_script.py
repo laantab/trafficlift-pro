@@ -228,7 +228,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
         ]
         captions = [concise_caption(need), concise_caption(benefit)] + [
             concise_caption(fact) for fact in scene_facts
-        ] + [f'{concise_caption(name, 38)}: see current listing']
+        ] + [concise_caption(name, 38)]
         stages = ['hook', 'benefit'] + (
             ['routine'] if len(scene_facts) == 1 else ['routine', 'buying_details']
         ) + ['cta']
@@ -241,7 +241,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
                    'Tap the product link to compare the current price and options, then choose what fits your needs.']
         captions = [concise_caption(need), concise_caption(benefit),
                     concise_caption(name, 48), concise_caption(name, 48),
-                    f'{concise_caption(name, 38)}: see current listing']
+                    concise_caption(name, 38)]
         stages = ['hook', 'benefit', 'routine', 'buying_details', 'cta']
     status={'matched_seller_page':'Facts retrieved from the identity-matched seller page; seller claims are not independently tested',
             'indexed_seller_description':'Facts from research text attached to this exact seller listing; not independently tested',
