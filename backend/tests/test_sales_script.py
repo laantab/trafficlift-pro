@@ -144,3 +144,48 @@ def test_marketing_render_requires_two_distinct_exact_product_facts():
                               'Nickel finish', 'https://seller.example/jas11242', 30,
                               feature_details=['Motion sensor is listed on the exact product page'])
     assert marketing_readiness_gate(grounded)['distinct_product_facts']==2
+
+
+def test_jas11242_grounded_render_copy_has_specific_fact_headlines():
+    from backend.sales_script import marketing_readiness_gate
+    result=build_sales_plan(
+        'JAS11242 LED Motion-Sensor Night Light',
+        'Nickel finish with motion-activated illumination for hallways and entryways',
+        'https://seller.example/jas11242', 60,
+        feature_details=['Motion sensor switches on the light when motion is detected'])
+    assert marketing_readiness_gate(result)['distinct_product_facts']==2
+    assert result['captions'][1].startswith('Nickel finish')
+    assert result['captions'][2].startswith('Motion sensor')
+    assert result['captions'][3].startswith('Motion sensor')
+    assert 'JAS11242' in result['captions'][0]
+    assert not any('seller-listed details' in x.lower() or 'size and options' in x.lower()
+                   for x in result['captions'])
+    assert 'Check the listed size and what is included' not in ' '.join(result['phrases'])
+
+
+def test_generic_seller_reminder_is_not_counted_as_second_product_fact():
+    from backend.sales_script import marketing_readiness_gate
+    result=build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                            'Nickel finish', 'https://seller.example/jas11242', 60,
+                            consideration='Check the seller listing for product details')
+    with pytest.raises(ValueError, match='two distinct product facts'):
+        marketing_readiness_gate(result)
+
+
+def test_repeated_fact_with_punctuation_does_not_pass_marketing_gate():
+    from backend.sales_script import marketing_readiness_gate
+    result=build_sales_plan('JAS11242 LED Motion-Sensor Night Light',
+                            'Nickel finish', 'https://seller.example/jas11242', 60,
+                            feature_details=['Nickel finish.'])
+    with pytest.raises(ValueError, match='two distinct product facts'):
+        marketing_readiness_gate(result)
+
+
+def test_long_seller_fact_keeps_specific_caption_without_cutting_a_word():
+    from backend.sales_script import concise_caption
+    text='Motion sensor switches on the night light when someone enters the hallway after dark'
+    result=concise_caption(text)
+    assert result.startswith('Motion sensor')
+    assert len(result)<=65
+    assert text.startswith(result)
+    assert result[-1].isalpha()
