@@ -68,7 +68,8 @@ def _fact_tokens(value):
         token for token in re.findall(r'[a-z0-9]+', value.casefold())
         if token not in {'a', 'an', 'the', 'and', 'or', 'for', 'to', 'of', 'in',
                          'on', 'at', 'by', 'with', 'through', 'from', 'is', 'are',
-                         'item', 'product', 'seller', 'page', 'exact', 'listed'}
+                         'item', 'product', 'seller', 'page', 'exact', 'listed',
+                         'this', 'that', 'these', 'those', 'as', 'has', 'have'}
     )
 
 
@@ -120,8 +121,9 @@ def marketing_readiness_gate(plan):
         tokens = _fact_tokens(fact)
         if not tokens:
             continue
-        # A repeated feature plus boilerplate does not make a second fact.
-        if any(tokens <= prior or prior <= tokens for prior in distinct):
+        # Identical facts with formatting or boilerplate changes count once;
+        # a longer fact adding a genuine new attribute still counts separately.
+        if tokens in distinct:
             continue
         distinct.append(tokens)
     if len(distinct) < 2:
