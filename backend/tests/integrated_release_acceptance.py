@@ -102,8 +102,8 @@ def main():
         (folder / "video.mp4").write_bytes(video.read_bytes())
         (folder / "captions.ass").write_text(
             "[Events]\\nDialogue: 0,0:00:01.20,0:00:03.50,Default,,0,0,0,,"
-            "Desk Organizer: tall rectangular body visible in this synthetic fixture\\n"
-            .replace("\\n", "\n"), encoding="utf-8")
+            "Desk Organizer: tall rectangular body visible in this synthetic fixture\\n",
+            encoding="utf-8")
         api.save({
             "id": JOB_ID, "name": PRODUCT, "status": "succeeded",
             "product_url": "https://seller.example/product",
