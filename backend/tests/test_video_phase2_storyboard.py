@@ -109,7 +109,7 @@ def test_render_uses_distinct_stage_titles_and_larger_photo_panel():
     from pathlib import Path
     src=(Path(__file__).resolve().parents[1]/"photo_video.py").read_text()
     assert "ImageOps.contain(photo,(888,888)" in src
-    assert "if scene == 0:" in src
+    assert "if scene == 0 or storyboard[scene]['layout'] == 'seller_fact_card':" in src
     assert "scene_heading =" in src
     assert "labels=storyboard[scene]['caption']" in src
     assert "seller_fact_card" in src
