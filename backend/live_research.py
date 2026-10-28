@@ -550,6 +550,21 @@ def research(
             research_summary=_summarize_sources(q,bing_hits), research_query=q,
             research_image_urls=bing_images, research_errors=list(_DIAGNOSTICS.errors))
 
+    # Preserve the existing image-only envelope for image consumers when
+    # independent public providers also return no text. Discovery itself
+    # requires research_sources, so this can never qualify as a winner.
+    if _is_tavily_configured() and tav_images:
+        return ResearchEnvelope(
+            research_status="partial",
+            research_timestamp=_now_iso(),
+            research_provider="tavily",
+            research_sources=[],
+            research_image_urls=tav_images,
+            research_summary="Tavily returned images but no product source evidence.",
+            research_query=q,
+            research_errors=list(_DIAGNOSTICS.errors),
+        )
+
     # 3. No evidence anywhere
     return ResearchEnvelope(
         research_status="fallback",
