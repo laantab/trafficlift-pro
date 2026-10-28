@@ -11,6 +11,34 @@ def plan():
     }
 
 
+
+@pytest.mark.parametrize('size', [(400, 400), (600, 600), (500, 800), (800, 500)])
+def test_video_hero_rejects_source_photos_that_need_blurry_upscaling(size):
+    from backend.photo_video import validate_video_photo_resolution
+    # Portrait/landscape photos can remain sharp if contained without enlargement.
+    expected_scale = min(888 / size[0], 888 / size[1])
+    if expected_scale > 1.35:
+        with pytest.raises(ValueError, match='higher-resolution verified photo'):
+            validate_video_photo_resolution(size)
+    else:
+        assert validate_video_photo_resolution(size) == round(expected_scale, 3)
+
+
+@pytest.mark.parametrize('size', [(800, 800), (1000, 500), (500, 1000), (1600, 1200)])
+def test_video_hero_keeps_sharp_exact_product_photos(size):
+    from backend.photo_video import validate_video_photo_resolution
+    assert validate_video_photo_resolution(size) <= 1.35
+
+
+def test_video_render_checks_source_resolution_before_resampling():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'photo_video.py').read_text()
+    assert 'validate_video_photo_resolution(photo.size)' in source
+    assert source.index('validate_video_photo_resolution(photo.size)') < source.index(
+        'fitted_photos.append(ImageOps.contain(photo,(888,888)'
+    )
+
+
 def test_storyboard_multiple_real_photos_and_detail_scene():
     scenes = build_scene_storyboard(plan(), 3, [True, False, True])
     assert len(scenes) == 5
