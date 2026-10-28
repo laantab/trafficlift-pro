@@ -6,6 +6,8 @@ separate FFmpeg/Kokoro smoke step, not fabricated in this acceptance test.
 """
 from __future__ import annotations
 import hashlib
+import hmac
+import time
 import io
 import json
 import os
@@ -126,9 +128,15 @@ def main():
                 assert owner.post("/api/v1/video-owner-login", json={"access_code": OWNER_SECRET},
                                   headers={"Origin": HOST}).status_code == 200
                 assert owner.get(url).json()["video"]["status"] == "succeeded"
-                # Simulate expiry; reauthenticate to the SAME persisted job, no POST /photo-videos.
+                # Exercise a genuinely expired, correctly signed cookie (not just logout).
                 owner.cookies.clear()
+                issued = str(int(time.time()) - 8 * 60 * 60 - 60)
+                signature = hmac.new(OWNER_SECRET.encode(),
+                    ("video-session:" + issued).encode(), hashlib.sha256).hexdigest()
+                owner.cookies.set("trafficlift_video_session", issued + "." + signature,
+                                  domain="trafficlift-pro.onrender.com", path="/", secure=True)
                 assert owner.get(url).status_code == 401
+                owner.cookies.clear()
                 assert owner.post("/api/v1/video-owner-login", json={"access_code": OWNER_SECRET},
                                   headers={"Origin": HOST}).status_code == 200
                 assert any(item["id"] == JOB_ID for item in owner.get("/api/v1/photo-videos").json()["videos"])
