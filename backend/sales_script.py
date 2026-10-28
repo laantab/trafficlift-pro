@@ -73,6 +73,21 @@ def _fact_tokens(value):
     )
 
 
+def reject_retailer_fragment(value):
+    """Do not narrate raw numbered listing bullets or storefront section labels.
+
+    A numeric product specification such as '4-piece' is not a list marker.
+    Cleaning Markdown remains separate so other callers can format headings.
+    """
+    if re.match(r'^\\s*\\d{1,2}\\s*[,.)]\\s+', value) or re.match(
+        r'^(?:warranty\\s*(?:and|&)\\s*support|product description|'
+        r'customer reviews?|product information|frequently bought together)'
+        r'(?:\\s*$|\\s*[.,:;]\\s+)', value, re.I
+    ):
+        raise ValueError('Seller section headings and numbered listing fragments are not product facts.')
+    return value
+
+
 def creative_copy_gate(plan):
     """Fail closed on generic ad placeholders and missing product identity."""
     product = str(plan.get('product') or '').strip()
@@ -153,11 +168,11 @@ def review(plan, seconds):
 def build_sales_plan(name, benefit, destination, seconds, buyer_need='', consideration='', *, evidence_source=None, evidence_origin='user_supplied_seller_text', evidence_checked=None, supporting_sources=None, routine='', feature_details=None):
     from backend.listing_photo import product_name
     name = clean(product_name(name), 90)
-    benefit = clean(benefit)
+    benefit = reject_retailer_fragment(clean(benefit))
     need = clean(buyer_need, 100)
-    consideration = clean(consideration, 120)
-    routine = clean(routine, 160)
-    details = [clean(fact,160) for fact in (feature_details or [])[:2]]
+    consideration = reject_retailer_fragment(clean(consideration, 120))
+    routine = reject_retailer_fragment(clean(routine, 160))
+    details = [reject_retailer_fragment(clean(fact,160)) for fact in (feature_details or [])[:2]]
     if not benefit:
         # Missing seller text must not turn a valid photo render into a dead end.
         # Offer a complete, explicitly labeled buying overview without claims.
