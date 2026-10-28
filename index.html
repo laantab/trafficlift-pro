@@ -2662,7 +2662,17 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const generationAtStart = window.__pinRenderGeneration;
         window.__lastPinDataUrl = null;
         const hero = await _loadImageWithCors(winner && winner.image_url);
-        if (hero && hero.naturalWidth > 0) {
+        if (hero && hero.naturalWidth > 0 && hero.naturalHeight > 0) {
+            // A 1000x1500 canvas cannot make a tiny seller photo high-resolution.
+            // Match the real contain-fit geometry and refuse excessive upscale
+            // rather than export a blurry advertisement as a "designed pin".
+            const photoUpscale = Math.min(
+                (W - 76) / hero.naturalWidth,
+                (1080 - 76) / hero.naturalHeight
+            );
+            if (photoUpscale > 1.35) {
+                throw new Error('Product photo resolution is too low for a sharp 1000x1500 pin. Choose a higher-resolution exact-product photo.');
+            }
             _drawHeroImage(ctx, hero, W, 1080);
         } else {
             throw new Error('The actual product photo could not be loaded. A generic picture will not replace it.');
