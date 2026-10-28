@@ -4563,7 +4563,10 @@ def test_tavily_images_only_all_public_sources_empty_is_not_a_winner(monkeypatch
     for provider in ("_query_brave", "_query_duckduckgo", "_query_bing_html", "_query_bing_rss"):
         monkeypatch.setattr(live_research, provider, lambda *a, **k: ([], []))
     result = live_research.research(PRODUCT)
-    assert result.research_status == "fallback"
+    # Keep the existing image-only API contract, but this is not product
+    # evidence: _discover_batch cannot qualify without research_sources.
+    assert result.research_status == "partial"
+    assert result.research_provider == "tavily"
     assert result.research_sources == []
-    assert result.research_image_urls == []
+    assert result.research_image_urls == ["https://images.example.test/unverified.jpg"]
     assert "Tavily returned images without source evidence" in result.research_errors
