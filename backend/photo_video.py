@@ -395,10 +395,78 @@ def inspect_rendered_creative(path, seconds, root, subtitle_panel_color=None):
     for i,thumb in enumerate(thumbs):
         sheet.paste(thumb,((i%3)*270,(i//3)*480))
     sheet.save(root/'creative_contact_sheet.jpg',quality=90)
+    subtitle_review = inspect_rendered_subtitles(path, seconds, root, subtitle_panel_color)
     return {'status':'PASS', 'sample_seconds':[round(t,2) for t in times],
             'distinct_transitions':sum(delta>2.5 for delta in changes),
             'contact_sheet':'creative_contact_sheet.jpg',
-            'limitation':'Visual difference check only; human review and exact-product photo validation remain required'}
+            'rendered_subtitles':subtitle_review,
+            'limitation':'Visible subtitle pixels are checked; human review and exact-product photo validation remain required'}
+
+
+def subtitle_ink_pixels(frame, background):
+    """Count high-contrast subtitle pixels inside the real caption card.
+
+    Ignore the rounded border, photo panel and scene labels. This is a
+    deterministic visibility check, not OCR or an advertising-quality claim.
+    """
+    from PIL import Image, ImageChops
+    region = frame.convert('RGB').crop((160, 1640, 920, 1840))
+    delta = ImageChops.difference(region, Image.new('RGB', region.size, background))
+    r, g, b = delta.split()
+    maximum = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    return maximum.point(lambda value: 255 if value > 48 else 0).histogram()[255]
+
+
+def inspect_rendered_subtitles(path, seconds, root, panel_color):
+    """Decode timed subtitle frames and fail if ASS captions did not render.
+
+    Checking the card background alone missed a regression where the panel
+    existed but its narration text was absent. Sample *within* ASS dialogue
+    events, not at arbitrary scene times that can legitimately be silent.
+    """
+    from PIL import Image, ImageColor
+    if not panel_color:
+        raise ValueError('Creative quality failed: subtitle panel color is unavailable.')
+    ass_path = root / 'captions.ass'
+    if not ass_path.is_file():
+        raise ValueError('Creative quality failed: narration subtitle file is missing.')
+
+    def timestamp(value):
+        hours, minutes, secs = value.split(':')
+        return int(hours) * 3600 + int(minutes) * 60 + float(secs)
+
+    events = []
+    for line in ass_path.read_text(encoding='utf-8').splitlines():
+        if not line.startswith('Dialogue: '):
+            continue
+        fields = line.split(',', 4)
+        if len(fields) < 5:
+            continue
+        try:
+            start, end = timestamp(fields[1]), timestamp(fields[2])
+        except (ValueError, IndexError):
+            continue
+        if end - start >= .25 and start < seconds and end <= seconds + .1:
+            events.append((start + end) / 2)
+    if not events:
+        raise ValueError('Creative quality failed: no timed narration subtitles to inspect.')
+    count = min(6, len(events))
+    sample_times = [events[round(i * (len(events) - 1) / max(1, count - 1))]
+                    for i in range(count)]
+    ink_counts = []
+    background = ImageColor.getrgb(panel_color)
+    for index, moment in enumerate(sample_times):
+        frame_path = root / f'subtitle-check-{index+1:02}.jpg'
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', f'{moment:.2f}',
+                        '-i', str(path), '-frames:v', '1', '-q:v', '3', str(frame_path)],
+                       check=True, timeout=45)
+        with Image.open(frame_path) as frame:
+            ink_counts.append(subtitle_ink_pixels(frame, background))
+    if min(ink_counts) < 500:
+        raise ValueError('Creative quality failed: narration subtitles are missing or unreadable in the rendered MP4.')
+    return {'status':'PASS', 'sampled_captions':count,
+            'minimum_contrast_pixels':min(ink_counts),
+            'sample_seconds':[round(t,2) for t in sample_times]}
 
 
 def check_video(path,seconds):
