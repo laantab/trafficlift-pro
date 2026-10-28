@@ -101,8 +101,8 @@ def main():
         # Reuse the already-rendered, fully decoded master. Do not invoke a worker.
         (folder / "video.mp4").write_bytes(video.read_bytes())
         (folder / "captions.ass").write_text(
-            "[Events]\\nDialogue: 0,0:00:01.20,0:00:03.50,Default,,0,0,0,,"
-            "Desk Organizer: tall rectangular body visible in this synthetic fixture\\n",
+            "[Events]\nDialogue: 0,0:00:01.20,0:00:03.50,Default,,0,0,0,,"
+            "Desk Organizer: tall rectangular body visible in this synthetic fixture\n",
             encoding="utf-8")
         api.save({
             "id": JOB_ID, "name": PRODUCT, "status": "succeeded",
