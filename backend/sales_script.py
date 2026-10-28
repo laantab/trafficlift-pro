@@ -210,29 +210,46 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
         need=f'Considering {name}'
     hooks=[f'{need}?',f'Could {name} fit your routine?',f'Considering {name}?']
     body=f'{name}: {benefit}.'
-    feature=('. '.join(details)+'.') if details else (routine+'.' if routine else
-              (consideration+'.' if consideration else
-               f'For {name}, compare the seller photo and full specifications.'))
-    buying=(consideration+'.') if consideration else (
-        details[-1]+'.' if details else (routine+'.' if routine else
-        f'For {name}, check the current seller listing for exact fit.'))
-    phrases=[hooks[0],body,feature,buying,
-             'Tap the product link to compare the current price and options, then choose what fits your needs.']
+    # Each factual scene must introduce a NEW seller-supported attribute.
+    # With only two distinct facts, use four scenes rather than repeating the
+    # same specification in both the feature and buying-details scenes.
+    factual = []
+    seen_facts = {_fact_tokens(benefit)}
+    for fact in [*details, consideration, routine]:
+        tokens = _fact_tokens(fact)
+        if (not tokens or tokens in seen_facts or GENERIC_EVIDENCE.search(fact)):
+            continue
+        seen_facts.add(tokens)
+        factual.append(fact)
+    if factual:
+        scene_facts = factual[:2]
+        phrases = [hooks[0], body] + [fact + '.' for fact in scene_facts] + [
+            'Tap the product link to compare the current price and options, then choose what fits your needs.'
+        ]
+        captions = [concise_caption(need), concise_caption(benefit)] + [
+            concise_caption(fact) for fact in scene_facts
+        ] + [f'{concise_caption(name, 38)}: see current listing']
+        stages = ['hook', 'benefit'] + (
+            ['routine'] if len(scene_facts) == 1 else ['routine', 'buying_details']
+        ) + ['cta']
+    else:
+        # A single fact can be previewed, but marketing_readiness_gate
+        # refuses to render it as a finished narrated advertisement.
+        phrases = [hooks[0], body,
+                   f'For {name}, compare the seller photo and full specifications.',
+                   f'For {name}, check the current seller listing for exact fit.',
+                   'Tap the product link to compare the current price and options, then choose what fits your needs.']
+        captions = [concise_caption(need), concise_caption(benefit),
+                    concise_caption(name, 48), concise_caption(name, 48),
+                    f'{concise_caption(name, 38)}: see current listing']
+        stages = ['hook', 'benefit', 'routine', 'buying_details', 'cta']
     status={'matched_seller_page':'Facts retrieved from the identity-matched seller page; seller claims are not independently tested',
             'indexed_seller_description':'Facts from research text attached to this exact seller listing; not independently tested',
             'reviewed_manufacturer_packet':f'Manufacturer information editorially checked {evidence_checked}; not a live lookup'}.get(
                 evidence_origin,'Seller text supplied by user; not independently verified')
-    caption=concise_caption(benefit)
-    feature_caption=concise_caption(details[0] if details else (routine or consideration or benefit))
-    buying_caption=concise_caption(consideration or (details[-1] if details else (routine or benefit)))
-    stages=['hook','benefit','routine','buying_details','cta']
     plan={'version':'3.0','mode':'benefit_led','product':name,'buyer_need':need,
           'hook_candidates':hooks,'selected_hook':0,'phrases':phrases,
-          'captions':[concise_caption(need),
-                      caption,
-                      feature_caption,
-                      buying_caption,
-                      f'{concise_caption(name, 38)}: see current listing'],
+          'captions':captions,
           'destination':destination,'evidence':evidence,'evidence_status':status,
           'scenes':[{'stage':stage,'narration':phrase,'visual':'Move across the actual product photo; do not imply a performance test'}
                     for stage,phrase in zip(stages,phrases)],
