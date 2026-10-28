@@ -25,7 +25,7 @@ def _public_hits():
     ]
 
 
-@pytest.mark.parametrize("failure", [500, 502, 503, 504, "timeout", "connection", "empty"])
+@pytest.mark.parametrize("failure", [500, 502, 503, 504, 520, "timeout", "connection", "empty"])
 def test_transient_tavily_uses_independent_evidence(monkeypatch, failure):
     monkeypatch.setenv("TAVILY_API_KEY", "fake-test-key")
     def tavily_post(*args, **kwargs):
