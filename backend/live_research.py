@@ -476,13 +476,28 @@ def research(
                 research_query=q,
                 research_image_urls=tav_images,
             )
-        # A configured provider failure must not be hidden by public scraping.
+        # Authentication, quota and unexpected client errors must be visible:
+        # public search must never make an invalid configured key appear healthy.
+        # Only transport errors, Tavily 5xx, and a successful empty response
+        # may use independent public evidence. The public provider still has
+        # to supply actual URLs; a fallback is never a fabricated product.
         errors = list(_DIAGNOSTICS.errors)
-        if not errors: errors.append('Tavily returned no usable results')
-        return ResearchEnvelope(research_status='fallback', research_timestamp=_now_iso(),
-            research_provider='tavily', research_sources=[], research_image_urls=[],
-            research_summary='Configured research provider did not return usable evidence.',
-            research_query=q, research_errors=errors)
+        retryable = not errors or all(
+            error in {'Tavily HTTP 500', 'Tavily HTTP 502',
+                      'Tavily HTTP 503', 'Tavily HTTP 504',
+                      'Tavily request failed: Timeout',
+                      'Tavily request failed: ConnectTimeout',
+                      'Tavily request failed: ReadTimeout',
+                      'Tavily request failed: ConnectionError'}
+            for error in errors
+        )
+        if not retryable:
+            return ResearchEnvelope(research_status='fallback', research_timestamp=_now_iso(),
+                research_provider='tavily', research_sources=[], research_image_urls=[],
+                research_summary='Configured research provider failed; check research credentials or quota.',
+                research_query=q, research_errors=errors)
+        if not errors:
+            _problem('Tavily returned no usable results')
 
     # Prefer the public provider that actually returns constrained listing
     # results. DDG often serves a 202 challenge and Bing RSS can lose intent.
