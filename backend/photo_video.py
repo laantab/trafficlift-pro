@@ -306,7 +306,8 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         d.rounded_rectangle((62,100,1018,455),radius=38,fill=bg)
         d.rounded_rectangle((48,470,1032,1420),radius=45,fill=accent)
         d.rounded_rectangle((65,487,1015,1403),radius=35,fill=bg)
-        d.rounded_rectangle((62,1425,1018,1635),radius=35,fill=bg)
+        if storyboard[scene]['layout'] != 'seller_fact_card':
+            d.rounded_rectangle((62,1425,1018,1635),radius=35,fill=bg)
         # Narration subtitles need their own high-contrast backing card.
         # A two-line 66px ASS caption with MarginV=110 sits at ~1650-1810;
         # the old footer stopped at 1635 and left words on the photo backdrop.
@@ -315,11 +316,13 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         text(d,(96,145),stage_labels.get(stage, 'PRODUCT DETAILS'),28)
         # Use the full product title only for the opening shot, preventing
         # five nearly identical title cards.
-        if scene == 0:
+        if scene == 0 or storyboard[scene]['layout'] == 'seller_fact_card':
+            # Fact cards show product identity once above the unique seller
+            # claim. Never repeat that same claim as heading, card and footer.
             for i,line in enumerate(title_lines):
                 text(d,(96,245+i*68),line,52)
         else:
-            # Every scene title comes from the product-specific reviewed plan,
+            # Every photo scene title comes from the product-specific reviewed plan,
             # never an interchangeable template heading.
             scene_heading = storyboard[scene]['caption']
             heading_lines = wrap(scene_heading,48)
@@ -336,8 +339,9 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             card_color = bg if bg in ('#221D1A','#101B30') else ink
             card_lines=wrap(storyboard[scene]['narration'],54,750)
             if len(card_lines)>8:raise ValueError('Seller fact card is too long.')
+            first_row_y = max(620, 930 - len(card_lines)*38)
             for row,line in enumerate(card_lines):
-                text(d,(150,655+row*76),line,54,card_color)
+                text(d,(150,first_row_y+row*76),line,54,card_color)
         else:
             fitted=(detail_photos[photo_index] if storyboard[scene]['photo_treatment']=='real_photo_detail_crop' else fitted_photos[photo_index])
             width,height,x,y=scene_geometry(fitted.size,scene,local)
@@ -345,7 +349,11 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
             im.paste(moving,(x,y))
         d=ImageDraw.Draw(im)
         labels=storyboard[scene]['caption']
-        if scene==len(phrases)-1:
+        if storyboard[scene]['layout'] == 'seller_fact_card':
+            # The seller claim is already large and centered in the card.
+            # Do not echo it in a third footer or create an empty footer panel.
+            pass
+        elif scene==len(phrases)-1:
             # Reserve the subtitle zone below y=1578. Do not stack the
             # duplicate footer label, CTA and two-line narration subtitles.
             d.rounded_rectangle((96,1450,790,1540),radius=26,fill=accent)
