@@ -53,9 +53,25 @@ def test_one_photo_never_invents_additional_photographs():
     assert {x["photo_index"] for x in scenes} == {0}
     assert {x["photo_treatment"] for x in scenes} == {"real_photo_full"}
     assert [x["layout"] for x in scenes] == [
-        "photo_hero", "photo_hero", "seller_fact_card",
+        "photo_hero", "seller_fact_card", "seller_fact_card",
         "seller_fact_card", "photo_hero",
     ]
+
+
+def test_one_high_resolution_photo_uses_only_genuine_detail_crops():
+    # A detail crop of the SAME exact-product photo is allowed when sharp.
+    # It must never be mislabeled as a different angle or lifestyle photo.
+    scenes = build_scene_storyboard(plan(), 1, [True])
+    assert [x["layout"] for x in scenes] == [
+        "photo_hero", "photo_hero", "photo_hero",
+        "seller_fact_card", "photo_hero",
+    ]
+    assert [x["photo_treatment"] for x in scenes] == [
+        "real_photo_full", "real_photo_detail_crop",
+        "real_photo_detail_crop", "real_photo_full", "real_photo_full",
+    ]
+    assert {x["photo_index"] for x in scenes} == {0}
+    assert not any(x["demonstration"] for x in scenes)
 
 
 def test_missing_product_photo_rejected():
@@ -191,7 +207,7 @@ def test_four_scene_sparse_ad_keeps_cta_on_actual_product_photo():
     scenes = build_scene_storyboard(sparse, 1, [False])
     assert len(scenes) == 4
     assert [item['layout'] for item in scenes] == [
-        'photo_hero', 'photo_hero', 'seller_fact_card', 'photo_hero'
+        'photo_hero', 'seller_fact_card', 'seller_fact_card', 'photo_hero'
     ]
     assert scenes[-1]['stage'] == 'cta'
     assert scenes[-1]['photo_index'] == 0
