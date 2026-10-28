@@ -332,3 +332,49 @@ def test_generic_buyer_hook_is_rejected_by_final_creative_gate():
     }
     with pytest.raises(ValueError, match='Generic placeholder'):
         creative_copy_gate(data)
+
+
+
+@pytest.mark.parametrize('field,fragment', [
+    ('phrases', '4, plastic material, made of plastic material'),
+    ('phrases', 'Warranty and support'),
+    ('captions', 'Product Description: view details'),
+    ('captions', '4. Plastic material, made of plastic material'),
+])
+def test_final_creative_review_rejects_retailer_fragments_from_restored_plans(field, fragment):
+    """Saved/untrusted plans must not bypass the source-copy cleanup."""
+    from backend.sales_script import creative_copy_gate
+    data = {
+        'product': 'JAS11242 LED Motion-Sensor Night Light',
+        'phrases': [
+            'Considering JAS11242 LED Motion-Sensor Night Light?',
+            'JAS11242 LED Motion-Sensor Night Light has a nickel finish.',
+            'Tap the product link to compare current options.'
+        ],
+        'captions': [
+            'JAS11242 LED Motion-Sensor Night Light',
+            'Nickel finish',
+            'View product details'
+        ],
+    }
+    data[field][1] = fragment
+    with pytest.raises(ValueError, match='Seller section headings'):
+        creative_copy_gate(data)
+
+
+def test_final_creative_review_preserves_real_numeric_product_specifications():
+    from backend.sales_script import creative_copy_gate
+    data = {
+        'product': 'JAS11242 LED Motion-Sensor Night Light',
+        'phrases': [
+            'Considering JAS11242 LED Motion-Sensor Night Light?',
+            'The JAS11242 LED Motion-Sensor Night Light includes a 4-piece mounting kit.',
+            'Tap the product link to compare current options.'
+        ],
+        'captions': [
+            'JAS11242 LED Motion-Sensor Night Light',
+            '4-piece mounting kit',
+            'View product details'
+        ],
+    }
+    assert creative_copy_gate(data)['status'] == 'PASS'
