@@ -2612,6 +2612,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
         async function renderPinPreview(winner, pkg) {
+        // Clear the previous winner's export before any validation can fail.
+        // Otherwise a stale 1000x1500 pin could be downloaded for a new item.
+        window.__lastPinDataUrl = null;
+        window.__lastPinFilename = null;
         const W = 1000, H = 1500;
         const canvas = document.createElement('canvas');
         canvas.width = W;
