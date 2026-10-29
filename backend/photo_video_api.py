@@ -8,7 +8,7 @@ from backend.media_exports import EXPORT_LOCK, PLATFORMS, LockedExportResponse, 
 from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
 from backend.photo_video import dependencies, render
-from backend.sales_script import build_sales_plan, marketing_readiness_gate
+from backend.sales_script import build_sales_plan, marketing_readiness_gate, is_distinct_product_fact
 from backend.product_facts import resolve_video_facts
 from local_video.trafficlift_video_bridge import _download_product_image, _validate_public_https_url
 
@@ -195,26 +195,46 @@ def save(record,directory):
         try:tmp.unlink(missing_ok=True)
         except OSError:pass
 
+def prepare_video_plan(payload):
+    """Resolve exact-listing evidence once, before reserving a render slot.
+
+    User-provided title/boilerplate cannot overwrite a sourced seller fact.
+    This step does not download video media, synthesize speech, or render.
+    """
+    from backend.product_facts import facts_from_sources
+    facts = dict(facts_from_sources(payload.name, payload.product_url, payload.fact_sources) or {})
+    valid = [value for value in [facts.get('benefit'), *(facts.get('feature_details') or [])]
+             if is_distinct_product_fact(value, payload.name)]
+    if len(valid) < 2 or 'oura ring 4' in payload.name.lower():
+        fetched = resolve_video_facts(payload.name, payload.product_url)
+        if fetched:
+            facts = dict(fetched)
+    photos = list(facts.pop('product_images', []) or [])
+    # An unverified override cannot erase stronger exact-listing evidence.
+    if payload.benefit and is_distinct_product_fact(payload.benefit, payload.name):
+        if not facts.get('benefit'):
+            facts['benefit'] = payload.benefit
+    if payload.buyer_need:
+        facts['buyer_need'] = payload.buyer_need
+    if payload.consideration:
+        facts['consideration'] = payload.consideration
+    benefit = facts.pop('benefit', '')
+    plan = build_sales_plan(payload.name, benefit, payload.product_url, 120, **facts)
+    return plan, photos
+
+
 def worker(record,payload,directory):
     global active_job_id
     def update(message):
         record.update(status='running',message=message);save(record,directory)
     try:
         update('Reading product facts and writing the complete sales script')
-        from backend.product_facts import facts_from_sources
-        facts = facts_from_sources(payload.name, payload.product_url, payload.fact_sources)
-        # Named manufacturer briefs include routine and sizing information,
-        # even when a single benefit was supplied in the input field.
-        if not facts or 'oura ring 4' in payload.name.lower():
-            fetched = resolve_video_facts(payload.name, payload.product_url)
-            if fetched: facts = fetched
-        photos = facts.pop('product_images',[]) if facts else []
-        if payload.benefit:
-            facts.update(benefit=payload.benefit)
-        if payload.buyer_need: facts['buyer_need']=payload.buyer_need
-        if payload.consideration: facts['consideration']=payload.consideration
-        benefit=facts.pop('benefit','')
-        record['sales_plan']=build_sales_plan(payload.name,benefit,payload.product_url,120,**facts)
+        if record.get('preflight_ready'):
+            # The authenticated POST already validated this exact sourced
+            # plan; do not re-query providers and change evidence mid-render.
+            photos = list(record.get('source_images') or [])
+        else:
+            record['sales_plan'], photos = prepare_video_plan(payload)
         # Refuse a vague five-scene catalog slideshow before downloading media
         # or spending CPU on speech and MP4 composition.
         marketing_readiness_gate(record['sales_plan'])
@@ -287,7 +307,10 @@ def create(payload:VideoRequest,request:Request):
     if _looks_like_article(payload.name, ''):
         raise HTTPException(422,'This selection is a guide or roundup. Choose one specific product before making its video.')
     try:
-        sales_plan=build_sales_plan(payload.name,payload.benefit,payload.product_url,120,payload.buyer_need,payload.consideration)
+        sales_plan, source_images = prepare_video_plan(payload)
+        # Fail with actionable HTTP 422 before reserving hosted capacity,
+        # creating a job, downloading images or invoking a paid renderer.
+        marketing_readiness_gate(sales_plan)
     except ValueError as exc:raise HTTPException(422,str(exc))
     try:dependencies()
     except ValueError as exc:raise HTTPException(503,str(exc))
@@ -303,7 +326,8 @@ def create(payload:VideoRequest,request:Request):
         raise
     try:
         job_id=uuid.uuid4().hex;directory=root/job_id;directory.mkdir()
-        record={'id':job_id,'name':payload.name,'created_at':time.time(),'seconds':payload.seconds,'status':'queued','message':'Getting photo','video_url':None,'product_url':payload.product_url,'sales_plan':sales_plan}
+        record={'id':job_id,'name':payload.name,'created_at':time.time(),'seconds':payload.seconds,'status':'queued','message':'Getting photo','video_url':None,'product_url':payload.product_url,'sales_plan':sales_plan,
+                'preflight_ready':True,'source_images':source_images}
         save(record,directory)
         active_job_id = job_id
         threading.Thread(target=worker,args=(record,payload,directory),daemon=True).start()

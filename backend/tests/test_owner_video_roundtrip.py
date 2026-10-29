@@ -55,6 +55,8 @@ def test_owner_login_create_status_history_and_mp4_download(monkeypatch, tmp_pat
         "image_url": "https://example.com/organizer.jpg",
         "product_url": "https://example.com/organizer",
         "benefit": "Keeps supplies organized",
+        "fact_sources": [{"title": "Desk Organizer", "url": "https://example.com/organizer",
+                          "snippet": "Includes three divided storage trays. Removable inserts for easy cleaning."}],
         "seconds": 15,
         "style": "clean",
     }
