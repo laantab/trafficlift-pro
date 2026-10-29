@@ -421,3 +421,104 @@ def test_wrong_model_cannot_be_hidden_by_correct_product_category():
     }
     with pytest.raises(ValueError, match='exact product model'):
         creative_copy_gate(plan)
+
+
+# Customer-reproduced Video Studio blocker, 2026-10-28.
+# The title and ASIN identify the case; seller facts below are TEST FIXTURES,
+# not verified claims about the real MEZMUT listing.
+MEZMUT_TITLE = 'MEZMUT 20 oz Insulated Tumbler Cup Travel Coffee Mug with Lid(Mixed1,6Pack)'
+
+
+def test_mezmut_variant_and_pack_are_not_required_model_codes():
+    from backend.sales_script import creative_copy_gate
+    restored = {
+        'product': MEZMUT_TITLE,
+        'phrases': [
+            f'Considering {MEZMUT_TITLE}?',
+            'Review the actual listing for included items and dimensions.',
+            'Tap the product link to check current options.',
+        ],
+        'captions': [
+            'MEZMUT Insulated Tumbler Cup',
+            'MEZMUT travel coffee mug',
+            'Check the exact seller listing',
+        ],
+    }
+    # "20 oz", "Mixed1", and "6Pack" are size/option/quantity tokens,
+    # not mandatory model identifiers in each short on-screen headline.
+    assert creative_copy_gate(restored)['status'] == 'PASS'
+
+
+def test_mezmut_caption_requires_brand_and_type_not_generic_cup_text():
+    from backend.sales_script import creative_copy_gate
+    restored = {
+        'product': MEZMUT_TITLE,
+        'phrases': [f'Considering {MEZMUT_TITLE}?',
+                    'Compare the seller listing details.',
+                    'Tap the product link to check current options.'],
+        'captions': ['Insulated Tumbler Cup', 'Travel Coffee Mug', 'See the listing'],
+    }
+    with pytest.raises(ValueError, match='brand and type'):
+        creative_copy_gate(restored)
+
+
+def test_mezmut_markdown_title_is_not_a_seller_benefit_or_renderable_ad():
+    from backend.sales_script import marketing_readiness_gate
+    result = build_sales_plan(
+        MEZMUT_TITLE, f'# {MEZMUT_TITLE}',
+        'https://www.amazon.com/dp/B0GVF21RZG', 30,
+    )
+    assert result['mode'] == 'product_overview'
+    assert result['evidence'] == []
+    assert result['creative_review']['status'] == 'PASS'
+    assert 'benefit details unavailable' in result['evidence_status']
+    with pytest.raises(ValueError, match='two distinct facts from the exact seller listing'):
+        marketing_readiness_gate(result)
+
+
+def test_mezmut_title_only_input_can_use_two_distinct_seller_fact_fixtures():
+    from backend.sales_script import marketing_readiness_gate
+    result = build_sales_plan(
+        MEZMUT_TITLE, f'# {MEZMUT_TITLE}',
+        'https://www.amazon.com/dp/B0GVF21RZG', 60,
+        feature_details=['Seller lists stainless steel material',
+                         'Seller lists a six-cup package'],
+        evidence_origin='user_supplied_seller_text',
+    )
+    assert result['mode'] == 'benefit_led'
+    assert result['evidence'][0]['text'] == 'Seller lists stainless steel material'
+    assert len(result['evidence']) == 2
+    assert marketing_readiness_gate(result)['distinct_product_facts'] == 2
+    assert 'MEZMUT' in ' '.join(result['captions'])
+
+
+def test_repeated_product_title_cannot_count_as_second_seller_fact_in_restored_plan():
+    from backend.sales_script import marketing_readiness_gate
+    restored = {
+        'mode': 'benefit_led', 'product': MEZMUT_TITLE,
+        'phrases': [f'Considering {MEZMUT_TITLE}?',
+                    'The listing describes a stainless steel material.',
+                    'Tap the product link to compare current options.'],
+        'captions': ['MEZMUT Insulated Tumbler Cup',
+                     'Stainless steel material',
+                     'View product details'],
+        'evidence': [
+            {'text': MEZMUT_TITLE, 'source_url': 'https://www.amazon.com/dp/B0GVF21RZG'},
+            {'text': 'Stainless steel material', 'source_url': 'https://www.amazon.com/dp/B0GVF21RZG'},
+        ],
+    }
+    with pytest.raises(ValueError, match='two distinct product facts'):
+        marketing_readiness_gate(restored)
+
+
+def test_real_jas11242_model_still_rejects_wrong_code_after_mezmut_fix():
+    from backend.sales_script import creative_copy_gate
+    restored = {
+        'product': 'JAS11242 LED Motion-Sensor Night Light Nickel Finish',
+        'phrases': ['Considering JAS11242 LED Motion-Sensor Night Light Nickel Finish?',
+                    'Seller lists a nickel finish.',
+                    'Tap the product link to compare current options.'],
+        'captions': ['JAS12201 Motion-Sensor Night Light', 'Nickel finish', 'View product'],
+    }
+    with pytest.raises(ValueError, match='exact product model'):
+        creative_copy_gate(restored)
