@@ -113,3 +113,9 @@ def test_old_saved_plan_with_asin_in_title_and_two_facts_passes_current_gate():
     )
     assert marketing_readiness_gate(plan)['status'] == 'PASS'
     assert all('B0GVF21RZG' not in caption for caption in plan['captions'])
+
+
+def test_title_only_benefit_remains_nonfact_when_asin_is_appended():
+    from backend.sales_script import is_distinct_product_fact
+    assert not is_distinct_product_fact('# ' + TITLE, TITLE + ' B0GVF21RZG')
+    assert not is_distinct_product_fact(TITLE, TITLE)
