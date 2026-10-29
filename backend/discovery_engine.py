@@ -158,9 +158,18 @@ def _discover_batch(*, exclude_ids=None, exclude_keys=None, client_id=None, seed
             # Evidence breadth is a transparent research signal, not sales,
             # profitability, or a fabricated trend percentage.
             score = min(len(domains), 5)*8 + min(len(sources), 5)*2 + min(len(signals), 5)*2
+            # Tavily's top-level image list belongs to the entire search query,
+            # not to any one product. Sharing it across candidates can display
+            # the same unrelated photo for different products. Only prefetch
+            # images attached to the candidate's exact listing source.
+            from backend.product_facts import canonical
+            source_images = [image for source in sources
+                             if canonical(source.get('url', '')) == canonical(card.url)
+                             for image in (source.get('image_urls') or [])
+                             if isinstance(image, str) and image.startswith(('https://', 'http://'))]
             candidates.append({'card': card, 'keys': keys, 'sources': sources,
                                'domains': len(domains), 'score': score, 'market_signals': signals,
-                               'images': list(getattr(env, 'research_image_urls', []) or [])})
+                               'images': list(dict.fromkeys(source_images))})
             candidate_keys.update(keys)
             if len(candidates) >= MAX_CANDIDATES: break
         if len(candidates) >= MAX_CANDIDATES: break
