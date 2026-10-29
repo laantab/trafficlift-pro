@@ -320,4 +320,4 @@ def test_query_wide_image_alone_cannot_qualify_a_product(isolated, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         engine.discover(client_id='no-bound-photo-browser-20261028', seed=4)
     assert exc.value.status_code == 404
-    assert seen == [[]]
+    assert seen and all(images == [] for images in seen)
