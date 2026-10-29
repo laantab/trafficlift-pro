@@ -74,6 +74,22 @@ def _fact_tokens(value):
     )
 
 
+def is_distinct_product_fact(value, product):
+    """Accept a seller claim only when it is neither title metadata nor filler.
+
+    This is a text-quality gate, not independent verification of seller truth.
+    Provenance must still be attached by the caller to the exact listing.
+    """
+    try:
+        fact = reject_retailer_fragment(clean(value, 160))
+    except ValueError:
+        return False
+    tokens = _fact_tokens(fact)
+    return bool(tokens and tokens != _fact_tokens(clean(product, 160)) and
+                not GENERIC_CREATIVE.search(fact) and
+                not GENERIC_EVIDENCE.search(fact))
+
+
 def reject_retailer_fragment(value):
     """Do not narrate raw numbered listing bullets or storefront section labels.
 
@@ -161,7 +177,8 @@ def marketing_readiness_gate(plan):
     seller/manufacturer brief. This checks source presence, not truth of claims;
     visual and factual human approval is still mandatory.
     """
-    creative_copy_gate(plan)
+    # Explain the evidence failure before running creative review. Otherwise a
+    # title-only listing can throw the misleading "Generic placeholder" error.
     if plan.get('mode') != 'benefit_led':
         raise ValueError('Not enough product-specific seller facts for a narrated ad: the benefit is missing or repeats the title. Supply two distinct facts from the exact seller listing before rendering. No video was rendered.')
     distinct = []
@@ -169,11 +186,7 @@ def marketing_readiness_gate(plan):
         if not isinstance(item, dict):
             continue
         fact = str(item.get('text') or '').strip()
-        if not fact or GENERIC_CREATIVE.search(fact) or GENERIC_EVIDENCE.search(fact):
-            continue
-        # A Markdown heading or listing title repeated as a "benefit" is
-        # identity metadata, never an independent seller-supported fact.
-        if _fact_tokens(fact) == _fact_tokens(plan.get('product', '')):
+        if not is_distinct_product_fact(fact, plan.get('product', '')):
             continue
         tokens = _fact_tokens(fact)
         if not tokens:
@@ -185,6 +198,7 @@ def marketing_readiness_gate(plan):
         distinct.append(tokens)
     if len(distinct) < 2:
         raise ValueError('A narrated ad needs at least two distinct product facts from the exact listing. No video was rendered.')
+    creative_copy_gate(plan)
     return {'status': 'PASS', 'distinct_product_facts': len(distinct)}
 
 
@@ -221,10 +235,16 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     consideration = reject_retailer_fragment(clean(consideration, 120))
     routine = reject_retailer_fragment(clean(routine, 160))
     details = [reject_retailer_fragment(clean(fact,160)) for fact in (feature_details or [])[:2]]
-    # Some product discovery records put the Markdown product heading in the
-    # benefit field. Strip its formatting and refuse to promote it to a claim.
-    if _fact_tokens(benefit) == _fact_tokens(name):
+    # Source snippets and user-entered hooks can contain generic ad templates.
+    # Discard those rather than allowing them to contaminate narration or
+    # become false evidence. A repeated Markdown product title is not a fact.
+    if not is_distinct_product_fact(benefit, name):
         benefit = ''
+    if consideration and not is_distinct_product_fact(consideration, name):
+        consideration = ''
+    if routine and not is_distinct_product_fact(routine, name):
+        routine = ''
+    details = [fact for fact in details if is_distinct_product_fact(fact, name)]
     if not benefit:
         # If the exact seller listing actually supplied two different facts,
         # use those instead of a title-only pseudo-benefit. Never fabricate
@@ -232,8 +252,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
         valid_details = []
         for fact in details:
             tokens = _fact_tokens(fact)
-            if (tokens and tokens != _fact_tokens(name) and
-                    not GENERIC_EVIDENCE.search(fact) and
+            if (is_distinct_product_fact(fact, name) and
                     tokens not in [_fact_tokens(x) for x in valid_details]):
                 valid_details.append(fact)
         if len(valid_details) >= 2:
