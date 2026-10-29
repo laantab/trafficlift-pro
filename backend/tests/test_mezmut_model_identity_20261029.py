@@ -119,3 +119,15 @@ def test_title_only_benefit_remains_nonfact_when_asin_is_appended():
     from backend.sales_script import is_distinct_product_fact
     assert not is_distinct_product_fact('# ' + TITLE, TITLE + ' B0GVF21RZG')
     assert not is_distinct_product_fact(TITLE, TITLE)
+
+
+def test_exact_listing_source_matches_when_title_includes_asin_metadata():
+    payload = request(fact_sources=[{
+        'title': TITLE, 'url': URL,
+        'snippet': 'Includes a stainless steel straw. Lid with silicone seal for a snug fit.'
+    }])
+    with patch('backend.photo_video_api.resolve_video_facts') as lookup:
+        plan, _ = prepare_video_plan(payload, require_renderable=True)
+    lookup.assert_not_called()
+    assert len(plan['evidence']) == 2
+    assert marketing_readiness_gate(plan)['status'] == 'PASS'
