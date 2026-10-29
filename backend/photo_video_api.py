@@ -195,7 +195,7 @@ def save(record,directory):
         try:tmp.unlink(missing_ok=True)
         except OSError:pass
 
-def prepare_video_plan(payload):
+def prepare_video_plan(payload, *, require_renderable=False):
     """Resolve exact-listing evidence once, before reserving a render slot.
 
     User-provided title/boilerplate cannot overwrite a sourced seller fact.
@@ -219,6 +219,19 @@ def prepare_video_plan(payload):
     if payload.consideration:
         facts['consideration'] = payload.consideration
     benefit = facts.pop('benefit', '')
+    if require_renderable:
+        # Do this BEFORE creative-copy validation. A title-only listing
+        # must return an actionable 422, never a misleading model-copy error.
+        # The full marketing gate still checks provenance and copy afterward.
+        candidates = [benefit, *(facts.get('feature_details') or []),
+                      facts.get('consideration'), facts.get('routine')]
+        distinct = {frozenset(re.findall(r'[a-z0-9]+', str(fact).casefold()))
+                    for fact in candidates if is_distinct_product_fact(fact, payload.name)}
+        if len(distinct) < 2:
+            raise ValueError(
+                'Not enough product-specific seller facts for a narrated ad: '
+                'supply two distinct facts from the exact seller listing. '
+                'No video was rendered.')
     plan = build_sales_plan(payload.name, benefit, payload.product_url, 120, **facts)
     return plan, photos
 
@@ -307,7 +320,7 @@ def create(payload:VideoRequest,request:Request):
     if _looks_like_article(payload.name, ''):
         raise HTTPException(422,'This selection is a guide or roundup. Choose one specific product before making its video.')
     try:
-        sales_plan, source_images = prepare_video_plan(payload)
+        sales_plan, source_images = prepare_video_plan(payload, require_renderable=True)
         # Fail with actionable HTTP 422 before reserving hosted capacity,
         # creating a job, downloading images or invoking a paid renderer.
         marketing_readiness_gate(sales_plan)
