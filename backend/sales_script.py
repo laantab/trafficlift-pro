@@ -132,7 +132,14 @@ def is_distinct_product_fact(value, product):
     except ValueError:
         return False
     tokens = _fact_tokens(fact)
-    return bool(tokens and tokens != _fact_tokens(clean(product, 160)) and
+    product_tokens = _fact_tokens(clean(product, 160))
+    # A title copied from the listing is still not a benefit when a catalog
+    # ASIN was appended to the Video Studio product name.
+    title_without_asin = frozenset(
+        token for token in product_tokens
+        if not re.fullmatch(r'b0[a-z0-9]{8}', token))
+    return bool(tokens and tokens != product_tokens and
+                tokens != title_without_asin and
                 not GENERIC_CREATIVE.search(fact) and
                 not GENERIC_EVIDENCE.search(fact))
 
