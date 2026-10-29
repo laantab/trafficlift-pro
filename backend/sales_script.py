@@ -114,7 +114,19 @@ def creative_copy_gate(plan):
     identity_words = [word for word in re.findall(r'[A-Za-z0-9]+', product)
                       if len(word) >= 4]
     visible_words = {word.casefold() for word in re.findall(r'[A-Za-z0-9]+', visible)}
-    model_words = [word for word in identity_words if any(char.isdigit() for char in word)]
+    # Listing sizes, quantities and selectable variants are not model/SKU
+    # identifiers. A title like "MEZMUT 20 oz ... (Mixed1,6Pack)" must not
+    # require those option tokens in a readable video headline. Genuine
+    # alphanumeric model codes such as JAS11242 remain mandatory.
+    def is_model(word):
+        value = word.casefold()
+        if re.fullmatch(r'(?:mixed|assorted|color|colour|variant|style|size)\d+', value):
+            return False
+        if re.fullmatch(r'\d+(?:pack|pk|count|ct|pcs?|pieces?|oz|ml|lb|g|kg|in|inch|cm|mm)', value):
+            return False
+        return len(word) >= 4 and any(c.isalpha() for c in word) and any(c.isdigit() for c in word)
+
+    model_words = [word for word in identity_words if is_model(word)]
     if model_words:
         # A model number alone is not a meaningful product-specific headline.
         # Require the actual model AND at least two distinguishing product
@@ -127,8 +139,15 @@ def creative_copy_gate(plan):
                        and word.casefold() not in {'model', 'series', 'color', 'finish'}]
         if len(set(descriptors) & visible_words) < min(2, len(set(descriptors))):
             raise ValueError('On-screen captions must identify the product type, not only its model.')
-    elif identity_words and not any(word.casefold() in visible_words for word in identity_words):
-        raise ValueError('On-screen captions must identify the product.')
+    elif identity_words:
+        # Without a model code, require a recognizable brand/name plus the
+        # product type, not a generic category headline or variant token.
+        descriptors = [word.casefold() for word in identity_words
+                       if not any(c.isdigit() for c in word)
+                       and word.casefold() not in {'with', 'from', 'and', 'model', 'series', 'color', 'finish'}]
+        if descriptors and (descriptors[0] not in visible_words or
+                            len(set(descriptors) & visible_words) < min(2, len(set(descriptors)))):
+            raise ValueError('On-screen captions must identify the product brand and type.')
     return {'status': 'PASS', 'product_identity': product, 'placeholder_copy': False}
 
 
@@ -144,13 +163,17 @@ def marketing_readiness_gate(plan):
     """
     creative_copy_gate(plan)
     if plan.get('mode') != 'benefit_led':
-        raise ValueError('Not enough product-specific seller facts for a narrated ad. No video was rendered.')
+        raise ValueError('Not enough product-specific seller facts for a narrated ad: the benefit is missing or repeats the title. Supply two distinct facts from the exact seller listing before rendering. No video was rendered.')
     distinct = []
     for item in (plan.get('evidence') or []):
         if not isinstance(item, dict):
             continue
         fact = str(item.get('text') or '').strip()
         if not fact or GENERIC_CREATIVE.search(fact) or GENERIC_EVIDENCE.search(fact):
+            continue
+        # A Markdown heading or listing title repeated as a "benefit" is
+        # identity metadata, never an independent seller-supported fact.
+        if _fact_tokens(fact) == _fact_tokens(plan.get('product', '')):
             continue
         tokens = _fact_tokens(fact)
         if not tokens:
@@ -198,6 +221,23 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
     consideration = reject_retailer_fragment(clean(consideration, 120))
     routine = reject_retailer_fragment(clean(routine, 160))
     details = [reject_retailer_fragment(clean(fact,160)) for fact in (feature_details or [])[:2]]
+    # Some product discovery records put the Markdown product heading in the
+    # benefit field. Strip its formatting and refuse to promote it to a claim.
+    if _fact_tokens(benefit) == _fact_tokens(name):
+        benefit = ''
+    if not benefit:
+        # If the exact seller listing actually supplied two different facts,
+        # use those instead of a title-only pseudo-benefit. Never fabricate
+        # facts from the product title, category or photograph.
+        valid_details = []
+        for fact in details:
+            tokens = _fact_tokens(fact)
+            if (tokens and tokens != _fact_tokens(name) and
+                    not GENERIC_EVIDENCE.search(fact) and
+                    tokens not in [_fact_tokens(x) for x in valid_details]):
+                valid_details.append(fact)
+        if len(valid_details) >= 2:
+            benefit, details = valid_details[0], valid_details[1:]
     if not benefit:
         # Missing seller text must not turn a valid photo render into a dead end.
         # Offer a complete, explicitly labeled buying overview without claims.
