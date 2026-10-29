@@ -57,6 +57,53 @@ def concise_caption(value, limit=65):
     return ' '.join(words).rstrip('.,;:')
 
 
+
+# Listing options and Amazon ASINs are not manufacturer model numbers.
+# Repeated groups cover concatenated option tokens like 20oz6Pack.
+_OPTION_TOKEN = re.compile(
+    r'(?:(?:mixed|assorted|color|colour|variant|style|size)\d+|'
+    r'\d+(?:pack|pk|count|ct|pcs?|pieces?|oz|ml|lb|g|kg|in|inch|cm|mm))+',
+    re.I,
+)
+
+
+def is_model_identifier(word):
+    token = str(word or '').casefold()
+    if re.fullmatch(r'b0[a-z0-9]{8}', token):  # Amazon ASIN, not a model
+        return False
+    if _OPTION_TOKEN.fullmatch(token):
+        return False
+    return len(token) >= 4 and any(c.isalpha() for c in token) and any(c.isdigit() for c in token)
+
+
+def identity_caption(name, limit=65):
+    """Keep a genuine model and recognizable product type within layout width."""
+    title = clean(name, 160)
+    compact = concise_caption(title, limit)
+    words = re.findall(r'[A-Za-z0-9]+', title)
+    models = [word for word in words if is_model_identifier(word)]
+    shown = {word.casefold() for word in re.findall(r'[A-Za-z0-9]+', compact)}
+    if all(model.casefold() in shown for model in models):
+        return compact
+    chosen = []
+    for word in [words[0], *models, *words[1:]]:
+        if word.casefold() in {item.casefold() for item in chosen}:
+            continue
+        if word not in models and (word.isdigit() or _OPTION_TOKEN.fullmatch(word)):
+            continue
+        if word.casefold() in {'with', 'from', 'and', 'for', 'the', 'of'}:
+            continue
+        if len(' '.join([*chosen, word])) > limit:
+            continue
+        chosen.append(word)
+        if len(chosen) >= max(4, len(models) + 3):
+            break
+    if not all(model.casefold() in {word.casefold() for word in chosen} for model in models):
+        raise ValueError('Product model is too long for a readable caption.')
+    return ' '.join(chosen)
+
+
+
 GENERIC_EVIDENCE = re.compile(
     r'^(?:check|review|compare|see|tap|visit|choose|browse)\b.*'
     r'\b(?:listing|listed|price|options|details|specifications|features|seller)\b'
@@ -130,19 +177,8 @@ def creative_copy_gate(plan):
     identity_words = [word for word in re.findall(r'[A-Za-z0-9]+', product)
                       if len(word) >= 4]
     visible_words = {word.casefold() for word in re.findall(r'[A-Za-z0-9]+', visible)}
-    # Listing sizes, quantities and selectable variants are not model/SKU
-    # identifiers. A title like "MEZMUT 20 oz ... (Mixed1,6Pack)" must not
-    # require those option tokens in a readable video headline. Genuine
-    # alphanumeric model codes such as JAS11242 remain mandatory.
-    def is_model(word):
-        value = word.casefold()
-        if re.fullmatch(r'(?:mixed|assorted|color|colour|variant|style|size)\d+', value):
-            return False
-        if re.fullmatch(r'\d+(?:pack|pk|count|ct|pcs?|pieces?|oz|ml|lb|g|kg|in|inch|cm|mm)', value):
-            return False
-        return len(word) >= 4 and any(c.isalpha() for c in word) and any(c.isdigit() for c in word)
-
-    model_words = [word for word in identity_words if is_model(word)]
+    # Preserve genuine SKUs but exclude catalog sizes, variants and ASINs.
+    model_words = [word for word in identity_words if is_model_identifier(word)]
     if model_words:
         # A model number alone is not a meaningful product-specific headline.
         # Require the actual model AND at least two distinguishing product
@@ -312,7 +348,7 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
         ]
         captions = [concise_caption(need), concise_caption(benefit)] + [
             concise_caption(fact) for fact in scene_facts
-        ] + [concise_caption(name, 38)]
+        ] + [identity_caption(name, 38)]
         stages = ['hook', 'benefit'] + (
             ['routine'] if len(scene_facts) == 1 else ['routine', 'buying_details']
         ) + ['cta']
@@ -324,8 +360,8 @@ def build_sales_plan(name, benefit, destination, seconds, buyer_need='', conside
                    f'For {name}, check the current seller listing for exact fit.',
                    'Tap the product link to compare the current price and options, then choose what fits your needs.']
         captions = [concise_caption(need), concise_caption(benefit),
-                    concise_caption(name, 48), concise_caption(name, 48),
-                    concise_caption(name, 38)]
+                    identity_caption(name, 48), identity_caption(name, 48),
+                    identity_caption(name, 38)]
         stages = ['hook', 'benefit', 'routine', 'buying_details', 'cta']
     status={'matched_seller_page':'Facts retrieved from the identity-matched seller page; seller claims are not independently tested',
             'indexed_seller_description':'Facts from research text attached to this exact seller listing; not independently tested',
