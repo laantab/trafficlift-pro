@@ -284,3 +284,40 @@ def test_auto_batches_respect_shared_time_limit(monkeypatch):
     with pytest.raises(HTTPException) as error:engine.discover(client_id='regression-browser-timeout')
     assert batch.call_count==1
     assert 'after 1 research batch' in error.value.detail
+
+
+def test_query_wide_tavily_images_are_never_assigned_to_unrelated_listings(isolated, monkeypatch):
+    """A search-wide image is not proof that it depicts each candidate."""
+    env = envelope(('Orbit Desk Lamp', 'Atlas Travel Mug'))
+    env.research_image_urls = ['https://images.example/global-unrelated-product.jpg']
+    env.research_sources[0]['image_urls'] = ['https://images.example/orbit-exact.jpg']
+    env.research_sources[1]['image_urls'] = ['https://images.example/atlas-exact.jpg']
+    monkeypatch.setattr(engine.live_research, 'research', lambda *a, **kw: env)
+    seen = {}
+    def candidate_image(card, **kwargs):
+        urls = kwargs.get('tavily_image_urls') or []
+        seen[card.name] = urls
+        return urls[0] if urls else None
+    monkeypatch.setattr('backend.discovery._find_image_for_candidate', candidate_image)
+    winner = engine.discover(client_id='exact-photo-browser-20261028', seed=4)
+    assert seen == {
+        'Orbit Desk Lamp': ['https://images.example/orbit-exact.jpg'],
+        'Atlas Travel Mug': ['https://images.example/atlas-exact.jpg'],
+    }
+    assert 'global-unrelated-product' not in winner['image_url']
+
+
+def test_query_wide_image_alone_cannot_qualify_a_product(isolated, monkeypatch):
+    """Never promote an unbound image to exact-product photo evidence."""
+    env = envelope(('Orbit Desk Lamp',))
+    env.research_image_urls = ['https://images.example/global-unrelated-product.jpg']
+    monkeypatch.setattr(engine.live_research, 'research', lambda *a, **kw: env)
+    seen = []
+    def candidate_image(card, **kwargs):
+        seen.append(kwargs.get('tavily_image_urls'))
+        return None
+    monkeypatch.setattr('backend.discovery._find_image_for_candidate', candidate_image)
+    with pytest.raises(HTTPException) as exc:
+        engine.discover(client_id='no-bound-photo-browser-20261028', seed=4)
+    assert exc.value.status_code == 404
+    assert seen and all(images == [] for images in seen)

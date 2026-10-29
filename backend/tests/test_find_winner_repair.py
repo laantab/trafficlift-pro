@@ -4092,8 +4092,8 @@ def test_alidropship_host_is_product_host():
 #   - the cascade path is not exercised (pre-fetched is accepted first)
 
 def test_discover_winner_uses_prefetched_image_first(monkeypatch):
-    """If the Tavily envelope's research_image_urls contains a high-scoring
-    image, discover_winner must use it WITHOUT running the cascade."""
+    """Only a photo attached to the exact listing research result may be
+    prefetched; a query-wide Tavily image pool is not product evidence."""
     import types
     from backend import discovery as discovery_mod
     from backend.product_control_agent import ProductControlAgent
@@ -4102,7 +4102,8 @@ def test_discover_winner_uses_prefetched_image_first(monkeypatch):
     fake_sources = [
         {"title": "LED Desk Lamp with USB Port", "url": "https://example.com/lamp",
          "snippet": "Product reviews for office desks.",
-         "content": "Desk lighting."},
+         "content": "Desk lighting.",
+         "image_urls": ["https://m.media-amazon.com/images/I/asin.jpg"]},
     ]
     fake_image_urls = [
         "https://m.media-amazon.com/images/I/asin.jpg",
