@@ -1183,7 +1183,7 @@
                         <label class="text-xs text-slate-400">Narration length<select id="freeVideoLength" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="30" selected>Automatic — complete script</option></select></label>
                         <label class="text-xs text-slate-400">Scene style<select id="freeVideoStyle" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="warm">Warm studio</option><option value="clean">Clean studio</option><option value="bold">Bold studio</option></select></label>
                     </div>
-                    <p class="text-xs text-slate-500">Five scenes: buyer need → product → daily use → buying details → call to action. Available seller facts are included automatically; otherwise the video is labeled a product overview. The full narration determines the finished length. Captions and voice included. The destination link is provided separately for your post.</p>
+                    <p class="text-xs text-slate-500">Five scenes: buyer need → product → daily use → buying details → call to action. Available seller facts are included automatically. If two distinct exact-listing facts are unavailable, Video Studio explains what is missing before starting a render. The full narration determines the finished length. Captions and voice included. The destination link is provided separately for your post.</p>
                     <details><summary class="text-sm cursor-pointer">Past videos</summary><div id="freeVideoHistory" class="mt-2 space-y-2 text-sm"></div></details>
                 </div>
                 <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
@@ -1396,7 +1396,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('freeProductPreview').src = winner.image_url || '';
         document.getElementById('freeProductName').value = winner.name;
         document.getElementById('freeProductUrl').value = winner.url || '';
-        document.getElementById('freeProductFact').value = winner.seller_benefit_source === winner.url ? (winner.seller_benefit || '') : '';
+        // Discovery sometimes stores the Markdown product heading as a
+        // pseudo-benefit. Never prefill it as if it were a seller claim.
+        const normalizeSellerText = value => String(value || '').replace(/^\\s*#{1,6}\\s*/, '').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+        const sellerBenefit = winner.seller_benefit_source === winner.url ? (winner.seller_benefit || '') : '';
+        document.getElementById('freeProductFact').value =
+            normalizeSellerText(sellerBenefit) === normalizeSellerText(winner.name) ? '' : sellerBenefit;
         document.getElementById('freeBuyerNeed').value = '';
         document.getElementById('freeBuyingDetail').value = '';
         loadFreeVideoHistory();
