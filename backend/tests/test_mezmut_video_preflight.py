@@ -40,9 +40,9 @@ def test_reproduced_title_only_mezmut_has_specific_evidence_error_not_placeholde
 
 def test_video_post_rejects_title_only_before_dependency_or_capacity_or_render():
     payload = request()
-    with patch('backend.photo_video_api.video_guard'), \\
-         patch('backend.photo_video_api.resolve_video_facts', return_value={}), \\
-         patch('backend.photo_video_api.dependencies') as dependencies, \\
+    with patch('backend.photo_video_api.video_guard'), \
+         patch('backend.photo_video_api.resolve_video_facts', return_value={}), \
+         patch('backend.photo_video_api.dependencies') as dependencies, \
          patch('backend.photo_video_api.reserve_hosted_render') as reserve:
         with pytest.raises(HTTPException) as error:
             create(payload, request=None)
@@ -56,9 +56,9 @@ def test_video_post_rejects_title_only_before_dependency_or_capacity_or_render()
 def test_worker_reports_specific_failure_without_downloading_or_rendering(tmp_path):
     payload = request()
     record = {'id': 'f' * 32, 'status': 'queued'}
-    with patch('backend.photo_video_api.resolve_video_facts', return_value={}), \\
-         patch('backend.photo_video_api._download_product_image') as download, \\
-         patch('backend.photo_video_api.render') as render, \\
+    with patch('backend.photo_video_api.resolve_video_facts', return_value={}), \
+         patch('backend.photo_video_api._download_product_image') as download, \
+         patch('backend.photo_video_api.render') as render, \
          patch('backend.photo_video_api.lock') as lock:
         worker(record, payload, tmp_path)
     assert record['status'] == 'failed'
