@@ -48,7 +48,10 @@ def facts_from_sources(name, destination, sources):
     """Only text attached to this exact listing; never a generic article."""
     expected=canonical(destination)
     facts=[];images=[]
-    identity=' '.join(re.findall(r'[a-z0-9]+',product_name(name).lower()))
+    # An ASIN appended by the UI is catalog metadata; an exact seller-page
+    # title may omit it. URL equality still anchors evidence to the listing.
+    identity=' '.join(token for token in re.findall(r'[a-z0-9]+', product_name(name).lower())
+                      if not re.fullmatch(r'b0[a-z0-9]{8}', token))
     for source in sources or []:
         if canonical(source.get('url','')) != expected:
             continue
