@@ -19,7 +19,7 @@ URL = 'https://www.amazon.com/dp/B0GVF21RZG'
 
 @pytest.mark.parametrize('title', [
     TITLE,
-    TITLE + ' ASIN B0GVF21RZG',
+    TITLE + ' B0GVF21RZG',
     'MEZMUT 20oz6Pack Insulated Tumbler Cup Travel Coffee Mug Mixed1',
     'MEZMUT 20-oz Insulated Tumbler Cup (Mixed-1, 6-Pack)',
     'MEZMUT 20OZ Insulated Tumbler Cup Mixed1 6Pack B0GVF21RZG',
@@ -61,7 +61,7 @@ def test_real_sku_at_end_survives_short_caption_and_wrong_sku_is_refused():
 
 def request(**changes):
     data = dict(
-        name=TITLE + ' ASIN B0GVF21RZG',
+        name=TITLE + ' B0GVF21RZG',
         image_url='https://m.media-amazon.com/images/I/fixture.jpg',
         product_url=URL,
         benefit='# ' + TITLE,
@@ -105,7 +105,7 @@ def test_sourced_fact_fixture_creates_identity_aware_plan_without_unsupported_cl
 
 
 def test_old_saved_plan_with_asin_in_title_and_two_facts_passes_current_gate():
-    name = TITLE + ' ASIN B0GVF21RZG'
+    name = TITLE + ' B0GVF21RZG'
     plan = build_sales_plan(
         name, 'Includes a stainless steel straw', URL, 60,
         feature_details=['Lid with silicone seal for a snug fit'],
