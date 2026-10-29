@@ -120,9 +120,9 @@ def creative_copy_gate(plan):
     # alphanumeric model codes such as JAS11242 remain mandatory.
     def is_model(word):
         value = word.casefold()
-        if re.fullmatch(r'(?:mixed|assorted|color|colour|variant|style|size)\\d+', value):
+        if re.fullmatch(r'(?:mixed|assorted|color|colour|variant|style|size)\d+', value):
             return False
-        if re.fullmatch(r'\\d+(?:pack|pk|count|ct|pcs?|pieces?|oz|ml|lb|g|kg|in|inch|cm|mm)', value):
+        if re.fullmatch(r'\d+(?:pack|pk|count|ct|pcs?|pieces?|oz|ml|lb|g|kg|in|inch|cm|mm)', value):
             return False
         return len(word) >= 4 and any(c.isalpha() for c in word) and any(c.isdigit() for c in word)
 
