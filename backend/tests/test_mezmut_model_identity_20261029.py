@@ -76,9 +76,9 @@ def request(**changes):
 
 def test_actual_request_shape_returns_precise_422_before_any_render_resources():
     payload = request()
-    with patch('backend.photo_video_api.video_guard'), \\
-         patch('backend.photo_video_api.resolve_video_facts', return_value={}), \\
-         patch('backend.photo_video_api.dependencies') as dependencies, \\
+    with patch('backend.photo_video_api.video_guard'), \
+         patch('backend.photo_video_api.resolve_video_facts', return_value={}), \
+         patch('backend.photo_video_api.dependencies') as dependencies, \
          patch('backend.photo_video_api.reserve_hosted_render') as reserve:
         with pytest.raises(HTTPException) as err:
             create(payload, request=None)
