@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const html = fs.readFileSync('index.html', 'utf8');
 const start = html.indexOf('    function editPinterestPackage(');
-const end = html.indexOf('    function renderPinterestResult(', start);
+const end = html.indexOf('    async function renderPinterestResult(', start);
 assert(start >= 0 && end > start, 'Pinterest editorial function must exist');
 const context = vm.createContext({});
 vm.runInContext(html.slice(start, end), context);
