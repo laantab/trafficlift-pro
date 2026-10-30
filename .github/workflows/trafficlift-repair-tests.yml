@@ -80,6 +80,10 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Verify lamp pin in real Chromium
         run: node backend/tests/chromium_pin.cjs
+      - name: Verify pin retry, 502 and real JPEG download without rediscovery
+        run: node backend/tests/pin_retry_chromium.cjs
+      - name: Verify bounded safe public pin-photo endpoint
+        run: python -m pytest backend/tests/test_pin_image_api.py -q
       - name: Save Chromium acceptance pin
         if: always()
         uses: actions/upload-artifact@v4
