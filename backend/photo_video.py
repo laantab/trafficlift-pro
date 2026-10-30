@@ -130,6 +130,21 @@ def measured_caption_chunks(phrase, measure):
             for lines in fit(chunk.split())]
 
 
+def normalize_narration_measurements(text):
+    """Speak measurement abbreviations naturally without changing captions.
+
+    Match only a numeric quantity followed by an abbreviation so letters in
+    model codes, brand names and ordinary words remain untouched.
+    """
+    import re
+    spoken = str(text or '')
+    spoken = re.sub(r'(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*(?:fl\.?\s*)?oz\b\.?',
+                    lambda m: m.group(1) + (' ounce' if float(m.group(1)) == 1 else ' ounces'), spoken)
+    spoken = re.sub(r'(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*(?:fluid\s+)?ounces?\b',
+                    lambda m: m.group(1) + (' ounce' if float(m.group(1)) == 1 else ' ounces'), spoken)
+    return spoken
+
+
 def check_narration_audio(path):
     """Reject a silent, clipped or nearly inaudible spoken track before MP4 export."""
     import numpy as np
@@ -238,7 +253,9 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     progress('Making video — recording narration')
     clips=[];rate=24000
     for phrase in phrases:
-        audio,rate=engine.create(phrase,voice='af_heart',speed=1.08,lang='en-us');clips.append(audio)
+        # Expand measurement abbreviations for TTS only; preserve on-screen text.
+        spoken = normalize_narration_measurements(phrase)
+        audio,rate=engine.create(spoken,voice='af_heart',speed=1.08,lang='en-us');clips.append(audio)
     lengths=[len(a)/rate for a in clips]
     # Use every recorded phrase. Natural length replaces long silent holds
     # and can extend the requested target instead of cutting the sales script.

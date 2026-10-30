@@ -193,3 +193,15 @@ def test_vertical_video_subtitle_legibility_guard():
     assert 'f\'Style: Default,{caption_family},{ASS_CAPTION_FONT_SIZE},' in source
     assert 'measured_caption_chunks(phrase, font(ASS_CAPTION_FONT_SIZE).getlength)' in source
     assert 'lines=wrap(chunk,26,760)' not in source
+
+
+def test_numeric_ounce_units_are_spoken_naturally_without_mutating_captions():
+    from backend.photo_video import normalize_narration_measurements
+    assert normalize_narration_measurements('REGALWOVEN 20 oz insulated tumbler') == 'REGALWOVEN 20 ounces insulated tumbler'
+    assert normalize_narration_measurements('1 oz cup and 12 fl oz bottle') == '1 ounce cup and 12 ounces bottle'
+    assert normalize_narration_measurements('JAS11242 model; 20oz travel mug') == 'JAS11242 model; 20 ounces travel mug'
+    assert normalize_narration_measurements('Ozone-safe model OZ200') == 'Ozone-safe model OZ200'
+    assert normalize_narration_measurements('REGALWOVEN 18/8 stainless-steel 20 oz. cup') == 'REGALWOVEN 18/8 stainless-steel 20 ounces cup'
+    assert normalize_narration_measurements('1.5 fl. oz. bottle') == '1.5 ounces bottle'
+    assert normalize_narration_measurements('AB20oz model') == 'AB20oz model'
+    assert normalize_narration_measurements('20 ounce travel mug') == '20 ounces travel mug'
