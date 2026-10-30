@@ -2525,8 +2525,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const img = new Image();
             img.crossOrigin = 'anonymous';
             await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = () => reject(new Error('cors-load-failed'));
+                const timer = setTimeout(() => reject(new Error('product-photo-timeout')), 25000);
+                img.onload = () => { clearTimeout(timer); resolve(); };
+                img.onerror = () => { clearTimeout(timer); reject(new Error('product-photo-load-failed')); };
                 img.src = apiUrl((window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?') + new URLSearchParams({url}));
             });
             return img;
@@ -2729,7 +2730,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // Use the cached designed pin if available (so download matches
         // what's on screen); otherwise re-render synchronously with no image.
         if (!window.__lastPinDataUrl) {
-            showToast('No pin', 'Generate a winner first.', 'warning');
+            showToast('Pin not ready', 'Use Generate Pinterest Pin on the saved winner. No new product search is needed.', 'warning');
             return;
         }
         try {
