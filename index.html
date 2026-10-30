@@ -2923,9 +2923,47 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 try { lucide.createIcons(); } catch (_) {}
             }
 
-            // E. Pin generation is independent of discovery. Preserve this
-            // verified winner even if the Pinterest API or canvas fails.
-            await generatePinterestForWinner(winner);
+            // â”€â”€ E. Auto-generate the Pinterest package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            const genUrl = apiUrl('/api/v1/traffic/generate');
+            console.log('[pick-pipeline] â†’ POST', genUrl, { id: winner.id });
+            const GEN_TIMEOUT_MS = 30000;
+            const genController = new AbortController();
+            const genTimer = setTimeout(() => genController.abort(), GEN_TIMEOUT_MS);
+            let genResp;
+            try {
+                genResp = await fetch(genUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        mode: 'organic',
+                        target_channels: ['pinterest'],
+                        product_payload: winner,
+                    }),
+                    signal: genController.signal,
+                });
+            } catch (networkErr) {
+                clearTimeout(genTimer);
+                if (networkErr && networkErr.name === 'AbortError') {
+                    throw new Error('Pinterest generation took too long. Please try again.');
+                }
+                throw new Error('Network error reaching /traffic/generate: '
+                    + (networkErr && networkErr.message || networkErr));
+            }
+            clearTimeout(genTimer);
+            if (!genResp.ok) {
+                let detail = '';
+                try {
+                    const errBody = await genResp.json();
+                    detail = errBody?.detail || errBody?.message || '';
+                } catch (_) { /* not JSON */ }
+                throw new Error('Pinterest generation HTTP ' + genResp.status
+                    + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
+            }
+            const genData = await genResp.json();
+            console.log('[pick-pipeline] âœ“ pinterest', { campaign_id: genData.campaign_id });
+            if (!genData?.compiled_package?.pinterest_seo_engine)
+                throw new Error('Pinterest response did not include compiled_package.pinterest_seo_engine. The winning product is preserved; use Generate Pinterest Pin to retry.');
+            await renderPinterestResult(genData, winner);
 
             success = true;
             if (typeof showToast === 'function') {
