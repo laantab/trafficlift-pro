@@ -458,7 +458,12 @@
 
     // â”€â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     document.addEventListener('DOMContentLoaded', () => {
-        restoreCurrentWinner();
+        const savedWinner = restoreCurrentWinner();
+        if (savedWinner && savedWinner.id && savedWinner.image_url) {
+            // Restore the selected winner card, not discovery, so pin retry
+            // remains available after a reload or a failed campaign request.
+            displayWinnerCard(savedWinner);
+        }
         updateChannelGrid();
         fetchHealthStatus();
         loadHistory();
@@ -2162,9 +2167,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         </div>
                         <button type="button" onclick="renderPinterestAd()" id="pinterestLaunchBtn"
                             class="bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow flex items-center gap-2"
-                            title="Re-run the Pinterest package generator on the current winner.">
+                            title="Generate a designed Pinterest pin from this saved winner without another discovery request.">
                             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                            Retry Pinterest Package
+                            Generate Pinterest Pin
                         </button>
                     </div>
                 </div>
@@ -2187,27 +2192,17 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     // Safe path: passes the in-memory winner dict to /api/v1/traffic/generate
     // as `product_payload`, so the URL is never fetched and anti-bot blocks
     // cannot produce "Untitled Product" cascades.
-    async function renderPinterestAd() {
-        const winner = window.__currentWinner;
-        const btn = document.getElementById('pinterestLaunchBtn');
-        const out = document.getElementById('pinterestResult');
-
-        if (!winner || !winner.id) {
-            showToast(
-                'Pick a winner first',
-                'Click 🎯 Find Winner before launching the Pinterest campaign.',
-                'warning'
-            );
-            return;
+    async function generatePinterestForWinner(winner) {
+        if (!winner || !winner.id || !winner.name || !winner.image_url ||
+                (winner.image_status && winner.image_status !== 'verified')) {
+            throw new Error('The saved winner needs its verified exact-product photo before making a pin.');
         }
-
-        showLoadingState(btn, true);
-        if (out) { out.classList.add('hidden'); out.innerHTML = ''; }
-
+        // One bounded attempt. Never rerun discovery or replace the winner.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 30000);
+        let response;
         try {
-            const endpoint = apiUrl('/api/v1/traffic/generate');
-            console.log('[pinterest] -> POST', endpoint, { id: winner.id });
-            const r = await fetch(endpoint, {
+            response = await fetch(apiUrl('/api/v1/traffic/generate'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify({
@@ -2215,34 +2210,54 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     target_channels: ['pinterest'],
                     product_payload: winner,
                 }),
+                signal: controller.signal,
             });
-            console.log('[pinterest] <- status', r.status);
-            if (!r.ok) {
-                let detail = '';
-                try {
-                    const errBody = await r.json();
-                    detail = errBody?.detail || '';
-                } catch (_) { /* not JSON */ }
-                throw new Error('HTTP ' + r.status + (detail ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
-            }
-            const data = await r.json();
-            console.log('[pinterest] ✓', { campaign_id: data.campaign_id, source: data.source });
-            renderPinterestResult(data, winner);
-            showToast(
-                'Pinterest package ready',
-                data.campaign_id ? `Campaign ${data.campaign_id.slice(0, 8)}… saved.` : 'Generated.',
-                'success'
-            );
-        } catch (e) {
-            console.error('[pinterest] launch failed', e);
+        } catch (error) {
+            if (error && error.name === 'AbortError')
+                throw new Error('Pinterest package request timed out after 30 seconds. Your winner is saved; use Generate Pinterest Pin to retry.');
+            throw new Error('Pinterest package request failed: ' + (error?.message || String(error)));
+        } finally {
+            clearTimeout(timer);
+        }
+        if (!response.ok) {
+            const details = await response.json().catch(() => ({}));
+            const detail = details?.detail || details?.message || 'Server did not return a Pinterest package.';
+            throw new Error('Pinterest HTTP ' + response.status + ': ' +
+                (typeof detail === 'string' ? detail : JSON.stringify(detail)) +
+                '. Your selected winner is preserved.');
+        }
+        const data = await response.json();
+        if (!data?.compiled_package?.pinterest_seo_engine)
+            throw new Error('Pinterest response did not include compiled_package.pinterest_seo_engine. Your winner is saved; retry the pin without discovering another product.');
+        await renderPinterestResult(data, winner);
+        return data;
+    }
+
+    async function renderPinterestAd() {
+        const winner = restoreCurrentWinner();
+        const btn = document.getElementById('pinterestLaunchBtn');
+        const out = document.getElementById('pinterestResult');
+        if (!winner || !winner.id) {
+            showToast('No saved winner', 'Find one verified product before generating its pin.', 'warning');
+            return;
+        }
+        showLoadingState(btn, true);
+        if (out) {
+            out.classList.remove('hidden');
+            out.innerHTML = '<div class="text-pink-200 text-xs p-3">Generating Pinterest package and exact-photo preview…</div>';
+        }
+        try {
+            await generatePinterestForWinner(winner);
+            showToast('Pinterest pin ready', 'Designed 1000×1500 JPEG is ready to download.', 'success');
+        } catch (error) {
+            const message = error?.message || String(error);
             if (out) {
                 out.classList.remove('hidden');
-                out.innerHTML = `
-                    <div class="bg-rose-900/30 border border-rose-700/40 text-rose-200 text-xs rounded-lg p-3">
-                        <strong>Generation failed.</strong> ${escapeHtml(e && e.message || String(e))}
-                    </div>`;
+                out.innerHTML = '<div role="alert" class="bg-rose-900/30 border border-rose-700/40 text-rose-200 text-xs rounded-lg p-3">' +
+                    '<strong>Pin not ready.</strong> ' + escapeHtml(message) +
+                    '<p class="mt-2">Your winning product and verified photo are still saved. Use Generate Pinterest Pin to retry.</p></div>';
             }
-            showToast('Pinterest launch failed', e && e.message || String(e), 'error');
+            showToast('Pinterest pin failed', message, 'error');
         } finally {
             showLoadingState(btn, false);
         }
@@ -2327,9 +2342,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         };
     }
 
-    function renderPinterestResult(data, winner) {
+    async function renderPinterestResult(data, winner) {
         const out = document.getElementById('pinterestResult');
-        if (!out) return;
+        if (!out) throw new Error('Pinterest preview container is missing. Reload and generate the pin again.');
         // Invalidate any older asynchronous image draw before starting a new pin.
         const renderGeneration = ++window.__pinRenderGeneration;
         window.__lastPinDataUrl = null;
@@ -2340,7 +2355,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 <div class="bg-amber-900/30 border border-amber-700/40 text-amber-200 text-xs rounded-lg p-3">
                     No Pinterest package was returned. Check the server logs.
                 </div>`;
-            return;
+            throw new Error('Pinterest package is missing from the server response. Your winner remains saved.');
         }
 
         // Build the editable marketing package without any paid text generation.
@@ -2407,30 +2422,36 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // Render the designed pin and embed it as a preview image. The data URL
         // is cached on window.__lastPinDataUrl so the Download button ships
         // exactly this design.
-        renderPinPreview(winner, reviewedPkg).then((dataUrl) => {
-            if (renderGeneration !== window.__pinRenderGeneration) return;
+        try {
+            const dataUrl = await renderPinPreview(winner, reviewedPkg);
+            if (renderGeneration !== window.__pinRenderGeneration)
+                throw new Error('The selected winner changed while the pin was rendering.');
+            if (!dataUrl || !dataUrl.startsWith('data:image/jpeg;base64,'))
+                throw new Error('The designed JPEG was not produced. Retry Generate Pinterest Pin.');
             const wrap = document.getElementById('pinPreviewWrap');
+            if (!wrap) throw new Error('Pinterest preview container disappeared.');
+            wrap.innerHTML = '<img src="' + dataUrl + '" alt="Designed 1000 by 1500 Pinterest pin" class="w-full h-full object-cover">';
             const notice = document.getElementById('pinPreviewNotice');
-            if (!wrap) return;
-            wrap.innerHTML = '<img src="' + dataUrl + '" alt="Pinterest pin preview" class="w-full h-full object-cover">';
             if (notice) {
-                const usedFallback = !(winner && winner.image_url) || /data:image\/svg/.test((winner && winner.image_url) || '');
-                notice.textContent = usedFallback
-                    ? 'Image unavailable — labeled branded fallback used.'
-                    : 'Designed pin (hero + title + CTA) rendered from your selected product image.';
+                notice.textContent = 'Designed 1000×1500 pin rendered from the selected exact-product photo. Download Pin Image is ready.';
                 notice.classList.remove('hidden');
             }
-        }).catch((err) => {
-            if (renderGeneration !== window.__pinRenderGeneration) return;
-            console.error('[pin-preview] render failed:', err);
-            const wrap = document.getElementById('pinPreviewWrap');
-            const notice = document.getElementById('pinPreviewNotice');
-            if (wrap) wrap.innerHTML = '<div class="text-rose-300 text-xs p-3 text-center">Pin render failed: ' + escapeHtml(err && err.message || String(err)) + '</div>';
-            if (notice) {
-                notice.textContent = 'Pin render failed — text-only fallback shown above.';
-                notice.classList.remove('hidden');
+            return dataUrl;
+        } catch (error) {
+            if (renderGeneration === window.__pinRenderGeneration) {
+                window.__lastPinDataUrl = null;
+                window.__lastPinFilename = null;
+                const wrap = document.getElementById('pinPreviewWrap');
+                if (wrap) wrap.innerHTML = '<div role="alert" class="text-rose-300 text-xs p-3 text-center">Pin image not ready: ' +
+                    escapeHtml(error?.message || String(error)) + '</div>';
+                const notice = document.getElementById('pinPreviewNotice');
+                if (notice) {
+                    notice.textContent = 'Your winner is preserved. Use Generate Pinterest Pin to retry the design.';
+                    notice.classList.remove('hidden');
+                }
             }
-        });
+            throw error;
+        }
     }
 
     async function copyPinterestPackage(btn) {
@@ -2500,7 +2521,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             await new Promise((resolve, reject) => {
                 img.onload = resolve;
                 img.onerror = () => reject(new Error('cors-load-failed'));
-                img.src = window.location.pathname === '/studio' ? apiUrl('/api/v1/product-image?'+new URLSearchParams({url})) : url;
+                img.src = apiUrl((window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?') + new URLSearchParams({url}));
             });
             return img;
         } catch (_) {
@@ -2898,49 +2919,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 try { lucide.createIcons(); } catch (_) {}
             }
 
-            // â”€â”€ E. Auto-generate the Pinterest package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            const genUrl = apiUrl('/api/v1/traffic/generate');
-            console.log('[pick-pipeline] â†’ POST', genUrl, { id: winner.id });
-            const GEN_TIMEOUT_MS = 30000;
-            const genController = new AbortController();
-            const genTimer = setTimeout(() => genController.abort(), GEN_TIMEOUT_MS);
-            let genResp;
-            try {
-                genResp = await fetch(genUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify({
-                        mode: 'organic',
-                        target_channels: ['pinterest'],
-                        product_payload: winner,
-                    }),
-                    signal: genController.signal,
-                });
-            } catch (networkErr) {
-                clearTimeout(genTimer);
-                if (networkErr && networkErr.name === 'AbortError') {
-                    throw new Error('Pinterest generation took too long. Please try again.');
-                }
-                throw new Error('Network error reaching /traffic/generate: '
-                    + (networkErr && networkErr.message || networkErr));
-            }
-            clearTimeout(genTimer);
-            if (!genResp.ok) {
-                let detail = '';
-                try {
-                    const errBody = await genResp.json();
-                    detail = errBody?.detail || errBody?.message || '';
-                } catch (_) { /* not JSON */ }
-                throw new Error('Pinterest generation HTTP ' + genResp.status
-                    + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
-            }
-            const genData = await genResp.json();
-            console.log('[pick-pipeline] âœ“ pinterest', { campaign_id: genData.campaign_id });
-            renderPinterestResult(genData, winner);
+            // E. Pin generation is independent of discovery. Preserve this
+            // verified winner even if the Pinterest API or canvas fails.
+            await generatePinterestForWinner(winner);
 
             success = true;
             if (typeof showToast === 'function') {
-                showToast('Pinterest Ready', winner.name, 'success');
+                showToast('Pinterest pin ready', winner.name, 'success');
             }
         } catch (err) {
             console.error('[pick-pipeline] failed:', err);
@@ -2978,8 +2963,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                             ? 'Research completed, but no new photo-qualified product passed the checks. Previous products are still excluded. See the research result below.'
                             : failBody)
                 : (isTimeout
-                    ? 'Pinterest generation is taking longer than usual. Click again.'
-                    : 'Winner card is below — Pinterest package generation hit an error. You can retry it with the “Retry Pinterest Package” button.');
+                    ? 'Pinterest generation took too long. Use Generate Pinterest Pin; your winner is saved.'
+                    : 'Winner card is below — Pinterest package generation hit an error. Use “Generate Pinterest Pin” to retry without another discovery.');
             // IMPORTANT: only overwrite the executionOutput area with an
             // error if the WINNER stage failed. If the winner was already
             // displayed, show the Pinterest-generation error in a separate
