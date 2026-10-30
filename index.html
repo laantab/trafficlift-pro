@@ -2198,6 +2198,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             throw new Error('The saved winner needs its verified exact-product photo before making a pin.');
         }
         // One bounded attempt. Never rerun discovery or replace the winner.
+        window.__lastPinDataUrl = null;
+        window.__lastPinFilename = null;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 30000);
         let response;
