@@ -462,6 +462,8 @@
         if (savedWinner && savedWinner.id && savedWinner.image_url) {
             // Restore the selected winner card, not discovery, so pin retry
             // remains available after a reload or a failed campaign request.
+            document.getElementById('resultsContent')?.classList.remove('hidden');
+            document.getElementById('emptyState')?.classList.add('hidden');
             displayWinnerCard(savedWinner);
         }
         updateChannelGrid();
