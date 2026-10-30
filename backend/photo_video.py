@@ -138,9 +138,9 @@ def normalize_narration_measurements(text):
     """
     import re
     spoken = str(text or '')
-    spoken = re.sub(r'(?i)(?<![\\w.])(\\d+(?:\\.\\d+)?)\\s*(?:fl\\.?\\s*)?oz\\.?\\b',
+    spoken = re.sub(r'(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*(?:fl\.?\s*)?oz\b\.?',
                     lambda m: m.group(1) + (' ounce' if float(m.group(1)) == 1 else ' ounces'), spoken)
-    spoken = re.sub(r'(?i)(?<![\\w.])(\\d+(?:\\.\\d+)?)\\s*(?:fluid\\s+)?ounces?\\b',
+    spoken = re.sub(r'(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*(?:fluid\s+)?ounces?\b',
                     lambda m: m.group(1) + (' ounce' if float(m.group(1)) == 1 else ' ounces'), spoken)
     return spoken
 
