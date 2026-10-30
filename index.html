@@ -595,7 +595,9 @@
                 const pinHost=document.createElement('div');pinHost.id='pinterestResult';pinHost.className='mt-4 space-y-2';
                 document.getElementById('executionOutput').appendChild(pinHost);
             }
-            if (data.compiled_package?.pinterest_seo_engine) renderPinterestResult(data,winner);
+            if (!data.compiled_package?.pinterest_seo_engine)
+                throw new Error('Pinterest package was not returned. Your product is still selected.');
+            await renderPinterestResult(data, winner);
 
 
             // Update campaign ID tag
