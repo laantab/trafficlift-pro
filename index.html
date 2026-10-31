@@ -1175,6 +1175,8 @@
                         <input id="videoOwnerAccessCode" type="password" autocomplete="off" placeholder="Private owner access code" class="w-full bg-slate-950 rounded-lg p-2 text-slate-100">
                         <button type="button" onclick="unlockHostedOwnerVideo()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Unlock Video Studio</button>
                         <p id="videoOwnerAccessStatus" role="status" class="text-xs text-slate-400"></p>
+                        <button type="button" onclick="verifyHeyGenConnection()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Verify HeyGen Connection (no credits)</button>
+                        <p id="heygenConnectionStatus" role="status" class="text-xs text-slate-400"></p>
                         <div id="hostedVideoAcceptanceReview" class="hidden border-t border-slate-700 pt-3 space-y-2">
                             <p class="text-xs text-slate-300">Owner review: genuine hosted Kokoro/FFmpeg acceptance sample. This is not a customer-created product video.</p>
                             <button type="button" onclick="loadHostedAcceptanceSample()" class="rounded-lg bg-slate-800 px-3 py-2 text-xs">Check real hosted MP4 sample</button>
@@ -1558,6 +1560,26 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 }
             }
         } catch (error) { note.textContent = error.message; }
+    }
+
+    async function verifyHeyGenConnection() {
+        const note = document.getElementById('heygenConnectionStatus');
+        if (!note) return;
+        note.textContent = 'Checking HeyGen API key without starting a video…';
+        try {
+            const url = hostedVideoSite ? location.origin + '/api/v1/heygen-video/verify-key' : apiUrl('/api/v1/heygen-video/verify-key');
+            const response = await fetch(url, {method:'GET', credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(30000)});
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data.authenticated === true) {
+                note.textContent = 'HeyGen API connection verified. No video credits used.';
+            } else if (response.status === 401) {
+                note.textContent = 'Owner session is missing or expired for this website. Enter the owner code and click Unlock Video Studio here, then verify again.';
+            } else {
+                note.textContent = typeof data.detail === 'string' ? data.detail : 'HeyGen verification failed (HTTP ' + response.status + ').';
+            }
+        } catch (error) {
+            note.textContent = 'HeyGen verification could not finish: ' + (error.message || String(error));
+        }
     }
 
     async function loadHostedAcceptanceSample() {
