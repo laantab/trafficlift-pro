@@ -7,6 +7,7 @@ Only the authenticated video owner may use these endpoints.
 import os
 import re
 import requests
+import uuid
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -27,7 +28,7 @@ def headers():
 
 def provider_request(method, url, **kwargs):
     try:
-        response = requests.request(method, url, headers=headers(), timeout=(8, 35), **kwargs)
+        request_headers = headers()\n        request_headers.update(kwargs.pop("extra_headers", {}))\n        response = requests.request(method, url, headers=request_headers, timeout=(8, 35), **kwargs)
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as exc:
@@ -110,7 +111,7 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
         "resolution": "768p",
         "prompt_enhancement": "quality",
     }
-    result = provider_request("POST", BASE, json=payload)
+    result = provider_request("POST", BASE, json=payload,\n                              extra_headers={"Idempotency-Key": uuid.uuid4().hex})
     video_id = result.get("video_id") or (result.get("data") or {}).get("video_id")
     if not isinstance(video_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{6,128}", video_id):
         raise HTTPException(502, "HeyGen did not return a valid job ID.")
