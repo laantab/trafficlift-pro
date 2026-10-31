@@ -68,6 +68,8 @@ jobs:
         run: node backend/tests/photo_video_ui.cjs
       - name: Check protected owner acceptance MP4 browser UI
         run: node backend/tests/hosted_acceptance_ui.cjs
+      - name: Verify HeyGen owner-modal same-origin connection check
+        run: node backend/tests/heygen_verify_ui.cjs
       - name: Check hosted owner video retry does not duplicate renders
         run: node backend/tests/hosted_owner_video_resume_ui.cjs
       - name: Install local DOM and canvas test dependencies
