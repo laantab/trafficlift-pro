@@ -79,8 +79,8 @@ def heygen_readiness(request: Request):
 def heygen_verify_key(request: Request):
     """Non-billable key check. Never expose the API key or account profile."""
     video_guard(request)
-    if not configured():
-        raise HTTPException(503, "HeyGen API key or provider enablement is not configured.")
+    if not os.getenv("HEYGEN_API_KEY"):
+        raise HTTPException(503, "HeyGen API key is not configured.")
     provider_request("GET", "https://api.heygen.com/v3/users/me")
     return {"provider": "heygen", "authenticated": True,
             "paid_generation_started": False}
@@ -99,7 +99,7 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
         marketing_readiness_gate(plan)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    # The existing VideoRequest URL validator requires a public HTTPS listing image.
+    # Image-to-video inherits the input image aspect ratio; vertical output requires\n    # a genuine vertical source image. The UI must confirm format before using it.\n    # The existing VideoRequest URL validator requires a public HTTPS listing image.
     # Mode image_to_video is deliberate: no unsupported text-only product lookalikes.
     payload = {
         "model": "heygen-video-1",
