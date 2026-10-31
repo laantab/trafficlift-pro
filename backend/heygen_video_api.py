@@ -84,7 +84,7 @@ def heygen_verify_key(request: Request):
     video_guard(request)
     if not os.getenv("HEYGEN_API_KEY"):
         raise HTTPException(503, "HeyGen API key is not configured.")
-    provider_request("GET", "https://api.heygen.com/v3/users/me")
+    provider_request("GET", "https://api.heygen.com/v1/user/me")
     return {"provider": "heygen", "authenticated": True,
             "paid_generation_started": False}
 
