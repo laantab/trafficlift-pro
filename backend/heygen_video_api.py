@@ -75,6 +75,17 @@ def heygen_readiness(request: Request):
             "note": "Your ChatGPT HeyGen connection is not the TrafficLift API key."}
 
 
+@router.get("/api/v1/heygen-video/verify-key")
+def heygen_verify_key(request: Request):
+    """Non-billable key check. Never expose the API key or account profile."""
+    video_guard(request)
+    if not configured():
+        raise HTTPException(503, "HeyGen API key or provider enablement is not configured.")
+    provider_request("GET", "https://api.heygen.com/v3/users/me")
+    return {"provider": "heygen", "authenticated": True,
+            "paid_generation_started": False}
+
+
 @router.post("/api/v1/heygen-video/submit", status_code=202)
 def heygen_submit(body: HeyGenSubmit, request: Request):
     video_guard(request)
