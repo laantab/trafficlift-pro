@@ -95,7 +95,9 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
         "mode": "image_to_video",
         "prompt": product_prompt(product.name, plan),
         "duration": body.duration,
-        "first_frame": {"url": product.image_url},
+        "image": {"type": "url", "url": product.image_url},
+        "resolution": "768p",
+        "prompt_enhancement": "quality",
     }
     result = provider_request("POST", BASE, json=payload)
     video_id = result.get("video_id") or (result.get("data") or {}).get("video_id")
