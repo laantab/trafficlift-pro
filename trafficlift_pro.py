@@ -793,6 +793,43 @@ app.include_router(heygen_video_router)
 from backend.pin_image_api import router as pin_image_router
 app.include_router(pin_image_router)
 
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def mobile_manifest():
+    """Same-origin install metadata; no service-worker or desktop UI changes."""
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    return FileResponse(root / "manifest.webmanifest", media_type="application/manifest+json",
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/mobile-icon.png", include_in_schema=False)
+async def mobile_icon():
+    """Recovered Factory brand artwork, specifically cropped for small screens."""
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    return FileResponse(root / "static" / "icons" / "factory-mobile-192.png", media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/mobile-icon-512.png", include_in_schema=False)
+async def mobile_icon_large():
+    """Render a crisp larger shortcut icon from the approved bundled artwork."""
+    from io import BytesIO
+    from pathlib import Path
+    from fastapi.responses import Response
+    from PIL import Image
+    root = Path(__file__).resolve().parent
+    with Image.open(root / "static" / "icons" / "factory-mobile-192.png") as source:
+        large = source.convert("RGBA").resize((512, 512), Image.Resampling.LANCZOS)
+        output = BytesIO()
+        large.save(output, format="PNG", optimize=True)
+    return Response(output.getvalue(), media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/", include_in_schema=False)
 async def root():
     """Open the customer dashboard; keep developer API docs at /docs."""
