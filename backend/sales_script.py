@@ -30,6 +30,48 @@ def clean(value, limit=160):
     return value.rstrip('.!?')
 
 
+def split_compound_seller_fact(value):
+    """Split a verified seller's comma-delimited feature list into explicit facts.
+
+    This is intentionally narrow: we do not infer use cases, benefits, quality,
+    or specifications beyond words explicitly present in the listing. Callers
+    must verify exact-listing provenance BEFORE using the output as evidence.
+    A non-list sentence stays intact as one claim.
+    """
+    try:
+        source = clean(value)
+    except ValueError:
+        return []
+    parts = [part.strip(" .;") for part in source.split(",")]
+    if len(parts) < 3 or " with " not in parts[0].lower():
+        return [source] if source else []
+    head = parts[0]
+    # Enumerations without one complete opening clause are too ambiguous.
+    if len(head.split()) < 5:
+        return [source]
+    extracted = [head]
+    for raw in parts[1:]:
+        phrase = re.sub(r"^(?:and|plus)\s+", "", raw, flags=re.I).strip()
+        if re.match(r"^measuring\s+\d", phrase, re.I):
+            item = re.sub(r"^measuring\s+", "Measures ", phrase, flags=re.I)
+        else:
+            phrase = re.sub(r"^(?:an?|the)\s+", "", phrase, flags=re.I).strip()
+            # Only concrete short specifications in an explicit comma list:
+            # avoid treating marketing fragments as independently proved facts.
+            if not re.search(r"\b(?:switch|base|cord|neck|drawer|divider|shelf|"
+                             r"handle|light|button|port|plug|tray|panel|"
+                             r"adjustable|removable|inches?|feet|cm|mm)\b", phrase, re.I):
+                continue
+            if len(phrase.split()) < 2 or len(phrase.split()) > 12:
+                continue
+            item = "Includes " + phrase
+        if item and item.casefold() not in {x.casefold() for x in extracted}:
+            extracted.append(item)
+        if len(extracted) >= 4:
+            break
+    return extracted if len(extracted) >= 2 else [source]
+
+
 GENERIC_CREATIVE = re.compile(
     r'\b(?:review listed features|picture your setup|key item features|'
     r'explore (?:tech(?:\s*&\s*gadgets)?|gadgets|product|useful(?:\s+product)?) ideas|product overview|'

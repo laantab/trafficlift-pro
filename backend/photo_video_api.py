@@ -209,6 +209,19 @@ def prepare_video_plan(payload, *, require_renderable=False):
         fetched = resolve_video_facts(payload.name, payload.product_url)
         if fetched:
             facts = dict(fetched)
+    # Expand only facts anchored to this exact seller listing. A pasted or
+    # unrelated description must never acquire invented "verified" attributes.
+    from backend.product_facts import canonical
+    from backend.sales_script import split_compound_seller_fact
+    if (facts.get('evidence_origin') in {'matched_seller_page', 'indexed_seller_description'}
+            and facts.get('evidence_source')
+            and canonical(facts['evidence_source']) == canonical(payload.product_url)):
+        source_benefit = facts.get('benefit') or ''
+        split = split_compound_seller_fact(source_benefit)
+        if len(split) > 1:
+            existing = list(facts.get('feature_details') or [])
+            facts['benefit'] = split[0]
+            facts['feature_details'] = [*split[1:], *existing]
     photos = list(facts.pop('product_images', []) or [])
     # An unverified override cannot erase stronger exact-listing evidence.
     if payload.benefit and is_distinct_product_fact(payload.benefit, payload.name):
