@@ -1,0 +1,62 @@
+// Mobile layout and desktop-preservation acceptance in real Chromium.
+// No external calls, credentials, product research or paid generation.
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const { chromium } = require('playwright');
+// Tailwind normally supplies these base layout utilities through its CDN.
+// The offline acceptance removes network scripts; mirror only the baseline
+// desktop utilities so the mobile overrides run against the actual structure.
+const source = fs.readFileSync('index.html', 'utf8')
+ .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+ .replace('<style>', '<style>#trafficliftWorkspace{display:flex;gap:24px}' +
+ '#controlPanel{width:480px;flex-shrink:0}#resultsPanel{flex:1;min-width:0}' +
+ '#trafficliftHeaderInner{height:64px;display:flex;align-items:center;justify-content:space-between}' +
+ '#trafficliftHeaderActions{display:flex;align-items:center;gap:12px}' +
+ '#videoModal{display:none}#videoModal>div{max-width:512px;max-height:92vh}' +
+ '</style><style>');
+(async () => {
+ const browser = await chromium.launch({headless:true});
+ try {
+   const page = await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+   await page.setContent(source,{waitUntil:'domcontentloaded'});
+   const mobile = await page.evaluate(() => {
+     const rect = id => document.getElementById(id).getBoundingClientRect();
+     return {viewport:innerWidth, scroll:document.documentElement.scrollWidth,
+       control:rect('controlPanel').toJSON(), results:rect('resultsPanel').toJSON(),
+       header:rect('trafficliftHeaderInner').toJSON(),
+       videoButton:[...document.querySelectorAll('#trafficliftHeaderActions button')]
+        .find(x=>x.getAttribute('onclick')==='openVideoModal()')?.getBoundingClientRect().toJSON()};
+   });
+   assert(mobile.scroll <= mobile.viewport+1, 'phone dashboard must not scroll horizontally');
+   assert(mobile.results.y >= mobile.control.bottom-1, 'results must stack below controls');
+   assert(mobile.videoButton?.height >= 44,'Video button must be touch sized');
+   await page.evaluate(()=>{
+     const modal=document.getElementById('videoModal');
+     modal.classList.remove('hidden');
+     modal.style.display='flex';
+   });
+   const video=await page.evaluate(()=>{
+     const modal=document.getElementById('videoModal');
+     const inner=modal.firstElementChild.getBoundingClientRect();
+     return {viewport:innerWidth,scroll:document.documentElement.scrollWidth,
+       height:inner.height,screen:innerHeight,submit:document.getElementById('videoSubmitBtn').getBoundingClientRect().toJSON(),
+       selection:document.getElementById('videoProvider').value};
+   });
+   assert(video.scroll<=video.viewport+1,'phone Video Studio must fit without sideways scrolling');
+   assert(video.height >= 760 && video.height <= 920, 'phone Video Studio should fill the emulated 844px viewport; got '+video.height+'px (innerHeight '+video.screen+')');
+   assert(video.selection==='heygen','preserve HeyGen default');
+   assert(video.submit.width>270,'render control should span phone width');
+   // Use a separate non-mobile context: mobile emulation retains the device
+   // viewport scaling policy even after setViewportSize.
+   const desktopPage = await browser.newPage({viewport:{width:1440,height:900}});
+   await desktopPage.setContent(source,{waitUntil:'domcontentloaded'});
+   const desktop=await desktopPage.evaluate(()=>{
+     const c=document.getElementById('controlPanel').getBoundingClientRect();
+     const r=document.getElementById('resultsPanel').getBoundingClientRect();
+     return {control:c.toJSON(),results:r.toJSON(),header:document.getElementById('trafficliftHeaderInner').getBoundingClientRect().toJSON()};
+   });
+   assert(desktop.results.x>desktop.control.right-1,'desktop must retain side-by-side layout');
+   assert(desktop.header.height===64,'desktop header must remain original 64px');
+   console.log('PASS: 390px touch dashboard, full-height Video Studio, 1440px desktop unchanged');
+ } finally {await browser.close()}
+})().catch(err=>{console.error(err);process.exitCode=1});

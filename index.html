@@ -61,13 +61,73 @@
         .history-item:hover { background: #1e293b; }
         .copy-btn.copied { color: #34d399 !important; }
         textarea.copyable { resize: none; font-family: inherit; line-height: 1.6; }
+
+        /* TrafficLift mobile layout: desktop rules remain unchanged at >=1280px. */
+        @media (max-width: 1279px) {
+            #trafficliftWorkspace { flex-direction: column; }
+            #controlPanel, #resultsPanel { width: 100%; min-width: 0; }
+            #resultsPanel { flex: none; }
+        }
+        @media (max-width: 767px) {
+            html, body { width: 100%; max-width: 100%; overflow-x: clip; }
+            #trafficliftHeaderInner {
+                height: auto; min-height: 64px; padding: 10px 12px;
+                gap: 10px; flex-wrap: wrap; align-items: center;
+            }
+            #trafficliftHeaderActions {
+                gap: 8px; width: 100%; justify-content: space-between;
+            }
+            #trafficliftHeaderActions > button {
+                flex: 1 1 auto; min-height: 44px; justify-content: center;
+                padding-inline: 10px;
+            }
+            #trafficliftHeaderActions > button span.hidden { display: inline; }
+            #trafficliftHeaderActions > button span { font-size: 12px; }
+            #connPill { min-width: 0; max-width: 42%; overflow: hidden; justify-content: center; }
+            #connLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            #trafficliftWorkspace { padding: 12px; gap: 14px; }
+            #controlPanel > div, #resultsPanel > div {
+                padding: 14px; border-radius: 14px;
+            }
+            #resultsPanel > div { min-height: 280px; }
+            #controlPanel input, #controlPanel textarea, #controlPanel select,
+            #videoModal input, #videoModal textarea, #videoModal select {
+                max-width: 100%; min-width: 0; font-size: 16px;
+            }
+            #controlPanel button, #videoModal button, #historyDrawer button {
+                min-height: 44px;
+            }
+            #videoModal, #settingsModal {
+                padding: 0; align-items: stretch; justify-content: stretch;
+            }
+            #videoModal > div, #settingsModal > div {
+                width: 100%; max-width: none; height: 100dvh;
+                max-height: 100dvh; border-radius: 0; border: 0;
+                overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+                padding-bottom: env(safe-area-inset-bottom, 0px);
+            }
+            #videoModal > div > div, #settingsModal > div > div {
+                padding-left: 16px; padding-right: 16px;
+            }
+            #videoModal img, #videoModal video, #videoResult video {
+                display: block; max-width: 100%; height: auto; object-fit: contain;
+            }
+            #videoSubmitBtn { width: 100%; justify-content: center; }
+            #historyDrawer > div:last-child {
+                width: 100%; max-width: 100%;
+                padding-bottom: env(safe-area-inset-bottom, 0px);
+            }
+            #trafficliftWorkspace *, #videoModal *, #historyDrawer * {
+                overflow-wrap: anywhere;
+            }
+        }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-brand-500 selection:text-white">
 
     <!-- â•â•â• HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
-        <div class="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
+        <div id="trafficliftHeaderInner" class="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-brand-500/20 border border-brand-500/30">
                     <img src="logo.png" alt="TrafficLift Pro Logo" class="w-full h-full object-cover" onerror="this.style.display='none'; this.parentElement.innerHTML='<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 40 40\' class=\'w-full h-full\'><rect width=\'40\' height=\'40\' rx=\'10\' fill=\'url(#g)\'/><defs><linearGradient id=\'g\' x1=\'0\' y1=\'0\' x2=\'1\' y2=\'1\'><stop offset=\'0%\' stop-color=\'#4f46e5\'/><stop offset=\'100%\' stop-color=\'#818cf8\'/></linearGradient></defs><path d=\'M8 28 L20 12 L32 28\' stroke=\'white\' stroke-width=\'3\' fill=\'none\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/><circle cx=\'20\' cy=\'22\' r=\'3\' fill=\'white\'/></svg>'">
@@ -77,7 +137,7 @@
                     <span class="text-xs text-slate-400">v3.0.1 · AI Traffic Engine</span>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
+            <div id="trafficliftHeaderActions" class="flex items-center gap-3">
                 <!-- AI status badges -->
                 <div id="aiStatusBar" class="hidden sm:flex items-center gap-2 mr-4">
                     <span id="openaiBadge" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
@@ -112,7 +172,7 @@
     </header>
 
     <!-- â•â•â• MAIN LAYOUT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-    <div class="max-w-[1600px] mx-auto px-4 py-6 flex gap-6">
+    <div id="trafficliftWorkspace" class="max-w-[1600px] mx-auto px-4 py-6 flex gap-6">
 
         <!-- â•â•â• LEFT PANEL â€” Controls â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
         <aside id="controlPanel" class="w-full xl:w-[480px] flex-shrink-0 space-y-5 transition-all">

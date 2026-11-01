@@ -86,6 +86,8 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.56.1 jsdom@24 @napi-rs/canvas@0.1.96
           npx playwright install --with-deps chromium
+      - name: Verify mobile dashboard and Video Studio preserve desktop design
+        run: node backend/tests/mobile_responsive_chromium.cjs
       - name: Verify lamp pin in real Chromium
         run: node backend/tests/chromium_pin.cjs
       - name: Verify pin retry, 502 and real JPEG download without rediscovery
