@@ -37,9 +37,11 @@ const source = fs.readFileSync('index.html', 'utf8')
    assert(video.height >= 760 && video.height <= 920, 'phone Video Studio should fill the emulated 844px viewport; got '+video.height+'px (innerHeight '+video.screen+')');
    assert(video.selection==='heygen','preserve HeyGen default');
    assert(video.submit.width>270,'render control should span phone width');
-   await page.setViewportSize({width:1440,height:900});
-   await page.evaluate(()=>{document.getElementById('videoModal').style.display='none'});
-   const desktop=await page.evaluate(()=>{
+   // Use a separate non-mobile context: mobile emulation retains the device
+   // viewport scaling policy even after setViewportSize.
+   const desktopPage = await browser.newPage({viewport:{width:1440,height:900}});
+   await desktopPage.setContent(source,{waitUntil:'domcontentloaded'});
+   const desktop=await desktopPage.evaluate(()=>{
      const c=document.getElementById('controlPanel').getBoundingClientRect();
      const r=document.getElementById('resultsPanel').getBoundingClientRect();
      return {control:c.toJSON(),results:r.toJSON(),header:document.getElementById('trafficliftHeaderInner').getBoundingClientRect().toJSON()};
