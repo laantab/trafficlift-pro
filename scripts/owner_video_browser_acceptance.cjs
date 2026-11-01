@@ -108,6 +108,8 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     // Exercise the real owner browser UI, not just the HTTP API.
     if (opts.mode === '--run') {
       await page.locator('button[onclick="openVideoModal()"]').first().click();
+      // This legacy-renderer acceptance intentionally exercises Kokoro, not paid HeyGen.
+      await page.locator('#videoProvider').selectOption('free');
     } else {
       // Resume does not need a fresh product discovery or another video POST.
       await page.evaluate(() => {
