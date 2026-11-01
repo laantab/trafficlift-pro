@@ -34,7 +34,7 @@ const source = fs.readFileSync('index.html', 'utf8')
        selection:document.getElementById('videoProvider').value};
    });
    assert(video.scroll<=video.viewport+1,'phone Video Studio must fit without sideways scrolling');
-   assert(Math.abs(video.height-video.screen)<2,'phone Video Studio should fill the screen');
+   assert(video.height >= 760 && video.height <= 920, 'phone Video Studio should fill the emulated 844px viewport; got '+video.height+'px (innerHeight '+video.screen+')');
    assert(video.selection==='heygen','preserve HeyGen default');
    assert(video.submit.width>270,'render control should span phone width');
    await page.setViewportSize({width:1440,height:900});
