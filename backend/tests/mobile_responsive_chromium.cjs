@@ -3,8 +3,17 @@
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+// Tailwind normally supplies these base layout utilities through its CDN.
+// The offline acceptance removes network scripts; mirror only the baseline
+// desktop utilities so the mobile overrides run against the actual structure.
 const source = fs.readFileSync('index.html', 'utf8')
- .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+ .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+ .replace('<style>', '<style>#trafficliftWorkspace{display:flex;gap:24px}' +
+ '#controlPanel{width:480px;flex-shrink:0}#resultsPanel{flex:1;min-width:0}' +
+ '#trafficliftHeaderInner{height:64px;display:flex;align-items:center;justify-content:space-between}' +
+ '#trafficliftHeaderActions{display:flex;align-items:center;gap:12px}' +
+ '#videoModal{display:none}#videoModal>div{max-width:512px;max-height:92vh}' +
+ '</style><style>');
 (async () => {
  const browser = await chromium.launch({headless:true});
  try {
