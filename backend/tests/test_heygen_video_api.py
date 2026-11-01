@@ -3,7 +3,7 @@ from unittest.mock import patch, Mock
 import pytest
 from fastapi import HTTPException
 
-from backend.heygen_video_api import configured, product_prompt, provider_request
+from backend.heygen_video_api import configured, product_prompt, provider_request, compose_heygen_narration
 
 
 def test_provider_defaults_off(monkeypatch):
@@ -20,17 +20,40 @@ def test_provider_requires_both_settings(monkeypatch):
     assert configured() is True
 
 
-def test_prompt_uses_evidence_text_and_stable_framing():
-    plan = {"phrases": ["A compact storage organizer.", "Check dimensions on the seller listing."]}
-    result = product_prompt("Organizer", plan)
+def test_concise_heygen_ad_uses_seller_facts_once_and_ends_with_cta():
+    plan = {"evidence": [
+        {"text": "Three adjustable drawers"},
+        {"text": "A removable divider keeps small pieces separate"}
+    ]}
+    spoken = compose_heygen_narration("Smart+, Desk Drawer Organizer, Black - Walmart.com", plan)
+    assert spoken.startswith("Take a look at Smart+, Desk Drawer Organizer.")
+    assert "Three adjustable drawers." in spoken
+    assert "A removable divider keeps small pieces separate." in spoken
+    assert spoken.endswith("Tap the product link to check current price, size, and options.")
+    assert spoken.count("Tap the product link") == 1
+    assert len(spoken.split()) <= 34
+
+
+def test_prompt_has_single_cta_and_stable_framing():
+    plan = {"evidence": [{"text": "Three adjustable drawers"}, {"text": "Removable divider for smaller items"}]}
+    result = product_prompt("Smart Desk Organizer", plan)
     assert "no strobing or flicker" in result
-    assert "Speak exactly: A compact storage organizer." in result
+    assert "Speak exactly the following once" in result
+    assert "Tap the product link to check current price, size, and options." in result
     assert "no invented features" in result.lower()
 
 
-def test_prompt_refuses_missing_script():
+def test_long_listing_facts_fail_before_paid_generation():
+    plan = {"evidence": [{"text": "Durable plastic material is made to handle assorted household objects in a wide variety of setups across many different household rooms"}]}
     with pytest.raises(HTTPException) as err:
-        product_prompt("Organizer", {"phrases": []})
+        compose_heygen_narration("Organizer", plan, max_words=28)
+    assert err.value.status_code == 422
+    assert "no paid video was started" in err.value.detail
+
+
+def test_no_facts_refuses_narration():
+    with pytest.raises(HTTPException) as err:
+        product_prompt("Organizer", {"phrases": ["Repeat the title", "Repeat the title"]})
     assert err.value.status_code == 422
 
 
