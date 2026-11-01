@@ -27,7 +27,7 @@ def test_shortcut_icons_are_real_square_pngs_from_local_assets():
         res = client.get(path)
         assert res.status_code == 200
         assert res.headers["content-type"].startswith("image/png")
-        assert res.content[:8] == b"\\x89PNG\\r\\n\\x1a\\n"
+        assert res.content[:8] == b"\x89PNG\r\n\x1a\n"
         with Image.open(BytesIO(res.content)) as icon:
             assert icon.size == expected
             assert icon.convert("RGB").getpixel((0,0))[0] < 70
