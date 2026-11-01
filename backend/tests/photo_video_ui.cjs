@@ -25,7 +25,7 @@ vm.runInContext(funcs+'\n'+open,context);
 (async()=>{
  context.openVideoModal();
  assert.equal(element('freeProductPreview').src,winner.image_url);
- assert.equal(element('videoProvider').value,'free');
+ assert.equal(element('videoProvider').value,'heygen','new Video Studio must default to HeyGen V2');
  assert.equal(element('freeProductName').value,winner.name);
  assert(element('videoResult').classList.contains('hidden'));
  element('freeVideoLength').value='15';element('freeVideoStyle').value='warm';element('freeProductFact').value='Warm glow.';
