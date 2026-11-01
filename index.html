@@ -1162,7 +1162,8 @@
                 <div>
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
-                        <option value="free" selected>Free narrated photo video</option>
+                        <option value="free">Free narrated photo video (legacy)</option>
+                        <option value="heygen" selected>HeyGen Video V2 (paid, approval required)</option>
                         <option value="local">Local RTX 3060 (this PC)</option>
                         <option value="minimax">MiniMax cloud</option>
                     </select>
@@ -1403,7 +1404,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'free';
+        document.getElementById('videoProvider').value = 'heygen';
         document.getElementById('freeProductPreview').src = winner.image_url || '';
         document.getElementById('freeProductName').value = winner.name;
         document.getElementById('freeProductUrl').value = winner.url || '';
@@ -1457,10 +1458,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
     function syncVideoProviderOptions() {
         const provider = document.getElementById('videoProvider').value;
-        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free');
+        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free' && provider !== 'heygen');
         document.getElementById('localVideoOptions').classList.toggle('hidden', provider !== 'local');
         document.getElementById('minimaxVideoOptions').classList.toggle('hidden', provider !== 'minimax');
-        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free');
+        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free' || provider === 'heygen');
     }
 
     function openResearchConnection() {
@@ -1749,6 +1750,79 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             await loadFreeVideoHistory();
         } finally { button.disabled = false; }
     }
+    let heygenPendingVideoId = null;
+    async function submitHeyGenVideo(statusEl, resultEl) {
+        if (!hostedVideoSite) throw new Error('Open the official hosted TrafficLift website for HeyGen video.');
+        if (heygenPendingVideoId) {
+            statusEl.textContent = 'Checking the existing HeyGen job; no new paid render started.';
+            await pollHeyGenVideo(heygenPendingVideoId, statusEl, resultEl);
+            return;
+        }
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.image_url) throw new Error('Choose a product with a verified seller image first.');
+        const approved = window.confirm('HeyGen Video V2 uses paid HeyGen credits. Start ONE 15-second product-video generation? Cancel keeps your credits untouched.');
+        if (!approved) {
+            statusEl.textContent = 'HeyGen generation cancelled. No paid request sent.';
+            return;
+        }
+        const product = {
+            name: document.getElementById('freeProductName').value.trim(),
+            image_url: winner.image_url,
+            product_url: document.getElementById('freeProductUrl').value.trim(),
+            benefit: document.getElementById('freeProductFact').value.trim(),
+            fact_sources: [...(winner.seller_benefit_source && winner.seller_facts?.length ? [{title:winner.name,url:winner.seller_benefit_source,snippet:winner.seller_facts.join('\\n')}] : []), ...(winner.research_sources || [])].slice(0,4),
+            buyer_need: document.getElementById('freeBuyerNeed').value.trim(),
+            consideration: document.getElementById('freeBuyingDetail').value.trim(),
+            seconds: 15,
+            style: document.getElementById('freeVideoStyle').value
+        };
+        statusEl.textContent = 'Submitting one authorized HeyGen video…';
+        const response = await fetch(location.origin + '/api/v1/heygen-video/submit', {
+            method:'POST', credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({product,duration:15,approve_paid_generation:true}),
+            signal:AbortSignal.timeout(45000)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || 'HeyGen rejected the request (HTTP ' + response.status + ').');
+        if (!/^[a-zA-Z0-9_-]{6,128}$/.test(data.video_id || '')) {
+            throw new Error('HeyGen submission status is unknown. Do not submit again before reviewing HeyGen jobs.');
+        }
+        heygenPendingVideoId = data.video_id;
+        await pollHeyGenVideo(heygenPendingVideoId, statusEl, resultEl);
+    }
+    async function pollHeyGenVideo(id, statusEl, resultEl) {
+        for (let attempt = 0; attempt < 60; attempt++) {
+            const response = await fetch(location.origin + '/api/v1/heygen-video/status/' + encodeURIComponent(id), {
+                method:'GET', credentials:'same-origin', cache:'no-store',
+                signal:AbortSignal.timeout(35000)
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.detail || 'HeyGen status request failed. Retry checks, not generation.');
+            if (data.status === 'completed' && /^https:\/\//.test(data.video_url || '')) {
+                statusEl.textContent = 'HeyGen video ready — review appearance, narration, flicker and product identity before posting.';
+                resultEl.classList.remove('hidden');
+                resultEl.replaceChildren();
+                const video = document.createElement('video');
+                video.controls = true; video.playsInline = true; video.preload = 'metadata';
+                video.src = data.video_url; video.className = 'w-full max-h-[60vh]';
+                const link = document.createElement('a');
+                link.href = data.video_url; link.target='_blank'; link.rel='noopener noreferrer';
+                link.textContent = 'Open HeyGen finished video'; link.className = 'block mt-3 text-brand-400 underline';
+                resultEl.append(video,link);
+                heygenPendingVideoId = null;
+                return;
+            }
+            if (['failed','cancelled'].includes(data.status)) {
+                heygenPendingVideoId = null;
+                throw new Error('HeyGen reported ' + data.status + '. Review the provider job before restarting.');
+            }
+            statusEl.textContent = 'HeyGen ' + (data.status || 'processing') + ' — checking the existing job (' + id + ')';
+            await new Promise(resolve => setTimeout(resolve, 10000));
+        }
+        throw new Error('HeyGen is still processing. Do not submit a second paid job; use the existing job ID: ' + id);
+    }
+
     async function submitFreeVideo(statusEl, resultEl) {
         if (hostedVideoSite && pendingHostedVideoJobId) {
             statusEl.textContent = 'Resuming your existing video; no new render started.';
@@ -1882,7 +1956,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const resultEl   = document.getElementById('videoResult');
         const submitBtn  = document.getElementById('videoSubmitBtn');
 
-        if (provider !== 'free' && !prompt) {
+        if (provider !== 'free' && provider !== 'heygen' && !prompt) {
             statusEl.innerHTML = '<span class="text-red-400">Prompt is required.</span>';
             return;
         }
@@ -1896,11 +1970,15 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         lucide.createIcons();
         resultEl.classList.add('hidden');
         resultEl.innerHTML = '';
-        statusEl.textContent = provider === 'local' ? 'Connecting to local RTX bridge…' : 'Submitting to MiniMax…';
+        statusEl.textContent = provider === 'heygen' ? 'Preparing HeyGen Video V2…' : (provider === 'local' ? 'Connecting to local RTX bridge…' : 'Submitting to MiniMax…');
 
         try {
             if (provider === 'free') {
                 await submitFreeVideo(statusEl, resultEl);
+                return;
+            }
+            if (provider === 'heygen') {
+                await submitHeyGenVideo(statusEl, resultEl);
                 return;
             }
             if (provider === 'local') {
