@@ -66,6 +66,8 @@ jobs:
         run: python -m pytest backend/tests/test_heygen_video_api.py -q
       - name: Validate exact-listing compound seller attributes before paid video
         run: python -m pytest backend/tests/test_compound_seller_facts.py -q
+      - name: Verify Factory Home Screen icon and phone install routes
+        run: python -m pytest backend/tests/test_mobile_shortcut_icon.py -q
       - name: Check Python source compilation
         run: python -m compileall -q backend trafficlift_pro.py
       - name: Check local narrated-video user interface
