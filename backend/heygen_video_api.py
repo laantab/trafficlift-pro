@@ -43,25 +43,83 @@ def provider_request(method, url, **kwargs):
     return data
 
 
-def product_prompt(name, plan):
-    """Use the existing evidence-gated product script, not invented product claims."""
-    phrases = plan.get("phrases") or []
-    narration = " ".join(str(p).strip() for p in phrases if str(p).strip())
-    if not narration:
-        raise HTTPException(422, "No approved narration is available for this listing.")
-    # A 15-second clip should not be asked to pronounce an entire 30-second script.
+def _spoken_identity(name):
+    """Remove retailer suffixes and catalog variants without losing model IDs."""
+    from backend.sales_script import is_model_identifier
+    raw = re.sub(r"\\s+[-–]\\s+(?:[\\w-]+\\.)?(?:com|net|org)\\s*$", "", str(name)).strip()
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    base = ", ".join(parts[:2]) if len(parts) > 1 else raw
+    # Keep exact model codes even if the seller title puts them after color/size.
+    models = [token for token in re.findall(r"[A-Za-z0-9-]+", raw) if is_model_identifier(token)]
+    for model in models:
+        if not re.search(r"\\b" + re.escape(model) + r"\\b", base, re.I):
+            base += " " + model
+    return base.strip(" ,")
+
+
+def compose_heygen_narration(name, plan, max_words=34):
+    """Create one short, fact-grounded ad with one CTA; never cut sentences.
+
+    The marketing gate validates listing evidence before this is called. We
+    choose complete facts from that evidence rather than truncating the older
+    30-60 second multi-scene speech into a broken 15-second voiceover.
+    """
+    from backend.sales_script import clean, is_distinct_product_fact
+    identity = _spoken_identity(name)
+    opening = "Take a look at " + identity.rstrip(".!?") + "."
+    cta = "Tap the product link to check current price, size, and options."
+    if not identity:
+        raise HTTPException(422, "A specific product name is required for the ad.")
+    facts = []
+    seen = []
+    for item in plan.get("evidence") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            fact = clean(item.get("text") or "", 160).strip(" .!?")
+        except ValueError:
+            continue
+        if not is_distinct_product_fact(fact, name):
+            continue
+        tokens = set(re.findall(r"[a-z0-9]+", fact.casefold()))
+        if not tokens or any(tokens == older for older in seen):
+            continue
+        seen.append(tokens)
+        # A complete fact is required: never clip at the word limit and
+        # accidentally change what the seller actually claimed.
+        facts.append(fact[0].upper() + fact[1:] + ".")
+    budget = max_words - len((opening + " " + cta).split())
+    if budget < 5:
+        raise HTTPException(422, "Product title is too long for a 15-second narrated ad.")
+    chosen = []
+    # Prefer a concise fact; optionally add one different fact if it fits.
+    for fact in sorted(facts, key=lambda f: len(f.split())):
+        n = len(fact.split())
+        if n <= budget and len(chosen) < 2:
+            chosen.append(fact)
+            budget -= n
+    if not chosen:
+        raise HTTPException(
+            422, "The verified seller facts are too long for natural 15-second narration. "
+                 "Supply a shorter, complete product fact; no paid video was started.")
+    narration = " ".join([opening, *chosen, cta])
     words = narration.split()
-    if len(words) > 37:
-        narration = " ".join(words[:37]).rstrip(" ,;:") + "."
+    if len(words) > max_words or narration.casefold().count("tap the product link") != 1:
+        raise HTTPException(422, "Narration failed the length or call-to-action review.")
+    return narration
+
+
+def product_prompt(name, plan):
+    narration = compose_heygen_narration(name, plan)
     return (
         "Vertical product advertisement. Use the supplied exact seller product photo "
         "as the opening frame; preserve product identity, design, markings and proportions. "
         "Stable camera, subtle gentle movement, no rapid cuts, no strobing or flicker. "
         "No invented features, labels, brands, badges, or on-screen text. "
-        "Natural US English narration, clearly pronounced with no background music. "
-        "Speak exactly: " + narration
+        "Natural US English narration, warm professional delivery with a short pause "
+        "between sentences, moderate pace, no repeated words or background music. "
+        "Speak exactly the following once, including the final call to action: " + narration
     )
-
 
 class HeyGenSubmit(BaseModel):
     product: VideoRequest
