@@ -51,16 +51,16 @@ def split_compound_seller_fact(value):
         return [source]
     extracted = [head]
     for raw in parts[1:]:
-        phrase = re.sub(r"^(?:and|plus)\\s+", "", raw, flags=re.I).strip()
-        if re.match(r"^measuring\\s+\\d", phrase, re.I):
-            item = re.sub(r"^measuring\\s+", "Measures ", phrase, flags=re.I)
+        phrase = re.sub(r"^(?:and|plus)\s+", "", raw, flags=re.I).strip()
+        if re.match(r"^measuring\s+\d", phrase, re.I):
+            item = re.sub(r"^measuring\s+", "Measures ", phrase, flags=re.I)
         else:
-            phrase = re.sub(r"^(?:an?|the)\\s+", "", phrase, flags=re.I).strip()
+            phrase = re.sub(r"^(?:an?|the)\s+", "", phrase, flags=re.I).strip()
             # Only concrete short specifications in an explicit comma list:
             # avoid treating marketing fragments as independently proved facts.
-            if not re.search(r"\\b(?:switch|base|cord|neck|drawer|divider|shelf|"
+            if not re.search(r"\b(?:switch|base|cord|neck|drawer|divider|shelf|"
                              r"handle|light|button|port|plug|tray|panel|"
-                             r"adjustable|removable|inches?|feet|cm|mm)\\b", phrase, re.I):
+                             r"adjustable|removable|inches?|feet|cm|mm)\b", phrase, re.I):
                 continue
             if len(phrase.split()) < 2 or len(phrase.split()) > 12:
                 continue
