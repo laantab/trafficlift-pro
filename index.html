@@ -1606,7 +1606,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         if (!note || !label) return;
         note.textContent = 'Checking HeyGen connection without using video credits…';
         try {
-            const base = hostedVideoSite ? location.origin : apiUrl('').replace(/\\/$/, '');
+            const base = location.origin;
             const readinessResponse = await fetch(base + '/api/v1/heygen-video/readiness', {
                 method:'GET', credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(30000)
             });
