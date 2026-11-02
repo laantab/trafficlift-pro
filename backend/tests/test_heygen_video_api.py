@@ -3,7 +3,7 @@ from unittest.mock import patch, Mock
 import pytest
 from fastapi import HTTPException
 
-from backend.heygen_video_api import configured, product_prompt, provider_request, compose_heygen_narration
+from backend.heygen_video_api import configured, product_prompt, provider_request, compose_heygen_narration, verified_listing_image
 
 
 def test_provider_defaults_off(monkeypatch):
@@ -82,3 +82,63 @@ def test_provider_error_does_not_expose_key(monkeypatch):
             provider_request("POST", "https://api.heygen.com/v3/models/videos", json={})
     assert err.value.status_code == 502
     assert "top-secret-test-key" not in err.value.detail
+
+
+def test_paid_heygen_requires_verified_seller_photo():
+    with pytest.raises(HTTPException) as exc:
+        verified_listing_image([])
+    assert exc.value.status_code == 422
+    assert "no paid video was started" in exc.value.detail
+    assert verified_listing_image([
+        "https://www.target.com/images/products/actual-lamp.jpg"
+    ]) == "https://www.target.com/images/products/actual-lamp.jpg"
+
+
+def test_heygen_ad_prompt_has_readable_cta_and_no_fabricated_demo():
+    plan = {"evidence": [{"text": "Includes a six-foot cord"}, {"text": "Adjustable neck for positioning"}]}
+    prompt = product_prompt("Desk Light", plan)
+    assert "See Price & Details" in prompt
+    assert "high-contrast, readable call to action" in prompt
+    assert "never invent" in prompt
+    assert "keeping the full product visible" in prompt
+
+
+def test_heygen_submit_uses_listing_image_not_stale_browser_image(monkeypatch):
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    listing = "https://target.scene7.com/is/image/Target/verified-lamp"
+    stale = "https://target.scene7.com/is/image/Target/stale-piano-lamp"
+    product = VideoRequest(name="Classic Desk Light", image_url=stale,
+                           product_url="https://www.target.com/p/classic-desk-light",
+                           benefit="Includes a six-foot cord")
+    body = HeyGenSubmit(product=product, approve_paid_generation=True)
+    plan = {"evidence": [{"text": "Includes a six-foot cord"},
+                         {"text": "Adjustable neck for positioning"}]}
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=(plan, [listing])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.provider_request", return_value={"video_id": "sample_valid_job_123"}) as send:
+        result = heygen_submit(body, Mock())
+    assert result["status"] == "submitted"
+    assert send.call_args.kwargs["json"]["image"]["url"] == listing
+
+
+def test_heygen_submit_aborts_before_paid_call_if_image_unverified():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(name="Desk Light",
+                           image_url="https://target.scene7.com/is/image/Target/unknown-product",
+                           product_url="https://www.target.com/p/desk-light")
+    body = HeyGenSubmit(product=product, approve_paid_generation=True)
+    plan = {"evidence": [{"text": "Includes a six-foot cord"},
+                         {"text": "Adjustable neck for positioning"}]}
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=(plan, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.provider_request") as send:
+        with pytest.raises(HTTPException) as exc:
+            heygen_submit(body, Mock())
+    assert exc.value.status_code == 422
+    send.assert_not_called()
