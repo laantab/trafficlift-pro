@@ -1230,9 +1230,16 @@
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                         <option value="free">Free narrated photo video (legacy)</option>
                         <option value="heygen" selected>HeyGen Video V2 (paid, approval required)</option>
+                        <option value="wan">Wan 2.2 (5-second visual trial, approx. $0.15)</option>
                         <option value="local">Local RTX 3060 (this PC)</option>
                         <option value="minimax">MiniMax cloud</option>
                     </select>
+                    <div id="wanEnginePanel" class="hidden mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
+                        <p class="text-xs font-semibold text-slate-200">Wan 2.2 5B — <span id="wanEngineState" role="status" class="text-amber-400">Checking setup…</span></p>
+                        <p id="wanEngineStatus" role="status" class="text-xs text-slate-400">One 5-second, silent, 9:16 visual trial. Estimated fal.ai charge: $0.15 per clip; no charge without your confirmation.</p>
+                        <button type="button" onclick="checkWanActivation()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check Wan setup (no credits)</button>
+                        <p class="text-xs text-slate-400">Does not produce a narrated multi-scene ad yet. Requires a server-side FAL_KEY and enabled trial. Exact product photo and quality review required.</p>
+                    </div>
                     <div id="heygenEnginePanel" class="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
                         <p class="text-xs font-semibold text-slate-200">HeyGen Video V2 — <span id="heygenEngineState" role="status" class="text-amber-400">Checking activation…</span></p>
                         <p id="heygenConnectionStatus" role="status" class="text-xs text-slate-400">API verification checks the connection without spending video credits.</p>
@@ -1528,11 +1535,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
     function syncVideoProviderOptions() {
         const provider = document.getElementById('videoProvider').value;
-        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free' && provider !== 'heygen');
+        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free' && provider !== 'heygen' && provider !== 'wan');
         document.getElementById('localVideoOptions').classList.toggle('hidden', provider !== 'local');
         document.getElementById('minimaxVideoOptions').classList.toggle('hidden', provider !== 'minimax');
-        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free' || provider === 'heygen');
+        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free' || provider === 'heygen' || provider === 'wan');
         document.getElementById('heygenEnginePanel').classList.toggle('hidden', provider !== 'heygen');
+        document.getElementById('wanEnginePanel').classList.toggle('hidden', provider !== 'wan');
+        if (provider === 'wan') void checkWanActivation();
         if (provider === 'heygen') void checkHeyGenActivation();
     }
 
@@ -1876,6 +1885,106 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         } finally { button.disabled = false; }
     }
     let heygenPendingVideoId = null;
+    let wanPendingRequestId = null;
+    async function checkWanActivation() {
+        const label = document.getElementById('wanEngineState');
+        const note = document.getElementById('wanEngineStatus');
+        if (!label || !note) return;
+        try {
+            const res = await fetch(location.origin + '/api/v1/wan-video/readiness', {
+                credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(20000)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 401) {
+                label.textContent = 'Owner access needed';
+                note.textContent = 'Unlock Video Studio owner access first.';
+            } else if (!res.ok || data.enabled !== true) {
+                label.textContent = 'Not connected';
+                note.textContent = 'Wan is installed but disabled until FAL_KEY is configured in Render and TRAFFICLIFT_WAN_VIDEO_ENABLED=1.';
+            } else {
+                label.textContent = 'READY — paid approval required';
+                label.className = 'text-emerald-400';
+                note.textContent = 'One silent, five-second 9:16 product-motion clip; published estimate $0.15. Review identity before using commercially.';
+            }
+        } catch (e) {
+            label.textContent = 'Status unavailable';
+            note.textContent = 'Could not verify Wan trial setup.';
+        }
+    }
+    async function submitWanVideo(statusEl, resultEl) {
+        if (!hostedVideoSite) throw new Error('Open the hosted TrafficLift website for the Wan trial.');
+        if (wanPendingRequestId) {
+            statusEl.textContent = 'Checking existing Wan generation; not paying again.';
+            await pollWanVideo(wanPendingRequestId, statusEl, resultEl);
+            return;
+        }
+        const ready = await fetch(location.origin + '/api/v1/wan-video/readiness', {
+            credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(20000)
+        });
+        const state = await ready.json().catch(() => ({}));
+        if (!ready.ok || !state.enabled) throw new Error(state.detail || 'Wan trial not connected. Configure FAL_KEY on the server first. No paid video started.');
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.image_url) throw new Error('Select a seller-listed product first.');
+        if (!window.confirm('Wan 2.2 visual TRIAL: submit ONE SILENT 5-second video (estimated $0.15 in fal.ai credits)? Not a completed narrated ad. Cancel spends nothing.')) {
+            statusEl.textContent = 'Wan trial cancelled. No generation started.';
+            return;
+        }
+        const product = {
+            name:document.getElementById('freeProductName').value.trim(),
+            image_url:winner.image_url,
+            product_url:document.getElementById('freeProductUrl').value.trim(),
+            benefit:document.getElementById('freeProductFact').value.trim(),
+            fact_sources:[...(winner.seller_benefit_source && winner.seller_facts?.length ? [{
+                title:winner.name,url:winner.seller_benefit_source,snippet:winner.seller_facts.join('\\n')
+            }] : []), ...(winner.research_sources || [])].slice(0,4),
+            seconds:15, style:document.getElementById('freeVideoStyle').value
+        };
+        statusEl.textContent = 'Submitting one approved Wan visual trial…';
+        const res = await fetch(location.origin + '/api/v1/wan-video/submit', {
+            method:'POST', credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({product,approve_paid_generation:true}),
+            signal:AbortSignal.timeout(45000)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'Wan submission failed. Check provider jobs before retrying.');
+        if (!/^[0-9a-fA-F-]{20,64}$/.test(data.request_id || ''))
+            throw new Error('Wan submission status uncertain. Check fal.ai jobs before retrying.');
+        wanPendingRequestId = data.request_id;
+        await pollWanVideo(wanPendingRequestId, statusEl, resultEl);
+    }
+    async function pollWanVideo(id, statusEl, resultEl) {
+        for (let attempt=0; attempt<60; attempt++) {
+            const res = await fetch(location.origin + '/api/v1/wan-video/status/' + encodeURIComponent(id), {
+                credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(35000)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Wan status check failed. Do not resubmit.');
+            if (data.status === 'completed' && String(data.video_url || '').startsWith('https://')) {
+                wanPendingRequestId = null;
+                statusEl.textContent = 'Wan visual trial ready (silent). Review the exact product, crop and motion before publishing.';
+                resultEl.replaceChildren();
+                const video = document.createElement('video');
+                video.controls=true; video.playsInline=true; video.preload='metadata';
+                video.src=data.video_url; video.className='w-full max-h-[60vh] mx-auto';
+                const a=document.createElement('a');
+                a.href=data.video_url; a.target='_blank'; a.rel='noopener noreferrer';
+                a.className='block mt-3 text-brand-400 underline';
+                a.textContent='Open Wan trial clip';
+                resultEl.append(video,a);
+                resultEl.classList.remove('hidden');
+                return;
+            }
+            if (data.status === 'failed') {
+                wanPendingRequestId = null;
+                throw new Error('Wan job failed. Check fal.ai usage before retrying.');
+            }
+            statusEl.textContent = 'Wan ' + (data.status || 'processing') + ' — checking existing job (no extra charge).';
+            await new Promise(resolve => setTimeout(resolve,10000));
+        }
+        throw new Error('Wan is still processing. Do not start another paid request; check this job again.');
+    }
+
     async function submitHeyGenVideo(statusEl, resultEl) {
         if (!hostedVideoSite) throw new Error('Open the official hosted TrafficLift website for HeyGen video.');
         if (heygenPendingVideoId) {
@@ -2081,7 +2190,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const resultEl   = document.getElementById('videoResult');
         const submitBtn  = document.getElementById('videoSubmitBtn');
 
-        if (provider !== 'free' && provider !== 'heygen' && !prompt) {
+        if (provider !== 'free' && provider !== 'heygen' && provider !== 'wan' && !prompt) {
             statusEl.innerHTML = '<span class="text-red-400">Prompt is required.</span>';
             return;
         }
@@ -2104,6 +2213,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
             if (provider === 'heygen') {
                 await submitHeyGenVideo(statusEl, resultEl);
+                return;
+            }
+            if (provider === 'wan') {
+                await submitWanVideo(statusEl, resultEl);
                 return;
             }
             if (provider === 'local') {
