@@ -66,15 +66,15 @@ def test_wan_submit_uses_exact_listing_photo_without_reusing_stale_selected(monk
     with patch("backend.wan_video_api.video_guard"), \
          patch("backend.wan_video_api.prepare_video_plan", return_value=(plan, [seller_photo])), \
          patch("backend.wan_video_api.marketing_readiness_gate"), \
-         patch("backend.wan_video_api.provider_request", return_value={"request_id": "019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b"}) as send:
+         patch("backend.wan_video_api.fal_client.submit", return_value=Mock(request_id="019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b")) as send:
         response = submit(data, Mock())
     assert response["status"] == "submitted"
-    payload = send.call_args.kwargs["json"]
+    payload = send.call_args.kwargs["arguments"]
     assert payload["image_url"] == seller_photo
     assert payload["aspect_ratio"] == "9:16"
     assert payload["num_frames"] == 121
     assert payload["frames_per_second"] == 24
-    assert send.call_args.args[0] == "POST"
+    assert send.call_args.args[0] == "fal-ai/wan/v2.2-5b/image-to-video"
 
 
 def test_wan_no_paid_request_when_seller_photo_missing(monkeypatch):
@@ -124,3 +124,21 @@ def test_provider_diagnostic_is_safe_and_never_leaks_provider_body(monkeypatch, 
     assert "private-test-secret" not in exc.value.detail
     assert "private seller" not in exc.value.detail
     assert send.call_count == 1
+
+
+def test_wan_status_uses_official_queue_handle(monkeypatch):
+    from backend.wan_video_api import status
+    import fal_client
+    monkeypatch.setenv("FAL_KEY", "fake")
+    monkeypatch.setenv("TRAFFICLIFT_WAN_VIDEO_ENABLED", "1")
+    handle = Mock()
+    handle.status.return_value = fal_client.Completed(logs=None, metrics={})
+    handle.get.return_value = {"video": {"url": "https://cdn.example.org/trial.mp4"}}
+    with patch("backend.wan_video_api.video_guard"), \
+         patch("backend.wan_video_api.fal_client.SyncClient") as client:
+        client.return_value.get_handle.return_value = handle
+        result = status("019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b", Mock())
+    assert result["status"] == "completed"
+    assert result["video_url"] == "https://cdn.example.org/trial.mp4"
+    client.return_value.get_handle.assert_called_once_with("fal-ai/wan/v2.2-5b/image-to-video",
+                                       "019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b")

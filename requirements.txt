@@ -31,3 +31,6 @@ soundfile==0.14.0
 numpy>=2.0,<3
 Pillow>=12.0,<13
 static-ffmpeg==3.0
+
+# Official fal.ai client for queued Wan generation and status URL routing.
+fal-client==1.0.3
