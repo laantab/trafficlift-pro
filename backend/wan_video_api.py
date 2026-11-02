@@ -137,7 +137,7 @@ def status(request_id: str, request: Request):
         raise HTTPException(404, "Unknown Wan job.")
     # The SDK stores the canonical queue endpoint for nested model paths.
     try:
-        handle = fal_client.get_handle(MODEL, request_id)
+        handle = fal_client.SyncClient().get_handle(MODEL, request_id)
         provider_state = handle.status()
     except Exception as exc:
         raise HTTPException(502, "Unable to check existing Wan job. Do not start another paid request.") from exc
