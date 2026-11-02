@@ -223,5 +223,5 @@ def test_premium_copy_rejects_incomplete_eight_word_fragments():
     text = ("Smart Drawer Organizer, 3-Tier Desk Drawer Organizer for "
             "Desk Storage, Jewelry and Kitchen")
     feature = _usable_feature(text, "Smart+ Expandable 3-Tier Drawer Organizer")
-    assert feature
-    assert not feature.endswith((" for.", " and.", " with."))
+    # Keyword-stuffed listing headings must not become narration.
+    assert feature == ""
