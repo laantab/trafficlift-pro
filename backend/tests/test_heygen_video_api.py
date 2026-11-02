@@ -107,7 +107,7 @@ def test_heygen_submit_uses_listing_image_not_stale_browser_image(monkeypatch):
     from backend.heygen_video_api import heygen_submit, HeyGenSubmit
     from backend.photo_video_api import VideoRequest
     listing = "https://target.scene7.com/is/image/Target/verified-lamp"
-    stale = "https://images.example.com/stale-piano-lamp.jpg"
+    stale = "https://target.scene7.com/is/image/Target/stale-piano-lamp"
     product = VideoRequest(name="Classic Desk Light", image_url=stale,
                            product_url="https://www.target.com/p/classic-desk-light",
                            benefit="Includes a six-foot cord")
@@ -128,7 +128,7 @@ def test_heygen_submit_aborts_before_paid_call_if_image_unverified():
     from backend.heygen_video_api import heygen_submit, HeyGenSubmit
     from backend.photo_video_api import VideoRequest
     product = VideoRequest(name="Desk Light",
-                           image_url="https://images.example.com/unknown-product.jpg",
+                           image_url="https://target.scene7.com/is/image/Target/unknown-product",
                            product_url="https://www.target.com/p/desk-light")
     body = HeyGenSubmit(product=product, approve_paid_generation=True)
     plan = {"evidence": [{"text": "Includes a six-foot cord"},
