@@ -4,6 +4,7 @@ from pathlib import Path
 import io
 import json
 import subprocess
+import asyncio
 
 import pytest
 from fastapi import HTTPException
@@ -55,7 +56,7 @@ def test_premium_preflight_uses_exact_seller_photo_and_never_calls_paid_api(tmp_
          patch("backend.premium_ad_api.dependencies"), \
          patch("backend.premium_ad_api.prepare_video_plan", return_value=(plan, [photo])), \
          patch("backend.premium_ad_api.marketing_readiness_gate"), \
-         patch("backend.premium_ad_api.fal_client.submit", create=True) as paid:
+         patch("backend.wan_video_api.fal_client.submit") as paid:
         # fal_client is deliberately not imported by Premium Product Ad.
         result = start(PremiumStart(product=sample_product()), Mock())
     assert result["status"] == "awaiting_upload"
@@ -79,19 +80,17 @@ def test_premium_preflight_rejects_unverified_photo(tmp_path):
     assert not list(tmp_path.glob("premium/*/job.json"))
 
 
-@pytest.mark.asyncio
-async def test_premium_stream_limits_mp4(tmp_path):
+def test_premium_stream_limits_mp4(tmp_path):
     target = tmp_path/"demo.mp4"
     from backend.premium_ad_api import _MAX_BYTES
     req = request_for(b"x" * (_MAX_BYTES+1))
     with pytest.raises(HTTPException) as exc:
-        await _stream_mp4(req, target)
+        asyncio.run(_stream_mp4(req, target))
     assert exc.value.status_code == 413
     assert not target.exists()
 
 
-@pytest.mark.asyncio
-async def test_premium_stream_rejects_non_mp4(tmp_path):
+def test_premium_stream_rejects_non_mp4(tmp_path):
     target = tmp_path/"demo.mp4"
     req = request_for(b"not a real mp4" * 300)
     with pytest.raises(HTTPException) as exc:
