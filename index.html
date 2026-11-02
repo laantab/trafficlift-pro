@@ -1223,17 +1223,17 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs text-slate-400 leading-relaxed">
-                    Choose your presenter clip and create a narrated product ad. Your product details are filled in automatically.
+                    Create a professional product video from the verified seller photo. No presenter clip upload. Paid generation requires your approval.
                 </p>
                 <details id="videoEngineAdvanced" class="rounded-lg border border-slate-700 p-3">
                     <summary class="text-sm cursor-pointer text-slate-300">Other video engines and advanced options</summary>
                     <label class="block mt-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                         <option value="free">Free narrated photo video (legacy)</option>
-                        <option value="heygen">HeyGen Video V2 (paid, approval required)</option>
+                        <option value="heygen" selected>High Quality Video — HeyGen (paid, approval required)</option>
                         <option value="wan">Wan 2.2 (5-second product visual, approx. $0.15)</option>
                         <option value="wan-human">Wan 2.2 — Human demonstration (experimental, approx. $0.15)</option>
-                        <option value="premium" selected>Premium Product Ad — saved presenter clip + narration (no new paid clip)</option>
+                        <option value="premium">Legacy montage — use existing presenter clip (no new paid clip)</option>
                         <option value="local">Local RTX 3060 (this PC)</option>
                         <option value="minimax">MiniMax cloud</option>
                     </select>
@@ -1243,13 +1243,14 @@
                         <button type="button" onclick="checkWanActivation()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check Wan setup (no credits)</button>
                         <p class="text-xs text-slate-400">Does not produce a narrated multi-scene ad yet. Requires a server-side FAL_KEY and enabled trial. Exact product photo and quality review required.</p>
                     </div>
-                    <div id="heygenEnginePanel" class="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
-                        <p class="text-xs font-semibold text-slate-200">HeyGen Video V2 — <span id="heygenEngineState" role="status" class="text-amber-400">Checking activation…</span></p>
-                        <p id="heygenConnectionStatus" role="status" class="text-xs text-slate-400">API verification checks the connection without spending video credits.</p>
-                        <button type="button" onclick="verifyHeyGenConnection()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check HeyGen activation (no credits)</button>
-                        <p class="text-xs text-slate-400">Unlock owner access below if prompted. Every paid video requires your confirmation.</p>
-                    </div>
+
                 </details>
+                    <div id="heygenEnginePanel" class="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
+                        <p class="text-xs font-semibold text-slate-200">High-quality product video — <span id="heygenEngineState" role="status" class="text-amber-400">Checking activation…</span></p>
+                        <p id="heygenConnectionStatus" role="status" class="text-xs text-slate-400">Checks the video provider connection without spending credits.</p>
+                        <button type="button" onclick="verifyHeyGenConnection()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check HeyGen activation (no credits)</button>
+                        <p class="text-xs text-slate-400">Uses the selected real product image; you approve every paid video. Review the result before posting.</p>
+                    </div>
                 <div id="freeVideoOptions" class="space-y-3">
                     <img id="freeProductPreview" alt="Selected product photo" class="w-full h-52 object-contain rounded-xl bg-slate-950 p-3" style="height:208px;object-fit:contain;object-position:center">
                     <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
@@ -1497,7 +1498,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'premium';
+        document.getElementById('videoProvider').value = 'heygen';
         document.getElementById('videoEngineAdvanced').open = false;
         document.getElementById('videoOwnerAccessDetails').open = false;
         document.getElementById('premiumDemoFile').value = '';
@@ -2108,7 +2109,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const winner = restoreCurrentWinner();
         if (!winner || !winner.image_url) throw new Error('Choose a product with a verified seller image first.');
-        const approved = window.confirm('HeyGen Video V2 uses paid HeyGen credits. Start ONE 15-second product-video generation? Cancel keeps your credits untouched.');
+        const approved = window.confirm('High-quality video uses paid HeyGen credits. Start ONE 15-second product video? Cancel means no paid generation. Only proceed after checking your provider pricing.');
         if (!approved) {
             statusEl.textContent = 'HeyGen generation cancelled. No paid request sent.';
             return;
@@ -2124,7 +2125,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             seconds: 15,
             style: document.getElementById('freeVideoStyle').value
         };
-        statusEl.textContent = 'Submitting one authorized HeyGen video…';
+        statusEl.textContent = 'Submitting one authorized high-quality video…';
         const response = await fetch(location.origin + '/api/v1/heygen-video/submit', {
             method:'POST', credentials:'same-origin', cache:'no-store',
             headers:{'Content-Type':'application/json'},
