@@ -169,10 +169,81 @@ def _probe(video, *, max_seconds=12):
 
 
 def _display_name(value):
-    """Keep marketplace metadata and copied headings out of ad graphics."""
-    name = re.sub(r"^\\s*#{1,6}\\s*", "", str(value or "")).strip()
-    name = re.sub(r"\\s*[-|]\\s*(?:Walmart\\.com|Amazon\\.com|Target(?:\\.com)?)\\s*$", "", name, flags=re.I)
+    """Create a concise product label without seller suffixes or duplicated metadata."""
+    name = re.sub(r"^\s*#{1,6}\s*", "", str(value or "")).strip()
+    name = re.sub(r"\s*[-|]\s*(?:Walmart\.com|Amazon\.com|Target(?:\.com)?)\s*$",
+                  "", name, flags=re.I)
+    name = re.sub(r"\s+", " ", name).strip(" ,-")
+    # A common marketplace listing: brand, product, color, tiers and retailer.
+    if len(name) > 48 and re.search(r"drawer organizer", name, flags=re.I):
+        brand = name.split(",")[0].split(" ")[0].strip()
+        tiers = re.search(r"\b([2-9])\s*[- ]?\s*tier\b", name, flags=re.I)
+        if tiers:
+            prefix = (brand + " ") if brand and len(brand) < 18 else ""
+            expanded = "Expandable " if re.search(r"\bexpandable\b", name, re.I) else ""
+            return f"{prefix}{expanded}{tiers.group(1)}-Tier Drawer Organizer"
+    if len(name) > 54:
+        name = name[:55].rsplit(" ", 1)[0].rstrip(" ,-/")
     return clean(name, 90).strip() or "Featured product"
+
+
+def _usable_feature(fact, product_name):
+    """Reject listing titles, rather than turning eight arbitrary words into a sentence."""
+    fact = re.sub(r"^\s*#{1,6}\s*", "", str(fact or "")).strip(" \t\r\n")
+    fact = re.sub(r"\s+", " ", fact)
+    if not fact or "http" in fact.lower():
+        return ""
+    normalized = re.sub(r"[^a-z0-9]+", " ", fact.lower()).strip()
+    title = re.sub(r"[^a-z0-9]+", " ", product_name.lower()).strip()
+    if normalized == title or (len(normalized.split()) >= 7 and
+                               (normalized in title or title in normalized)):
+        return ""
+    # A full concise clause is preferable to cutting off mid-phrase.
+    clauses = re.split(r"[.!?;]", fact)
+    for clause in clauses:
+        clause = clause.strip(" ,-:")
+        words = clause.split()
+        if 2 <= len(words) <= 9 and len(clause) <= 72 and not re.search(
+                r"\b(?:for|with|and|of|the|to|in|by|on|a|an)$", clause, re.I):
+            return clause.rstrip(".") + "."
+    # Extract only seller-confirmed attributes, in complete standalone phrases.
+    features = (
+        (r"\bexpandable\b", "Expandable design."),
+        (r"\b(?:[2-9])\s*[- ]?\s*tier\b", "Multi-tier organization."),
+        (r"\badjustable stand\b", "Adjustable stand."),
+        (r"\bmetal base\b", "Metal base."),
+        (r"\b(?:storage compartments|organizing compartments)\b", "Storage compartments."),
+    )
+    for pattern, copy in features:
+        if re.search(pattern, fact, re.I):
+            return copy
+    return ""
+
+
+def _premium_ad_copy(record, evidence):
+    """Return brief complete narration, visuals, and an evidence-grounded hook."""
+    name = _display_name(record["name"])
+    features = []
+    for item in evidence:
+        phrase = _usable_feature(item, name)
+        if phrase and phrase.casefold() not in {x.casefold() for x in features}:
+            features.append(phrase)
+    if not features:
+        raise ValueError("No concise verified seller features are available. Check the listing details.")
+    exact_context = " ".join(evidence).lower()
+    if "drawer" in (name + " " + exact_context).lower() and (
+            "organizer" in name.lower() or "organizer" in exact_context):
+        hook = "ORGANIZE YOUR DRAWER"
+    elif re.search(r"\badjustable\b", exact_context):
+        hook = "TAKE A CLOSER LOOK"
+    else:
+        hook = "DISCOVER THE DETAILS"
+    return {
+        "name": name,
+        "hook": hook,
+        "narration": ["Take a closer look.", features[0], "See price and details."],
+        "feature": features[0],
+    }
 
 
 def _fit_lines(text, font, max_width=610, max_lines=2):
@@ -221,7 +292,7 @@ def _cards(folder, image_path, record, captions):
         else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
     name = _display_name(record["name"])
     scenes = (
-        ("intro", "MEET THE PRODUCT", name),
+        ("intro", record.get("hook", "TAKE A CLOSER LOOK"), name),
         ("outro", "SEE PRICE & DETAILS", "Visit the seller's listing"),
     )
     for key, headline, subtitle in scenes:
@@ -282,22 +353,9 @@ def _assemble(folder, record):
                 for x in record["plan"].get("evidence", []) if x.get("text")]
     if len(evidence) < 2:
         raise ValueError("Two exact-product seller facts are required.")
-    # Avoid marketplace headings posing as benefits. Use only source-backed facts.
-    product_name = _display_name(record["name"])
-    def is_listing_heading(fact):
-        normalized = re.sub(r"[^a-z0-9]+", " ", fact.lower()).strip()
-        title = re.sub(r"[^a-z0-9]+", " ", product_name.lower()).strip()
-        return normalized == title or normalized.startswith("# ") or (
-            len(normalized.split()) > 7 and normalized in title
-        )
-    factual = [fact for fact in evidence if not is_listing_heading(fact)]
-    if not factual:
-        raise ValueError("No usable seller product benefit; verify the listing details before rendering.")
-    # Audio stays short enough for each five-second scene. No invented outcomes.
-    def short_fact(f):
-        return " ".join(f.split()[:8]).rstrip(".!?") + "."
-    captions = ["Meet this product.", short_fact(factual[0]),
-                "See price and details."]
+    copy = _premium_ad_copy(record, evidence)
+    captions = copy["narration"]
+    record = {**record, "name": copy["name"], "hook": copy["hook"]}
     _cards(folder, image_path, record, captions)
     _voice(folder, captions)
     filters = (
