@@ -94,7 +94,7 @@ def test_premium_stream_rejects_non_mp4(tmp_path):
     target = tmp_path/"demo.mp4"
     req = request_for(b"not a real mp4" * 300)
     with pytest.raises(HTTPException) as exc:
-        await _stream_mp4(req, target)
+        asyncio.run(_stream_mp4(req, target))
     assert exc.value.status_code == 422
 
 
