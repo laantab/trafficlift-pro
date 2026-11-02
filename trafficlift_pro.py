@@ -793,6 +793,9 @@ app.include_router(heygen_video_router)
 # Separate disabled-by-default low-cost Wan visual trial.
 from backend.wan_video_api import router as wan_video_router
 app.include_router(wan_video_router)
+# Owner-only, no-provider-spend assembly of existing presenter footage.
+from backend.premium_ad_api import router as premium_ad_router
+app.include_router(premium_ad_router)
 from backend.pin_image_api import router as pin_image_router
 app.include_router(pin_image_router)
 
