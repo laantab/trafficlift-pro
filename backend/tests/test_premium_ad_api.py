@@ -107,3 +107,49 @@ def test_premium_cards_use_exact_photo_without_distorting_shape(tmp_path):
         assert (tmp_path/name).is_file()
         with Image.open(tmp_path/name) as pic:
             assert pic.size == (720,1280)
+
+
+def test_premium_full_15_second_mp4_composes_without_api_credits(tmp_path):
+    """Real ffmpeg test with a synthetic human-stage stand-in and silent WAV.
+
+    Runs all three scenes through the final compositor. Media is synthetic;
+    appearance and audio quality still require a real user footage review.
+    """
+    import shutil
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("ffmpeg is required to verify final production composition")
+    import numpy as np
+    import soundfile as sf
+    from PIL import Image
+    source = tmp_path/"demo.mp4"
+    try:
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=360x640:r=24:d=5",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)
+        ], check=True, capture_output=True, timeout=60)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pytest.skip("synthetic fixture encoder is unavailable in this runner")
+    still = tmp_path/"lamp.jpg"
+    Image.new("RGB", (500, 900), (70, 85, 95)).save(still)
+    record = {
+        "id": "a"*32, "name": "Crosby Schoolhouse Desk Lamp",
+        "image_url": "https://target.scene7.com/is/image/Target/verified",
+        "plan": {"evidence": [
+            {"text": "Adjustable metal stand"}, {"text": "Metal base construction"}]},
+    }
+    def fake_voice(folder, captions):
+        sf.write(folder/"voice.wav", np.zeros(24000*15, dtype=np.float32), 24000)
+    with patch("backend.premium_ad_api.dependencies"), \
+         patch("backend.photo_video.dependencies"), \
+         patch("backend.premium_ad_api._download_product_image", return_value=still), \
+         patch("backend.premium_ad_api._voice", side_effect=fake_voice), \
+         patch("backend.premium_ad_api._probe", wraps=_probe):
+        quality = _assemble(tmp_path, record)
+    assert (tmp_path/"video.mp4").stat().st_size > 100000
+    assert quality["width"] == 720
+    assert quality["height"] == 1280
+    assert 14.5 <= quality["duration"] <= 15.5
+    receipt = json.loads((tmp_path/"quality.json").read_text())
+    assert receipt["publication_approved"] is False
+    assert receipt["paid_provider_calls"] == 0
