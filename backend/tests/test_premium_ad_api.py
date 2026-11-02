@@ -121,7 +121,7 @@ def test_premium_full_15_second_mp4_composes_without_api_credits(tmp_path):
     import numpy as np
     import soundfile as sf
     from PIL import Image
-    source = tmp_path/"demo.mp4"
+    source = tmp_path/"presenter.mp4"
     try:
         subprocess.run([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
