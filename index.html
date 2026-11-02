@@ -1960,7 +1960,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.detail || 'Wan status check failed. Do not resubmit.');
-            if (data.status === 'completed' && /^https:\\/\\//.test(data.video_url || '')) {
+            if (data.status === 'completed' && String(data.video_url || '').startsWith('https://')) {
                 wanPendingRequestId = null;
                 statusEl.textContent = 'Wan visual trial ready (silent). Review the exact product, crop and motion before publishing.';
                 resultEl.replaceChildren();
