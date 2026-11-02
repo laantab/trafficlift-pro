@@ -142,3 +142,52 @@ def test_wan_status_uses_official_queue_handle(monkeypatch):
     assert result["video_url"] == "https://cdn.example.org/trial.mp4"
     client.return_value.get_handle.assert_called_once_with("fal-ai/wan/v2.2-5b/image-to-video",
                                        "019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b")
+
+
+def test_human_demo_prompt_is_different_and_product_locked():
+    plan = {"evidence": [{"text": "Adjustable stand"}]}
+    baseline = wan_prompt("Crosby Schoolhouse Desk Lamp", plan)
+    human = wan_prompt("Crosby Schoolhouse Desk Lamp", plan, "human_demo")
+    assert human != baseline
+    assert "realistic adult presenter" in human
+    assert "entire lamp visible" in human
+    assert "never substitute a different lamp" in human
+    assert "No talking lips or audio" in human
+
+
+def test_human_demo_explicit_approval_and_payload(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fake")
+    monkeypatch.setenv("TRAFFICLIFT_WAN_VIDEO_ENABLED", "1")
+    body = WanSubmit(product=VideoRequest(
+        name="Crosby Schoolhouse Desk Lamp",
+        image_url="https://target.scene7.com/is/image/Target/picture",
+        product_url="https://www.target.com/p/crosby-schoolhouse-desk-lamp"),
+        scene_mode="human_demo", approve_paid_generation=True)
+    plan = {"evidence": [{"text": "Adjustable stand"}, {"text": "Metal base"}]}
+    listing = "https://target.scene7.com/is/image/Target/verified-lamp"
+    with patch("backend.wan_video_api.video_guard"), \
+         patch("backend.wan_video_api.prepare_video_plan", return_value=(plan, [listing])), \
+         patch("backend.wan_video_api.marketing_readiness_gate"), \
+         patch("backend.wan_video_api.fal_client.submit",
+               return_value=Mock(request_id="019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b")) as send:
+        result = submit(body, Mock())
+    assert result["scene_mode"] == "human_demo"
+    payload = send.call_args.kwargs["arguments"]
+    assert payload["image_url"] == listing
+    assert "realistic adult presenter" in payload["prompt"]
+    assert payload["num_frames"] == 121
+    assert payload["aspect_ratio"] == "9:16"
+
+
+def test_unapproved_human_demo_cannot_spend(monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fake")
+    monkeypatch.setenv("TRAFFICLIFT_WAN_VIDEO_ENABLED", "1")
+    body = WanSubmit(product=VideoRequest(
+        name="Lamp", image_url="https://target.scene7.com/is/image/Target/lamp",
+        product_url="https://www.target.com/p/lamp"), scene_mode="human_demo")
+    with patch("backend.wan_video_api.video_guard"), \
+         patch("backend.wan_video_api.fal_client.submit") as send:
+        with pytest.raises(HTTPException) as exc:
+            submit(body, Mock())
+    assert exc.value.status_code == 409
+    send.assert_not_called()
