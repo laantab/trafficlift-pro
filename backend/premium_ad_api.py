@@ -198,6 +198,9 @@ def _usable_feature(fact, product_name):
     if normalized == title or (len(normalized.split()) >= 7 and
                                (normalized in title or title in normalized)):
         return ""
+    # Marketplace titles often repeat the category as keyword stuffing.
+    if len(normalized.split()) > 9 and len(re.findall(r"drawer organizer", normalized)) >= 2:
+        return ""
     # A full concise clause is preferable to cutting off mid-phrase.
     clauses = re.split(r"[.!?;]", fact)
     for clause in clauses:
