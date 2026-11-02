@@ -5,6 +5,7 @@ No retries, no automatic multiple-scene spending, no customer release yet.
 import os
 import re
 import requests
+import fal_client
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -14,6 +15,7 @@ from backend.sales_script import marketing_readiness_gate
 
 router = APIRouter()
 BASE = "https://queue.fal.run/fal-ai/wan/v2.2-5b/image-to-video"
+MODEL = "fal-ai/wan/v2.2-5b/image-to-video"
 PRICE_USD = 0.15  # Published fal.ai price per 5-second clip; estimate only.
 
 
@@ -104,8 +106,22 @@ def submit(body: WanSubmit, request: Request):
                "num_frames": 121, "frames_per_second": 24,
                "resolution": "720p", "aspect_ratio": "9:16",
                "enable_safety_checker": True, "enable_prompt_expansion": False}
-    data = provider_request("POST", BASE, json=payload)
-    request_id = data.get("request_id")
+    # Use the official SDK for endpoint-path queue routing and status handling.
+    # Avoid hand-assembling nested fal queue URLs (which produced HTTP 405).
+    try:
+        handle = fal_client.submit(MODEL, arguments=payload)
+    except fal_client.FalClientHTTPError as exc:
+        code = getattr(exc, "status_code", None)
+        reason = ("billing or credits" if code == 402 else
+                  "invalid input" if code == 422 else
+                  "credentials or permissions" if code in (401, 403) else
+                  "model routing or method" if code == 405 else
+                  "provider or network availability")
+        raise HTTPException(502, "fal.ai rejected the Wan trial: " + reason +
+                            " (HTTP " + str(code) + "). No automatic retry was started.") from exc
+    except Exception as exc:
+        raise HTTPException(502, "Wan provider could not accept the request. Check fal.ai history before retrying.") from exc
+    request_id = handle.request_id
     if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", request_id):
         raise HTTPException(502, "Wan submission status is uncertain. Check fal.ai jobs; do not resubmit.")
     return {"provider": "wan", "request_id": request_id, "status": "submitted",
@@ -119,14 +135,24 @@ def status(request_id: str, request: Request):
         raise HTTPException(503, "Wan 2.2 trial is disabled.")
     if not re.fullmatch(r"[0-9a-fA-F-]{20,64}", request_id):
         raise HTTPException(404, "Unknown Wan job.")
-    base = BASE + "/requests/" + request_id
-    data = provider_request("GET", base + "/status")
-    state = data.get("status", "UNKNOWN")
-    if state != "COMPLETED":
-        return {"provider": "wan", "status": state.lower(), "video_url": None}
-    if data.get("error"):
+    # The SDK stores the canonical queue endpoint for nested model paths.
+    try:
+        handle = fal_client.get_handle(MODEL, request_id)
+        provider_state = handle.status()
+    except Exception as exc:
+        raise HTTPException(502, "Unable to check existing Wan job. Do not start another paid request.") from exc
+    if isinstance(provider_state, fal_client.Queued):
+        return {"provider": "wan", "status": "in_queue", "video_url": None}
+    if isinstance(provider_state, fal_client.InProgress):
+        return {"provider": "wan", "status": "in_progress", "video_url": None}
+    if not isinstance(provider_state, fal_client.Completed):
+        return {"provider": "wan", "status": "unknown", "video_url": None}
+    if provider_state.error:
         return {"provider": "wan", "status": "failed", "video_url": None}
-    result = provider_request("GET", base)
+    try:
+        result = handle.get()
+    except Exception as exc:
+        raise HTTPException(502, "Wan completed but its result could not be retrieved. Check provider jobs.") from exc
     video_url = (result.get("video") or {}).get("url") if isinstance(result.get("video"), dict) else None
     if not isinstance(video_url, str) or not video_url.startswith("https://"):
         return {"provider": "wan", "status": "failed", "video_url": None}
