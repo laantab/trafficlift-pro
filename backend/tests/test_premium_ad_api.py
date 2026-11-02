@@ -125,7 +125,7 @@ def test_premium_full_15_second_mp4_composes_without_api_credits(tmp_path):
     try:
         subprocess.run([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "color=c=blue:s=360x640:r=24:d=5",
+            "-f", "lavfi", "-i", "testsrc2=s=360x640:r=24:d=5",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)
         ], check=True, capture_output=True, timeout=60)
     except (subprocess.CalledProcessError, FileNotFoundError):
