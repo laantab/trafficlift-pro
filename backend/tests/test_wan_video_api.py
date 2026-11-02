@@ -103,3 +103,24 @@ def test_status_constructs_provider_url_from_valid_id_only(monkeypatch):
             status("https://evil.example/a", Mock())
         assert exc.value.status_code == 404
         send.assert_not_called()
+
+
+@pytest.mark.parametrize("provider_status,expected_text", [
+    (401, "API key"), (403, "permissions"), (402, "credits"),
+    (422, "video input"), (429, "rate limit"), (503, "temporarily unavailable")
+])
+def test_provider_diagnostic_is_safe_and_never_leaks_provider_body(monkeypatch, provider_status, expected_text):
+    from backend.wan_video_api import provider_request
+    monkeypatch.setenv("FAL_KEY", "private-test-secret")
+    response = Mock()
+    response.status_code = provider_status
+    response.text = "private-test-secret private seller information"
+    with patch("backend.wan_video_api.requests.request", return_value=response) as send:
+        with pytest.raises(HTTPException) as exc:
+            provider_request("POST", "https://queue.fal.run/fal-ai/wan/v2.2-5b/image-to-video", json={})
+    assert exc.value.status_code == 502
+    assert expected_text in exc.value.detail
+    assert str(provider_status) in exc.value.detail
+    assert "private-test-secret" not in exc.value.detail
+    assert "private seller" not in exc.value.detail
+    assert send.call_count == 1
