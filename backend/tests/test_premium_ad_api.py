@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from backend.premium_ad_api import (
-    _job_folder, _probe, _cards, _stream_mp4,
+    _job_folder, _probe, _cards, _fit_lines, _display_name, _stream_mp4,
     start, _assemble, PremiumStart
 )
 from backend.photo_video_api import VideoRequest
@@ -153,3 +153,35 @@ def test_premium_full_15_second_mp4_composes_without_api_credits(tmp_path):
     receipt = json.loads((tmp_path/"quality.json").read_text())
     assert receipt["publication_approved"] is False
     assert receipt["paid_provider_calls"] == 0
+
+
+def test_premium_captions_wrap_by_font_width_without_overflow():
+    from PIL import ImageFont
+    import os
+    path = os.environ.get("TRAFFICLIFT_FONT") or (
+        "C:/Windows/Fonts/arial.ttf" if os.name == "nt"
+        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    )
+    font = ImageFont.truetype(path, 34)
+    for text in [
+        "Smart+ 3-Tier Expandable Desk Drawer Organizer for Storage of All Small Household Items",
+        "A veryveryveryveryveryveryveryveryveryveryveryverylongunbrokentoken",
+        "Compact desk supplies in organized compartments",
+    ]:
+        lines = _fit_lines(text, font)
+        assert 1 <= len(lines) <= 2
+        assert all(font.getlength(line) <= 610 for line in lines)
+        assert all(line.strip() for line in lines)
+
+
+def test_premium_marketing_cards_remove_marketplace_noise_and_keep_safe_text(tmp_path):
+    from PIL import Image
+    image = tmp_path / "product.png"
+    Image.new("RGB", (640, 1000), (90, 120, 140)).save(image)
+    name = "# Smart+ Expandable 3-Tier Desk Drawer Organizer - Walmart.com"
+    assert _display_name(name) == "Smart+ Expandable 3-Tier Desk Drawer Organizer"
+    _cards(tmp_path, image, {"name": name},
+           ["Meet this product.", "Expandable three-tier drawer organizer.", "See price."])
+    for filename in ("intro.png", "outro.png", "caption.png"):
+        with Image.open(tmp_path / filename) as img:
+            assert img.size == (720, 1280)
