@@ -252,7 +252,7 @@ def _assemble(folder, record):
         "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x141924,"
         "fps=24,tpad=stop_mode=clone:stop_duration=7,trim=duration=5,setpts=PTS-STARTPTS,"
         "format=rgba[demo];"
-        "[3:v]format=rgba[overlay];[demo][overlay]overlay=0:0:shortest=1[v1];"
+        "[3:v]format=rgba[overlay];[demo][overlay]overlay=0:0:shortest=1,setsar=1[v1];"
         "[2:v]scale=720:1280,setsar=1,trim=duration=5,setpts=PTS-STARTPTS[v2];"
         "[v0][v1][v2]concat=n=3:v=1:a=0,format=yuv420p[v]"
     )
