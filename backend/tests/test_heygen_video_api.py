@@ -43,6 +43,22 @@ def test_prompt_has_single_cta_and_stable_framing():
     assert "no invented features" in result.lower()
 
 
+def test_product_lock_prompt_requires_full_frame_and_cta_hero_shot():
+    plan = {"evidence": [
+        {"text": "Adjustable neck for positioning"},
+        {"text": "Includes an on/off switch"}
+    ]}
+    prompt = product_prompt("Banker Desk Lamp", plan)
+    assert "PRODUCT LOCK:" in prompt
+    assert "ENTIRE product fully visible" in prompt
+    assert "COMPLETE video" in prompt
+    assert "do not crop, obscure" in prompt
+    assert "No aggressive zoom" in prompt
+    assert "final call to action" in prompt
+    assert "through the last frame" in prompt
+    assert "Speak exactly the following once" in prompt
+
+
 def test_long_listing_facts_fail_before_paid_generation():
     plan = {"evidence": [{"text": "Durable plastic material is made to handle assorted household objects in a wide variety of setups across many different household rooms"}]}
     with pytest.raises(HTTPException) as err:
