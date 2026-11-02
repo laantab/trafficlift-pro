@@ -142,3 +142,19 @@ def test_heygen_submit_aborts_before_paid_call_if_image_unverified():
             heygen_submit(body, Mock())
     assert exc.value.status_code == 422
     send.assert_not_called()
+
+
+def test_heygen_prompt_prevents_shake_and_unreadable_package_reconstruction():
+    plan = {"evidence": [
+        {"text": "Three adjustable drawers"},
+        {"text": "Expandable storage tiers"},
+    ]}
+    prompt = product_prompt("Smart Drawer Organizer", plan)
+    assert "PRODUCTION CAMERA LOCK" in prompt
+    assert "no handheld shake" in prompt
+    assert "frame jitter" in prompt
+    assert "PACKAGING TEXT LOCK" in prompt
+    assert "without re-drawing" in prompt
+    assert "Avoid close-up shots of tiny printed packaging text" in prompt
+    assert "rather than fabricating product mechanics" in prompt
+    assert "Speak exactly the following once" in prompt
