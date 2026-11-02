@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from backend.premium_ad_api import (
-    _job_folder, _probe, _cards, _fit_lines, _display_name, _stream_mp4,
+    _job_folder, _probe, _cards, _fit_lines, _display_name, _usable_feature, _premium_ad_copy, _stream_mp4,
     start, _assemble, PremiumStart
 )
 from backend.photo_video_api import VideoRequest
@@ -179,9 +179,49 @@ def test_premium_marketing_cards_remove_marketplace_noise_and_keep_safe_text(tmp
     image = tmp_path / "product.png"
     Image.new("RGB", (640, 1000), (90, 120, 140)).save(image)
     name = "# Smart+ Expandable 3-Tier Desk Drawer Organizer - Walmart.com"
-    assert _display_name(name) == "Smart+ Expandable 3-Tier Desk Drawer Organizer"
+    assert _display_name(name) == "Smart+ Expandable 3-Tier Drawer Organizer"
     _cards(tmp_path, image, {"name": name},
            ["Meet this product.", "Expandable three-tier drawer organizer.", "See price."])
     for filename in ("intro.png", "outro.png", "caption.png"):
         with Image.open(tmp_path / filename) as img:
             assert img.size == (720, 1280)
+
+
+def test_premium_copy_is_complete_and_removes_marketplace_clutter():
+    record = {"name": "Smart+, Desk Drawer Organizer, Black, 3-Tier, Expandable - Walmart.com"}
+    evidence = [
+        "# Smart Drawer Organizer, 3-Tier Desk Drawer Organizer for Desk Storage, Jewelry, Kitchen Silverware",
+        "Expandable three tier drawer organizer",
+        "Designed with storage compartments",
+    ]
+    copy = _premium_ad_copy(record, evidence)
+    assert copy["name"] == "Smart+ Expandable 3-Tier Drawer Organizer"
+    assert copy["hook"] == "ORGANIZE YOUR DRAWER"
+    assert copy["narration"][1] == "Expandable three tier drawer organizer."
+    assert not copy["narration"][1].endswith((" for.", " with.", " and."))
+    assert "Walmart.com" not in str(copy)
+
+
+def test_premium_copy_fallback_does_not_invent_features():
+    record = {"name": "Crosby Schoolhouse Desk Lamp - Target.com"}
+    copy = _premium_ad_copy(record, ["Adjustable stand", "Metal base"])
+    assert copy["narration"][1] == "Adjustable stand."
+    assert copy["hook"] == "TAKE A CLOSER LOOK"
+    assert "Target.com" not in str(copy)
+
+
+def test_premium_copy_does_not_accept_only_a_listing_title():
+    import pytest
+    with pytest.raises(ValueError, match="verified seller features"):
+        _premium_ad_copy(
+            {"name": "Example Product"},
+            ["# Example Product", "Example Product"],
+        )
+
+
+def test_premium_copy_rejects_incomplete_eight_word_fragments():
+    text = ("Smart Drawer Organizer, 3-Tier Desk Drawer Organizer for "
+            "Desk Storage, Jewelry and Kitchen")
+    feature = _usable_feature(text, "Smart+ Expandable 3-Tier Drawer Organizer")
+    assert feature
+    assert not feature.endswith((" for.", " and.", " with."))
