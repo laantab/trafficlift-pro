@@ -109,6 +109,28 @@ def compose_heygen_narration(name, plan, max_words=34):
     return narration
 
 
+def verified_listing_image(photos):
+    """Use imagery returned by the same exact seller listing as the evidence.
+
+    The browser's current selected image may belong to a previous product.
+    Never bill for that stale selection or for an unverified fallback.
+    """
+    from local_video.trafficlift_video_bridge import _validate_public_https_url
+    for photo in photos or []:
+        if not isinstance(photo, str):
+            continue
+        try:
+            _validate_public_https_url(photo)
+        except (ValueError, TypeError):
+            continue
+        return photo
+    raise HTTPException(
+        422,
+        "Could not verify a product photo from the exact seller listing. "
+        "Select a listing with an accessible product image; no paid video was started."
+    )
+
+
 def product_prompt(name, plan):
     narration = compose_heygen_narration(name, plan)
     return (
@@ -118,12 +140,16 @@ def product_prompt(name, plan):
         "a generous safe margin for the COMPLETE video, including every transition. "
         "Maintain a stable full-product hero composition; do not crop, obscure, "
         "rotate away, move out of frame, hide, replace, or morph the product. "
-        "Use a stationary camera or extremely subtle motion only if the full "
-        "product remains visible. No aggressive zoom, panning off-frame, cutaways, "
+        "Make the ad visually engaging with subtle lighting changes and gentle "
+        "depth or parallax while keeping the full product visible; never invent "
+        "a feature demonstration or alter the real product. "
+        "No aggressive zoom, panning off-frame, cutaways, "
         "lifestyle substitution, rapid cuts, no strobing or flicker. "
         "For the final call to action, hold a clean full-product hero shot, "
         "keeping the entire product on screen through the last frame. "
-        "No invented features, labels, brands, badges, or on-screen text. "
+        "At the end show one crisp, high-contrast, readable call to action: "
+        "\'See Price & Details\'. Keep it away from the product silhouette; "
+        "no other new text, invented features, labels, brands, or badges. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
         "Speak exactly the following once, including the final call to action: " + narration
@@ -164,8 +190,9 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
         raise HTTPException(409, "Paid HeyGen generation requires explicit approval.")
     product = body.product
     try:
-        plan, _ = prepare_video_plan(product, require_renderable=True)
+        plan, listing_photos = prepare_video_plan(product, require_renderable=True)
         marketing_readiness_gate(plan)
+        listing_image = verified_listing_image(listing_photos)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Image-to-video inherits the input image aspect ratio; vertical output requires
@@ -177,7 +204,7 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
         "mode": "image_to_video",
         "prompt": product_prompt(product.name, plan),
         "duration": body.duration,
-        "image": {"type": "url", "url": product.image_url},
+        "image": {"type": "url", "url": listing_image},
         "resolution": "768p",
         "prompt_enhancement": "quality",
     }
