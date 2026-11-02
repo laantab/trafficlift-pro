@@ -29,10 +29,27 @@ def provider_request(method, url, **kwargs):
             headers={"Authorization": "Key " + os.environ["FAL_KEY"],
                      "Content-Type": "application/json"},
             timeout=(8, 35), allow_redirects=False, **kwargs)
-        response.raise_for_status()
+        # Never include provider response bodies: they can contain user prompts,
+        # seller data, signed URLs and potentially credentials.
+        code = response.status_code
+        if code >= 400:
+            if code in (401, 403):
+                raise HTTPException(502, "fal.ai rejected the API key or account permissions (provider HTTP " + str(code) + "). Check FAL_KEY in Render.")
+            if code in (402, 422):
+                detail = ("fal.ai reports insufficient credits or billing access."
+                          if code == 402 else
+                          "fal.ai rejected the video input. The seller photo may be inaccessible or a video parameter invalid.")
+                raise HTTPException(502, detail + " Provider HTTP " + str(code) + ". No automatic retry was started.")
+            if code == 429:
+                raise HTTPException(502, "fal.ai rate limit reached (provider HTTP 429). Do not retry immediately.")
+            if 500 <= code <= 599:
+                raise HTTPException(502, "fal.ai is temporarily unavailable (provider HTTP " + str(code) + "). Check fal.ai job history before retrying.")
+            raise HTTPException(502, "fal.ai rejected the request (provider HTTP " + str(code) + "). No automatic retry was started.")
         data = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        raise HTTPException(502, "Wan video provider request failed. Check fal.ai credits and connection.") from exc
+    except requests.RequestException as exc:
+        raise HTTPException(502, "Cannot reach fal.ai; provider response was not received. Check network and fal.ai status before retrying.") from exc
+    except ValueError as exc:
+        raise HTTPException(502, "fal.ai returned a response that could not be read. Check provider jobs before retrying.") from exc
     if not isinstance(data, dict):
         raise HTTPException(502, "Wan provider returned an unexpected response.")
     return data
