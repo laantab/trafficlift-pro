@@ -790,6 +790,9 @@ app.include_router(photo_video_router)
 # Isolated, disabled-by-default paid HeyGen video provider.
 from backend.heygen_video_api import router as heygen_video_router
 app.include_router(heygen_video_router)
+# Separate disabled-by-default low-cost Wan visual trial.
+from backend.wan_video_api import router as wan_video_router
+app.include_router(wan_video_router)
 from backend.pin_image_api import router as pin_image_router
 app.include_router(pin_image_router)
 
