@@ -49,13 +49,13 @@ def test_product_lock_prompt_requires_full_frame_and_cta_hero_shot():
         {"text": "Includes an on/off switch"}
     ]}
     prompt = product_prompt("Banker Desk Lamp", plan)
-    assert "PRODUCT LOCK:" in prompt
-    assert "ENTIRE product fully visible" in prompt
-    assert "COMPLETE video" in prompt
-    assert "do not crop, obscure" in prompt
+    assert "PRODUCT IDENTITY LOCK:" in prompt
+    assert "SCENE SEPARATION:" in prompt
+    assert "NO packaging photo visible over the demonstration" in prompt
+    assert "keep the organizer and hands unobstructed" in prompt
     assert "No aggressive zoom" in prompt
     assert "final call to action" in prompt
-    assert "through the last frame" in prompt
+    assert "do not bring back the large retail package" in prompt
     assert "Speak exactly the following once" in prompt
 
 
@@ -100,7 +100,7 @@ def test_heygen_ad_prompt_has_readable_cta_and_no_fabricated_demo():
     assert "See Price & Details" in prompt
     assert "high-contrast, readable call to action" in prompt
     assert "never invent" in prompt
-    assert "keeping the full product visible" in prompt
+    assert "clean full-frame view" in prompt
 
 
 def test_heygen_submit_uses_listing_image_not_stale_browser_image(monkeypatch):
@@ -158,3 +158,15 @@ def test_heygen_prompt_prevents_shake_and_unreadable_package_reconstruction():
     assert "Avoid close-up shots of tiny printed packaging text" in prompt
     assert "rather than fabricating product mechanics" in prompt
     assert "Speak exactly the following once" in prompt
+
+
+def test_heygen_reference_photo_never_overlays_product_demo():
+    plan = {"evidence": [{"text": "Three adjustable drawers"},
+                         {"text": "Expandable drawer storage"}]}
+    prompt = product_prompt("Smart Drawer Organizer", plan)
+    assert "0-2 second opening" in prompt
+    assert "clean, complete CUT" in prompt
+    assert "No crossfade of the box into" in prompt
+    assert "picture-in-picture" in prompt
+    assert "Do not keep the packaging stationary while the background moves" in prompt
+    assert "full-frame product" in prompt
