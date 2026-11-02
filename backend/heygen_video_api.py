@@ -149,7 +149,7 @@ def product_prompt(name, plan):
         "keeping the entire product on screen through the last frame. "
         "At the end show one crisp, high-contrast, readable call to action: "
         "\'See Price & Details\'. Keep it away from the product silhouette; "
-        "no other new text, invented features, labels, brands, or badges. "
+        "no other new text; no invented features, labels, brands, or badges. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
         "Speak exactly the following once, including the final call to action: " + narration
