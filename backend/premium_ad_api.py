@@ -168,39 +168,83 @@ def _probe(video, *, max_seconds=12):
     return {"duration": duration, "width": width, "height": height}
 
 
+def _display_name(value):
+    """Keep marketplace metadata and copied headings out of ad graphics."""
+    name = re.sub(r"^\\s*#{1,6}\\s*", "", str(value or "")).strip()
+    name = re.sub(r"\\s*[-|]\\s*(?:Walmart\\.com|Amazon\\.com|Target(?:\\.com)?)\\s*$", "", name, flags=re.I)
+    return clean(name, 90).strip() or "Featured product"
+
+
+def _fit_lines(text, font, max_width=610, max_lines=2):
+    """Fit caption text by *rendered pixel width*, never by character count."""
+    words = str(text).split()
+    lines = []
+    for word in words:
+        candidate = (lines[-1] + " " + word) if lines else word
+        if lines and font.getlength(candidate) > max_width:
+            if len(lines) == max_lines:
+                break
+            lines.append(word)
+        elif lines:
+            lines[-1] = candidate
+        else:
+            lines.append(candidate)
+        if font.getlength(lines[-1]) > max_width:
+            # Long seller tokens/URLs must never extend beyond the safe area.
+            while lines[-1] and font.getlength(lines[-1] + "…") > max_width:
+                lines[-1] = lines[-1][:-1]
+            lines[-1] = lines[-1].rstrip() + "…"
+            break
+    rendered_words = " ".join(lines).replace("…", "").split()
+    if len(rendered_words) < len(words) and lines:
+        last = lines[-1].rstrip("…. ")
+        while last and font.getlength(last + "…") > max_width:
+            last = last[:-1].rstrip()
+        lines[-1] = last + "…"
+    return lines[:max_lines]
+
+
+def _draw_lines(draw, lines, font, center_y, *, fill="white", spacing=10):
+    if not lines:
+        return
+    line_height = font.getbbox("Ag")[3] - font.getbbox("Ag")[1] + spacing
+    for i, line in enumerate(lines):
+        y = int(center_y + (i - (len(lines) - 1) / 2) * line_height)
+        draw.text((360, y), line, fill=fill, anchor="mm", font=font)
+
+
 def _cards(folder, image_path, record, captions):
     from PIL import Image, ImageDraw, ImageFont, ImageOps
     product = Image.open(image_path).convert("RGB")
     font_path = os.environ.get("TRAFFICLIFT_FONT") or (
         "C:/Windows/Fonts/arial.ttf" if os.name == "nt"
         else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-    for key, headline, sub in (
-        ("intro", "TAKE A CLOSER LOOK", record["name"]),
-        ("outro", "SEE PRICE & DETAILS", "View the seller listing"),
-    ):
+    name = _display_name(record["name"])
+    scenes = (
+        ("intro", "MEET THE PRODUCT", name),
+        ("outro", "SEE PRICE & DETAILS", "Visit the seller's listing"),
+    )
+    for key, headline, subtitle in scenes:
+        # Use the exact seller image, contained at its natural aspect ratio.
         card = Image.new("RGB", (720, 1280), (20, 25, 36))
-        # Contain rather than crop the product; keep the full silhouette.
-        thumb = ImageOps.contain(product, (650, 875))
-        card.paste(thumb, ((720-thumb.width)//2, (1280-thumb.height)//2-30))
+        thumb = ImageOps.contain(product, (650, 785))
+        card.paste(thumb, ((720 - thumb.width) // 2, 140 + (785 - thumb.height) // 2))
         draw = ImageDraw.Draw(card)
-        f1 = ImageFont.truetype(font_path, 40)
-        f2 = ImageFont.truetype(font_path, 27)
-        draw.rectangle((0, 990, 720, 1280), fill=(20, 25, 36))
-        draw.text((360, 1052), headline, fill=(255, 241, 210),
-                  anchor="mm", font=f1, stroke_width=1)
-        sub = clean(sub, 90)
-        if f2.getlength(sub) > 665:
-            sub = sub[:48].rstrip() + "..."
-        draw.text((360, 1123), sub, fill="white", anchor="mm", font=f2)
+        title_font = ImageFont.truetype(font_path, 39)
+        sub_font = ImageFont.truetype(font_path, 30)
+        draw.rounded_rectangle((28, 966, 692, 1210), radius=24, fill=(12, 19, 31))
+        _draw_lines(draw, _fit_lines(headline, title_font), title_font, 1032,
+                    fill=(255, 241, 210))
+        _draw_lines(draw, _fit_lines(subtitle, sub_font), sub_font, 1120)
         card.save(folder / (key + ".png"))
+
+    # Dynamic caption, wrapped to a maximum of two center-safe lines.
     mid = Image.new("RGBA", (720, 1280), (0, 0, 0, 0))
     draw = ImageDraw.Draw(mid)
-    draw.rectangle((20, 1075, 700, 1195), fill=(10, 16, 27, 210))
-    font = ImageFont.truetype(font_path, 32)
-    text = captions[1]
-    if font.getlength(text) > 630:
-        text = text[:40].rstrip() + "..."
-    draw.text((360, 1130), text, font=font, anchor="mm", fill="white")
+    draw.rounded_rectangle((28, 1020, 692, 1192), radius=22,
+                           fill=(10, 16, 27, 224))
+    font = ImageFont.truetype(font_path, 34)
+    _draw_lines(draw, _fit_lines(captions[1], font), font, 1102)
     mid.save(folder / "caption.png")
 
 
@@ -238,11 +282,21 @@ def _assemble(folder, record):
                 for x in record["plan"].get("evidence", []) if x.get("text")]
     if len(evidence) < 2:
         raise ValueError("Two exact-product seller facts are required.")
-    # Narrate only sourced short facts. No claim that AI footage proves function.
+    # Avoid marketplace headings posing as benefits. Use only source-backed facts.
+    product_name = _display_name(record["name"])
+    def is_listing_heading(fact):
+        normalized = re.sub(r"[^a-z0-9]+", " ", fact.lower()).strip()
+        title = re.sub(r"[^a-z0-9]+", " ", product_name.lower()).strip()
+        return normalized == title or normalized.startswith("# ") or (
+            len(normalized.split()) > 7 and normalized in title
+        )
+    factual = [fact for fact in evidence if not is_listing_heading(fact)]
+    if not factual:
+        raise ValueError("No usable seller product benefit; verify the listing details before rendering.")
+    # Audio stays short enough for each five-second scene. No invented outcomes.
     def short_fact(f):
-        words = f.split()
-        return " ".join(words[:8]).rstrip(".!?") + "."
-    captions = ["Take a closer look.", short_fact(evidence[0]),
+        return " ".join(f.split()[:8]).rstrip(".!?") + "."
+    captions = ["Meet this product.", short_fact(factual[0]),
                 "See price and details."]
     _cards(folder, image_path, record, captions)
     _voice(folder, captions)
