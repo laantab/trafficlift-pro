@@ -8,6 +8,7 @@ import requests
 import fal_client
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from typing import Literal
 
 from backend.photo_video_api import video_guard, prepare_video_plan, VideoRequest
 from backend.heygen_video_api import verified_listing_image
@@ -57,11 +58,30 @@ def provider_request(method, url, **kwargs):
     return data
 
 
-def wan_prompt(name, plan):
+def wan_prompt(name, plan, scene_mode='product'):
     # Visual-only test: voiceover and multi-scene assembly are NOT yet offered.
     facts = [str(x.get("text", "")).strip() for x in (plan.get("evidence") or [])
              if isinstance(x, dict) and x.get("text")]
     detail = (" Seller-verified visual features: " + "; ".join(facts[:2]) + ".") if facts else ""
+    if scene_mode == "human_demo":
+        return (
+            "One continuous premium lifestyle commercial in a real home office. "
+            "Begin with the exact " + name + " as pictured in the reference photo. "
+            "A realistic adult presenter enters naturally into the SAME shot, "
+            "faces the product and gently points to its real visible design, "
+            "with natural human posture, believable eyes and anatomically accurate hands. "
+            "The presenter then demonstrates an ordinary visual interaction only if "
+            "physically obvious from the image, such as positioning the lamp on a desk. "
+            "Do not invent controls, power states, features, or claims. "
+            "No talking lips or audio, no title graphics. "
+            "Maintain the exact original lamp model, base, finish, proportions, "
+            "components and markings throughout; never substitute a different lamp. "
+            "Keep the entire lamp visible in frame beside the presenter, "
+            "with natural daylight and subtle camera movement. "
+            "One continuous shot only, no scene changes. "
+            "The visual goal is convincing human presence and genuine product identity. "
+            "If the presenter cannot interact naturally, prefer pointing without touching."
+        )
     return (
         "Commercial product close-up of the exact " + name + " shown in the reference photograph. "
         "Preserve exact product silhouette, finish, controls, proportions, packaging and markings. "
@@ -75,6 +95,7 @@ def wan_prompt(name, plan):
 
 class WanSubmit(BaseModel):
     product: VideoRequest
+    scene_mode: Literal['product', 'human_demo'] = 'product'
     approve_paid_generation: bool = False
 
 
@@ -84,7 +105,7 @@ def readiness(request: Request):
     return {"provider": "wan-2.2-5b-fal", "enabled": configured(),
             "estimated_usd_per_clip": PRICE_USD, "duration_seconds": 5,
             "audio": False, "paid_generation_requires_approval": True,
-            "mode": "visual_trial_only"}
+            "mode": "visual_trial_only", "supported_scene_modes": ["product", "human_demo"]}
 
 
 @router.post("/api/v1/wan-video/submit", status_code=202)
@@ -102,7 +123,7 @@ def submit(body: WanSubmit, request: Request):
         raise HTTPException(422, str(exc)) from exc
     # Explicitly choose 9:16, with product-lock framing prompt. Center cropping
     # is possible: outputs still require visual review before publishing.
-    payload = {"image_url": image_url, "prompt": wan_prompt(body.product.name, plan),
+    payload = {"image_url": image_url, "prompt": wan_prompt(body.product.name, plan, body.scene_mode),
                "num_frames": 121, "frames_per_second": 24,
                "resolution": "720p", "aspect_ratio": "9:16",
                "enable_safety_checker": True, "enable_prompt_expansion": False}
@@ -125,7 +146,7 @@ def submit(body: WanSubmit, request: Request):
     if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", request_id):
         raise HTTPException(502, "Wan submission status is uncertain. Check fal.ai jobs; do not resubmit.")
     return {"provider": "wan", "request_id": request_id, "status": "submitted",
-            "estimated_usd": PRICE_USD, "visual_review_required": True}
+            "estimated_usd": PRICE_USD, "scene_mode": body.scene_mode, "visual_review_required": True}
 
 
 @router.get("/api/v1/wan-video/status/{request_id}")
