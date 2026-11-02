@@ -152,7 +152,7 @@ def _run(args, *, timeout=180):
         raise ValueError("The video compositor could not complete this step. Check MP4 format, dimensions and audio setup.") from exc
 
 
-def _probe(video):
+def _probe(video, *, max_seconds=12):
     data = json.loads(_run(["ffprobe", "-v", "error", "-show_format",
                             "-show_streams", "-of", "json", str(video)], timeout=20).stdout)
     stream = next((s for s in data["streams"] if s.get("codec_type") == "video"), None)
@@ -163,7 +163,7 @@ def _probe(video):
     duration = float(data["format"].get("duration") or 0)
     if width < 240 or height < 240 or width > 4096 or height > 4096:
         raise ValueError("Presenter MP4 has unsupported dimensions.")
-    if not 3 <= duration <= 12:
+    if not 3 <= duration <= max_seconds:
         raise ValueError("Presenter clip must be between 3 and 12 seconds.")
     return {"duration": duration, "width": width, "height": height}
 
@@ -267,7 +267,7 @@ def _assemble(folder, record):
           "-t", "15", "-r", "24", "-c:v", "libx264", "-preset", "veryfast",
           "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac",
           "-movflags", "+faststart", str(folder/"video.mp4")], timeout=240)
-    qa = _probe(folder/"video.mp4")
+    qa = _probe(folder/"video.mp4", max_seconds=16)
     if not 14.5 <= qa["duration"] <= 15.5 or qa["width"] != 720 or qa["height"] != 1280:
         raise ValueError("Completed commercial failed video duration or framing checks.")
     if (folder/"video.mp4").stat().st_size < 100000:
