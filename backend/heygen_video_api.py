@@ -120,7 +120,7 @@ def product_prompt(name, plan):
         "rotate away, move out of frame, hide, replace, or morph the product. "
         "Use a stationary camera or extremely subtle motion only if the full "
         "product remains visible. No aggressive zoom, panning off-frame, cutaways, "
-        "lifestyle substitution, rapid cuts, strobing, or flicker. "
+        "lifestyle substitution, rapid cuts, no strobing or flicker. "
         "For the final call to action, hold a clean full-product hero shot, "
         "keeping the entire product on screen through the last frame. "
         "No invented features, labels, brands, badges, or on-screen text. "
