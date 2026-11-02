@@ -135,9 +135,10 @@ def test_wan_status_uses_official_queue_handle(monkeypatch):
     handle.status.return_value = fal_client.Completed(logs=None, metrics={})
     handle.get.return_value = {"video": {"url": "https://cdn.example.org/trial.mp4"}}
     with patch("backend.wan_video_api.video_guard"), \
-         patch("backend.wan_video_api.fal_client.get_handle", return_value=handle) as get_handle:
+         patch("backend.wan_video_api.fal_client.SyncClient") as client:
+        client.return_value.get_handle.return_value = handle
         result = status("019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b", Mock())
     assert result["status"] == "completed"
     assert result["video_url"] == "https://cdn.example.org/trial.mp4"
-    get_handle.assert_called_once_with("fal-ai/wan/v2.2-5b/image-to-video",
+    client.return_value.get_handle.assert_called_once_with("fal-ai/wan/v2.2-5b/image-to-video",
                                        "019a1b2c-3d4e-7f80-9a1b-2c3d4e5f6a7b")
