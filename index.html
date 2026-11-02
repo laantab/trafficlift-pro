@@ -1223,16 +1223,17 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs text-slate-400 leading-relaxed">
-                    Make a narrated product video with your real photo, captions, and a clear closing action. Free Studio runs on this computer.
+                    Create a 15-second product ad with clear captions and narration. Select your saved presenter clip, then create the video.
                 </p>
-                <div>
-                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
+                <details id="videoEngineAdvanced" class="rounded-lg border border-slate-700 p-3">
+                    <summary class="text-sm cursor-pointer text-slate-300">Other video engines and advanced options</summary>
+                    <label class="block mt-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                         <option value="free">Free narrated photo video (legacy)</option>
-                        <option value="heygen" selected>HeyGen Video V2 (paid, approval required)</option>
+                        <option value="heygen">HeyGen Video V2 (paid, approval required)</option>
                         <option value="wan">Wan 2.2 (5-second product visual, approx. $0.15)</option>
                         <option value="wan-human">Wan 2.2 — Human demonstration (experimental, approx. $0.15)</option>
-                        <option value="premium">Premium Product Ad — combine existing human clip, narration & CTA (no paid API)</option>
+                        <option value="premium" selected>Premium Product Ad — saved presenter clip + narration (no new paid clip)</option>
                         <option value="local">Local RTX 3060 (this PC)</option>
                         <option value="minimax">MiniMax cloud</option>
                     </select>
@@ -1248,33 +1249,34 @@
                         <button type="button" onclick="verifyHeyGenConnection()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check HeyGen activation (no credits)</button>
                         <p class="text-xs text-slate-400">Unlock owner access below if prompted. Every paid video requires your confirmation.</p>
                     </div>
-                </div>
+                </details>
                 <div id="premiumAdPanel" class="hidden rounded-lg border border-slate-700 p-3 space-y-2">
-                    <p class="text-sm font-semibold text-slate-100">Premium Product Ad — 15-second draft</p>
-                    <p class="text-xs text-slate-400">Reuse the five-second Wan presenter MP4 you already downloaded. TrafficLift adds a seller-photo opening, captions, local narration and a closing CTA without generating more paid clips. Manual review required before posting.</p>
-                    <label class="block text-xs text-slate-300" for="premiumDemoFile">Choose your previously generated presenter MP4</label>
+                    <p class="text-sm font-semibold text-slate-100">Create your 15-second product ad</p>
+                    <p class="text-xs text-slate-400">Use a previously saved presenter video. TrafficLift combines it with your product photo, narration and a closing message. If you do not have a presenter clip, open Other video engines above to create one first.</p>
+                    <label class="block text-xs text-slate-300" for="premiumDemoFile">Step 1 — Select your saved presenter video (MP4)</label>
                     <input type="file" id="premiumDemoFile" accept="video/mp4,.mp4" class="block w-full text-sm text-slate-100 border border-slate-700 rounded-lg p-2 bg-slate-950">
-                    <p class="text-xs text-amber-300">Draft only. A human must verify the uploaded clip shows the correct product. Max 28MB, 3–12s MP4. No extra fal.ai charges.</p>
+                    <p class="text-xs text-amber-300">MP4, 3–12 seconds, up to 28 MB. Creating this draft uses no additional paid generation credits. Review the finished video before posting.</p>
                 </div>
                 <div id="freeVideoOptions" class="space-y-3">
                     <img id="freeProductPreview" alt="Selected product photo" class="w-full h-64 object-contain rounded-xl bg-slate-950 p-3" style="height:256px;object-fit:contain;object-position:center">
-                    <p id="freeStudioInstructions" class="text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
+                    <p id="freeStudioInstructions" class="hidden text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
                     <div id="hostedVideoOwnerAccess" class="hidden rounded-lg border border-slate-700 p-3 space-y-2">
                         <p class="text-xs text-slate-300">Hosted video owner beta — unlock with your access code. Customer subscriptions are not enabled yet.</p>
                         <input id="videoOwnerAccessCode" type="password" autocomplete="off" placeholder="Private owner access code" class="w-full bg-slate-950 rounded-lg p-2 text-slate-100">
                         <button type="button" onclick="unlockHostedOwnerVideo()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Unlock Video Studio</button>
                         <p id="videoOwnerAccessStatus" role="status" class="text-xs text-slate-400"></p>
-                        <div id="hostedVideoAcceptanceReview" class="hidden border-t border-slate-700 pt-3 space-y-2">
+                        <details id="hostedVideoAcceptanceReview" class="hidden border-t border-slate-700 pt-3 space-y-2"><summary class="text-xs cursor-pointer text-slate-400">Technical video checks</summary>
                             <p class="text-xs text-slate-300">Owner review: genuine hosted Kokoro/FFmpeg acceptance sample. This is not a customer-created product video.</p>
                             <button type="button" onclick="loadHostedAcceptanceSample()" class="rounded-lg bg-slate-800 px-3 py-2 text-xs">Check real hosted MP4 sample</button>
                             <p id="hostedVideoAcceptanceStatus" role="status" class="text-xs text-slate-400"></p>
                             <a id="hostedVideoAcceptanceDownload" href="/api/v1/video-owner-acceptance/mp4" download="trafficlift-owner-acceptance.mp4" class="hidden text-xs text-brand-400 underline">Download real Kokoro acceptance MP4</a>
-                        </div>
+                        </details>
                     </div>
                     <label class="block text-xs text-slate-400">Product name<input id="freeProductName" maxlength="90" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product benefit (automatically researched; optional override)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Leave blank to retrieve product facts automatically." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
-                    <label class="block text-xs text-slate-400">Buyer need (optional)<input id="freeBuyerNeed" maxlength="100" placeholder="For example: Easier sipping at your desk" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <details class="rounded-lg border border-slate-800 p-3"><summary class="cursor-pointer text-sm text-slate-400">Optional script details and style</summary>
+                    <label class="block mt-3 text-xs text-slate-400">Buyer need (optional)<input id="freeBuyerNeed" maxlength="100" placeholder="For example: Easier sipping at your desk" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Buying detail (optional; copy from the same listing)<input id="freeBuyingDetail" maxlength="120" placeholder="Supported size, care or included accessories" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <p class="text-xs text-slate-400">Use facts for this exact product. Scripts are checked before rendering. Photos highlight features; they do not prove performance.</p>
                     <div class="grid grid-cols-2 gap-3">
@@ -1282,6 +1284,7 @@
                         <label class="text-xs text-slate-400">Scene style<select id="freeVideoStyle" class="mt-1 w-full bg-slate-950 rounded-lg p-2"><option value="warm">Warm studio</option><option value="clean">Clean studio</option><option value="bold">Bold studio</option></select></label>
                     </div>
                     <p class="text-xs text-slate-500">Five scenes: buyer need → product → daily use → buying details → call to action. Available seller facts are included automatically. If two distinct exact-listing facts are unavailable, Video Studio explains what is missing before starting a render. The full narration determines the finished length. Captions and voice included. The destination link is provided separately for your post.</p>
+                    </details>
                     <details><summary class="text-sm cursor-pointer">Past videos</summary><div id="freeVideoHistory" class="mt-2 space-y-2 text-sm"></div></details>
                 </div>
                 <div id="localVideoOptions" class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-3">
@@ -1362,7 +1365,7 @@
                     <button onclick="submitVideoRender()" id="videoSubmitBtn"
                         class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition flex items-center gap-2">
                         <i data-lucide="play" class="w-4 h-4"></i>
-                        <span>Render Video</span>
+                        <span>Create Video</span>
                     </button>
                 </div>
 
@@ -1490,7 +1493,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'heygen';
+        document.getElementById('videoProvider').value = 'premium';
+        document.getElementById('videoEngineAdvanced').open = false;
+        document.getElementById('premiumDemoFile').value = '';
         document.getElementById('freeProductPreview').src = winner.image_url || '';
         document.getElementById('freeProductName').value = winner.name;
         document.getElementById('freeProductUrl').value = winner.url || '';
@@ -2352,7 +2357,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             statusEl.textContent = 'Video could not finish: ' + (e.message || String(e));
         } finally {
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Render Video</span>';
+            submitBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Create Video</span>';
             lucide.createIcons();
         }
     }
