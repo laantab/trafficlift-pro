@@ -29,6 +29,7 @@ from local_video.trafficlift_video_bridge import _download_product_image
 
 router = APIRouter()
 _lock = threading.Lock()
+_render_lock = threading.Lock()
 _MAX_BYTES = 28 * 1024 * 1024
 _ID = re.compile(r"[0-9a-f]{32}")
 
@@ -119,8 +120,11 @@ async def upload_demo(job_id: str, request: Request):
     if request.headers.get("content-type", "").split(";")[0] != "video/mp4":
         raise HTTPException(415, "Upload an MP4 video.")
     folder = _job_folder(job_id)
-    if not _lock.acquire(blocking=False):
+    if not _render_lock.acquire(blocking=False):
         raise HTTPException(409, "Another premium assembly is running.")
+    if not _lock.acquire(blocking=False):
+        _render_lock.release()
+        raise HTTPException(409, "Premium upload is busy.")
     try:
         data = _load(folder)
         if data["status"] != "awaiting_upload":
@@ -133,6 +137,9 @@ async def upload_demo(job_id: str, request: Request):
         thread = threading.Thread(target=_worker, args=(folder,), daemon=True)
         thread.start()
         return {"id": job_id, "status": "queued", "paid_provider_calls": 0}
+    except Exception:
+        _render_lock.release()
+        raise
     finally:
         _lock.release()
 
@@ -243,7 +250,7 @@ def _assemble(folder, record):
         "[0:v]scale=720:1280,setsar=1,trim=duration=5,setpts=PTS-STARTPTS[v0];"
         "[1:v]scale=660:1100:force_original_aspect_ratio=decrease,"
         "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x141924,"
-        "fps=24,trim=duration=5,setpts=PTS-STARTPTS,"
+        "fps=24,tpad=stop_mode=clone:stop_duration=7,trim=duration=5,setpts=PTS-STARTPTS,"
         "format=rgba[demo];"
         "[3:v]format=rgba[overlay];[demo][overlay]overlay=0:0:shortest=1[v1];"
         "[2:v]scale=720:1280,setsar=1,trim=duration=5,setpts=PTS-STARTPTS[v2];"
@@ -289,6 +296,7 @@ def _worker(folder):
         record.update(status="failed", message=str(exc)[:250], video_url=None)
     finally:
         _save(folder, record)
+        _render_lock.release()
 
 
 @router.get("/api/v1/premium-ad/{job_id}")
