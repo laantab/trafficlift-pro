@@ -67,7 +67,7 @@ def compose_heygen_narration(name, plan, max_words=34):
     from backend.sales_script import clean, is_distinct_product_fact
     identity = _spoken_identity(name)
     opening = "Take a look at " + identity.rstrip(".!?") + "."
-    cta = "Tap the product link to check current price, size, and options."
+    cta = "Tap the product link to visit the seller's page for current price and details."
     if not identity:
         raise HTTPException(422, "A specific product name is required for the ad.")
     facts = []
@@ -184,7 +184,7 @@ def product_prompt(name, plan):
         "the demonstrated product; do not bring back the large retail package "
         "or obscure the product with a still-photo overlay. "
         "At the end show one crisp, high-contrast, readable call to action: "
-        "\'See Price & Details\'. Keep it away from the product silhouette; "
+        "\'VISIT PRODUCT LINK\'. Keep it away from the product silhouette; "
         "no other new text; no invented features, labels, brands, or badges. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
