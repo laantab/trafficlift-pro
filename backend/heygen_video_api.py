@@ -57,6 +57,28 @@ def _spoken_identity(name):
     return base.strip(" ,")
 
 
+def _short_seller_facts(text, *, max_words=11):
+    """Return intact, source-backed clauses; never chop words off a claim."""
+    if not isinstance(text, str):
+        return []
+    # Catalog descriptions often contain multiple independent phrases.
+    chunks = re.split(r"[.;!?]|\s+[—–]\s+|\s*\|\s*|,\s*", text)
+    result = []
+    for chunk in chunks:
+        clause = re.sub(r"\s+", " ", chunk).strip(" -:,.")
+        words = clause.split()
+        if not 3 <= len(words) <= max_words:
+            continue
+        if re.search(r"\b(?:for|and|with|of|to|in|on|the|a|an|by|or)$", clause, re.I):
+            continue
+        if re.match(r"^(?:shop|buy|click|visit|see price)\b", clause, re.I):
+            continue
+        if len(clause) > 100 or re.search(r"https?://|www\.", clause, re.I):
+            continue
+        result.append(clause[0].upper() + clause[1:] + ".")
+    return result
+
+
 def compose_heygen_narration(name, plan, max_words=34):
     """Create one short, fact-grounded ad with one CTA; never cut sentences.
 
@@ -75,19 +97,18 @@ def compose_heygen_narration(name, plan, max_words=34):
     for item in plan.get("evidence") or []:
         if not isinstance(item, dict):
             continue
-        try:
-            fact = clean(item.get("text") or "", 160).strip(" .!?")
-        except ValueError:
+        source_text = item.get("text") or ""
+        if not isinstance(source_text, str) or not source_text.strip():
             continue
-        if not is_distinct_product_fact(fact, name):
+        # Validate the verified listing evidence, then select intact concise
+        # clauses rather than attempting to narrate the entire seller paragraph.
+        if not is_distinct_product_fact(source_text, name):
             continue
-        tokens = set(re.findall(r"[a-z0-9]+", fact.casefold()))
-        if not tokens or any(tokens == older for older in seen):
-            continue
-        seen.append(tokens)
-        # A complete fact is required: never clip at the word limit and
-        # accidentally change what the seller actually claimed.
-        facts.append(fact[0].upper() + fact[1:] + ".")
+        for fact in _short_seller_facts(source_text):
+            tokens = set(re.findall(r"[a-z0-9]+", fact.casefold()))
+            if tokens and not any(tokens == older for older in seen):
+                seen.append(tokens)
+                facts.append(fact)
     budget = max_words - len((opening + " " + cta).split())
     if budget < 5:
         raise HTTPException(422, "Product title is too long for a 15-second narrated ad.")
@@ -116,9 +137,12 @@ def compose_heygen_narration(name, plan, max_words=34):
         # Do not repeat the product name in consecutive spoken sentences.
         opening = "Take a closer look."
     if not chosen:
-        raise HTTPException(
-            422, "The verified seller facts are too long for natural 15-second narration. "
-                 "Supply a shorter, complete product fact; no paid video was started.")
+        # Seller evidence was validated by the marketing gate before this
+        # function. A neutral bridge is preferable to fabricating a benefit,
+        # or blocking a customer solely because a listing uses long prose.
+        if not (plan.get("evidence") or []):
+            raise HTTPException(422, "Verified seller facts are required; no paid video was started.")
+        chosen = ["Explore the product details."]
     narration = " ".join([opening, *chosen, cta])
     words = narration.split()
     if len(words) > max_words or narration.casefold().count("tap the product link") != 1:
