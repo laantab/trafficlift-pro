@@ -91,13 +91,30 @@ def compose_heygen_narration(name, plan, max_words=34):
     budget = max_words - len((opening + " " + cta).split())
     if budget < 5:
         raise HTTPException(422, "Product title is too long for a 15-second narrated ad.")
+    # Avoid back-to-back repetition such as "Desk Organizer. The desk
+    # organizer has three tiers." A title-style fact should come after a
+    # distinctive benefit, where one is available.
+    identity_words = re.findall(r"[a-z0-9]+", identity.casefold())
+    identity_phrases = {
+        " ".join(identity_words[i:i + 2])
+        for i in range(len(identity_words) - 1)
+        if len(identity_words[i]) >= 4 and len(identity_words[i + 1]) >= 4
+    }
+    def repeats_identity(fact):
+        normalized = " ".join(re.findall(r"[a-z0-9]+", fact.casefold()))
+        return any(re.search(r"\\b" + re.escape(phrase) + r"\\b", normalized)
+                   for phrase in identity_phrases)
+
     chosen = []
-    # Prefer a concise fact; optionally add one different fact if it fits.
-    for fact in sorted(facts, key=lambda f: len(f.split())):
+    # Favor concise facts that add new product information.
+    for fact in sorted(facts, key=lambda f: (repeats_identity(f), len(f.split()))):
         n = len(fact.split())
         if n <= budget and len(chosen) < 2:
             chosen.append(fact)
             budget -= n
+    if chosen and repeats_identity(chosen[0]):
+        # Do not repeat the product name in consecutive spoken sentences.
+        opening = "Take a closer look."
     if not chosen:
         raise HTTPException(
             422, "The verified seller facts are too long for natural 15-second narration. "
