@@ -59,12 +59,12 @@ def test_product_lock_prompt_requires_full_frame_and_cta_hero_shot():
     assert "Speak exactly the following once" in prompt
 
 
-def test_long_listing_facts_fail_before_paid_generation():
+def test_long_listing_facts_no_longer_block_generation():
     plan = {"evidence": [{"text": "Durable plastic material is made to handle assorted household objects in a wide variety of setups across many different household rooms"}]}
-    with pytest.raises(HTTPException) as err:
-        compose_heygen_narration("Organizer", plan, max_words=28)
-    assert err.value.status_code == 422
-    assert "no paid video was started" in err.value.detail
+    narration = compose_heygen_narration("Organizer", plan, max_words=28)
+    assert "Explore the product details." in narration
+    assert len(narration.split()) <= 28
+    assert "made to handle assorted household" not in narration
 
 
 def test_no_facts_refuses_narration():
@@ -205,3 +205,24 @@ def test_heygen_cta_directs_to_seller_product_page_without_on_video_price():
     assert speech.count("Tap the product link") == 1
     assert "VISIT PRODUCT LINK" in prompt
     assert "See Price & Details" not in prompt
+
+
+def test_long_seller_paragraph_extracts_whole_short_clauses():
+    from backend.heygen_video_api import _short_seller_facts
+    paragraph = ("Designed for a range of household uses and storage needs across many rooms. "
+                 "Features three adjustable drawers. Includes removable dividers, "
+                 "easy access to everyday items, and many other long specifications.")
+    clauses = _short_seller_facts(paragraph)
+    assert "Features three adjustable drawers." in clauses
+    assert "Includes removable dividers." in clauses
+    spoken = compose_heygen_narration("Smart Desk Organizer",
+                                     {"evidence": [{"text": paragraph}]})
+    assert "Features three adjustable drawers." in spoken or "Includes removable dividers." in spoken
+    assert "Tap the product link" in spoken
+    assert len(spoken.split()) <= 34
+
+
+def test_missing_evidence_never_submits_unverified_narration():
+    with pytest.raises(HTTPException) as exc:
+        compose_heygen_narration("Desk Organizer", {"evidence": []})
+    assert exc.value.status_code == 422
