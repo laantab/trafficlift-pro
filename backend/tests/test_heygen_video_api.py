@@ -170,3 +170,25 @@ def test_heygen_reference_photo_never_overlays_product_demo():
     assert "picture-in-picture" in prompt
     assert "Do not keep the packaging stationary while the background moves" in prompt
     assert "full-frame product" in prompt
+
+
+def test_spoken_product_category_is_not_repeated_in_consecutive_sentences():
+    plan = {"evidence": [
+        {"text": "This desk organizer includes three adjustable tiers"},
+        {"text": "The desk organizer offers expandable storage"},
+    ]}
+    spoken = compose_heygen_narration("Smart Desk Organizer", plan)
+    assert spoken.startswith("Take a closer look.")
+    assert spoken.count("desk organizer") == 0 or spoken.lower().count("desk organizer") <= 2
+    assert spoken.endswith("Tap the product link to check current price, size, and options.")
+
+
+def test_narration_prioritizes_distinct_feature_before_repeated_title():
+    plan = {"evidence": [
+        {"text": "This desk organizer has three adjustable tiers"},
+        {"text": "Includes removable dividers"},
+    ]}
+    spoken = compose_heygen_narration("Smart Desk Organizer", plan)
+    assert spoken.startswith("Take a look at Smart Desk Organizer.")
+    assert "Includes removable dividers." in spoken
+    assert spoken.index("Includes removable dividers.") < spoken.index("This desk organizer has three adjustable tiers.")
