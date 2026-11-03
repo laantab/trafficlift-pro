@@ -2158,7 +2158,44 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const link = document.createElement('a');
                 link.href = data.video_url; link.target='_blank'; link.rel='noopener noreferrer';
                 link.textContent = 'Open HeyGen finished video'; link.className = 'block mt-3 text-brand-400 underline';
-                resultEl.append(video,link);
+                const exportsButton = document.createElement('button');
+                exportsButton.type = 'button';
+                exportsButton.className = 'block mt-3 rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white font-semibold';
+                exportsButton.textContent = 'Download 3 social formats (no new video credits)';
+                const exportStatus = document.createElement('p');
+                exportStatus.className = 'mt-2 text-xs text-slate-300';
+                exportStatus.setAttribute('role', 'status');
+                exportStatus.textContent = '9:16 TikTok / Reels / Shorts · 4:5 feed · 1:1 square. Full product kept in frame.';
+                exportsButton.addEventListener('click', async () => {
+                    exportsButton.disabled = true;
+                    exportsButton.textContent = 'Preparing 3 formats…';
+                    exportStatus.textContent = 'Converting the approved video on the server. No paid generation is started.';
+                    try {
+                        const response = await fetch(location.origin + '/api/v1/heygen-video/social-exports/' + encodeURIComponent(id), {
+                            method: 'POST', credentials: 'same-origin', cache: 'no-store'
+                        });
+                        if (!response.ok) {
+                            const error = await response.json().catch(() => ({}));
+                            throw new Error(error.detail || ('Export failed (HTTP ' + response.status + ')'));
+                        }
+                        const blob = await response.blob();
+                        const url = URL.createObjectURL(blob);
+                        const download = document.createElement('a');
+                        download.href = url;
+                        download.download = 'TrafficLift-Social-Formats.zip';
+                        document.body.appendChild(download);
+                        download.click();
+                        download.remove();
+                        setTimeout(() => URL.revokeObjectURL(url), 60000);
+                        exportStatus.textContent = 'Social-format ZIP downloaded. Review each file before publishing.';
+                    } catch (error) {
+                        exportStatus.textContent = 'Export could not finish: ' + (error.message || String(error)) + '. The original finished video is safe.';
+                    } finally {
+                        exportsButton.disabled = false;
+                        exportsButton.textContent = 'Download 3 social formats (no new video credits)';
+                    }
+                });
+                resultEl.append(video,link,exportsButton,exportStatus);
                 heygenPendingVideoId = null;
                 return;
             }
