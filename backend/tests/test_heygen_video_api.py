@@ -29,7 +29,7 @@ def test_concise_heygen_ad_uses_seller_facts_once_and_ends_with_cta():
     assert spoken.startswith("Take a look at Smart+, Desk Drawer Organizer.")
     assert "Three adjustable drawers." in spoken
     assert "A removable divider keeps small pieces separate." in spoken
-    assert spoken.endswith("Tap the product link to check current price, size, and options.")
+    assert spoken.endswith("Tap the product link to visit the seller's page for current price and details.")
     assert spoken.count("Tap the product link") == 1
     assert len(spoken.split()) <= 34
 
@@ -39,7 +39,7 @@ def test_prompt_has_single_cta_and_stable_framing():
     result = product_prompt("Smart Desk Organizer", plan)
     assert "no strobing or flicker" in result
     assert "Speak exactly the following once" in result
-    assert "Tap the product link to check current price, size, and options." in result
+    assert "Tap the product link to visit the seller's page for current price and details." in result
     assert "no invented features" in result.lower()
 
 
@@ -97,7 +97,7 @@ def test_paid_heygen_requires_verified_seller_photo():
 def test_heygen_ad_prompt_has_readable_cta_and_no_fabricated_demo():
     plan = {"evidence": [{"text": "Includes a six-foot cord"}, {"text": "Adjustable neck for positioning"}]}
     prompt = product_prompt("Desk Light", plan)
-    assert "See Price & Details" in prompt
+    assert "VISIT PRODUCT LINK" in prompt
     assert "high-contrast, readable call to action" in prompt
     assert "never invent" in prompt
     assert "clean full-frame view" in prompt
@@ -180,7 +180,7 @@ def test_spoken_product_category_is_not_repeated_in_consecutive_sentences():
     spoken = compose_heygen_narration("Smart Desk Organizer", plan)
     assert spoken.startswith("Take a closer look.")
     assert spoken.count("desk organizer") == 0 or spoken.lower().count("desk organizer") <= 2
-    assert spoken.endswith("Tap the product link to check current price, size, and options.")
+    assert spoken.endswith("Tap the product link to visit the seller's page for current price and details.")
 
 
 def test_narration_prioritizes_distinct_feature_before_repeated_title():
@@ -192,3 +192,16 @@ def test_narration_prioritizes_distinct_feature_before_repeated_title():
     assert spoken.startswith("Take a look at Smart Desk Organizer.")
     assert "Includes removable dividers." in spoken
     assert spoken.index("Includes removable dividers.") < spoken.index("This desk organizer has three adjustable tiers.")
+
+
+def test_heygen_cta_directs_to_seller_product_page_without_on_video_price():
+    plan = {"evidence": [
+        {"text": "Expandable storage tiers"},
+        {"text": "Includes removable dividers"},
+    ]}
+    speech = compose_heygen_narration("Smart Drawer Organizer", plan)
+    prompt = product_prompt("Smart Drawer Organizer", plan)
+    assert speech.endswith("Tap the product link to visit the seller's page for current price and details.")
+    assert speech.count("Tap the product link") == 1
+    assert "VISIT PRODUCT LINK" in prompt
+    assert "See Price & Details" not in prompt
