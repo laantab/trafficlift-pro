@@ -210,7 +210,7 @@ def product_prompt(name, plan):
         "or obscure the product with a still-photo overlay. "
         "At the end show one crisp, high-contrast, readable call to action: "
         "\'VISIT PRODUCT LINK\'. Keep it away from the product silhouette; "
-        "no other new text; never invent features, labels, brands, or badges. "
+        "no other new text; no invented features, labels, brands, or badges; never invent product claims. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
         "Speak exactly the following once, including the final call to action: " + narration
