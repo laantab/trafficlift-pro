@@ -1,7 +1,7 @@
 """Resolve an explicit product URL without search, substitute products or stock photos."""
 import json
 import re
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urlsplit, urljoin, parse_qs
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 from backend.url_resolver import _safe_get, ResolvedProduct
@@ -11,8 +11,19 @@ def amazon_asin(url):
     host=(urlsplit(url).hostname or '').lower()
     if not re.fullmatch(r'(?:[a-z0-9-]+\.)*amazon\.(?:com|ca|co\.uk|com\.au|de|fr|it|es|co\.jp|in|com\.mx)',host):
         return None
-    match=re.search(r'/(?:dp|gp/product|product)/([A-Z0-9]{10})(?:[/;?#]|$)',urlsplit(url).path,re.I)
-    return match.group(1).upper() if match else None
+    match=re.search(r'/(?:dp|gp/product|gp/aw/d|product)/([A-Z0-9]{10})(?:/|$)',urlsplit(url).path,re.I)
+    if match:
+        return match.group(1).upper()
+    # Some Amazon sharing/product links carry the ASIN in a query
+    # rather than a /dp/ path. Never accept arbitrary /s/ search URLs.
+    path=urlsplit(url).path.rstrip('/').lower()
+    if path in {'/gp/aw/d', '/gp/product', '/dp'}:
+        args=parse_qs(urlsplit(url).query)
+        for name in ('asin','ASIN'):
+            value=(args.get(name) or [''])[0]
+            if re.fullmatch(r'[A-Z0-9]{10}',value,re.I):
+                return value.upper()
+    return None
 
 
 def _products(obj):
@@ -87,15 +98,30 @@ def exact_listing(html, final_url):
 
 def analyze_exact_product(url):
     final_url,html,error=_safe_get(url,timeout=10)
-    if error or not html or not final_url:
-        raise HTTPException(502,'The seller page could not be read. No other product was selected. For Amazon, use the full product page URL containing /dp/.')
     requested=amazon_asin(url)
-    actual=amazon_asin(final_url)
-    if requested and actual!=requested:
-        raise HTTPException(422,'Amazon redirected to a different product or page. No other product was selected.')
+    actual=amazon_asin(final_url or '')
+    if requested and actual and actual!=requested:
+        raise HTTPException(422,'Amazon redirected to a different product. No other product was selected.')
+    # Retry the canonical product address only when the original/redirected
+    # URL already identifies a single ASIN. This handles mobile/share URLs
+    # that bounce through alternate Amazon routes; it never guesses a product
+    # from an affiliate homepage, category, or search link.
+    known_asin=requested or actual
+    if known_asin and (error or not html or not final_url or not actual):
+        host=(urlsplit(final_url or url).hostname or '').lower()
+        if not re.fullmatch(r'(?:[a-z0-9-]+\\.)*amazon\\.(?:com|ca|co\\.uk|com\\.au|de|fr|it|es|co\\.jp|in|com\\.mx)',host):
+            host='www.amazon.com'
+        canonical=f'https://{host}/dp/{known_asin}'
+        retry_url,retry_html,retry_error=_safe_get(canonical,timeout=10)
+        if not retry_error and retry_html and amazon_asin(retry_url or '')==known_asin:
+            final_url,html,error=retry_url,retry_html,None
+    if error or not html or not final_url:
+        raise HTTPException(502,'The product listing could not be read. No unrelated product was selected. Try another link to this exact item.')
+    if requested and amazon_asin(final_url)!=requested:
+        raise HTTPException(422,'Amazon redirected away from the requested item. No other product was selected.')
     try:data=exact_listing(html,final_url)
     except ValueError as exc:
-        raise HTTPException(422,str(exc)+' No other product was selected. Use the full product page URL containing /dp/.') from exc
+        raise HTTPException(422,str(exc)+' No other product was selected. This link must resolve to one identifiable item.') from exc
     from backend.product_research import _build_url_candidate, _card_category
     from backend.product_scout import get_researcher
     from backend.product_control_agent import ProductControlAgent
@@ -107,5 +133,5 @@ def analyze_exact_product(url):
     if not report.ok:
         raise HTTPException(422,'The selected product photo could not be validated. No other product or photo was selected.')
     result=report.product
-    result.update(source='exact_url_resolved',product_identity_verified=True,url_resolution=resolution.to_dict(),description=data['description'],research_status='not_requested',trend_signals=[],trend_score=0,margin_estimate='Not established')
+    result.update(source='exact_url_resolved',product_identity_verified=True,url_resolution=resolution.to_dict(),description=data['description'],research_status='not_requested',trend_signals=[],trend_score=0,margin_estimate='Not established',affiliate_candidate_url=url if urlsplit(url).scheme=='https' else '')
     return result
