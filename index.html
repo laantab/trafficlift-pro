@@ -3022,7 +3022,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const timer = setTimeout(() => reject(new Error('product-photo-timeout')), 25000);
                 img.onload = () => { clearTimeout(timer); resolve(); };
                 img.onerror = () => { clearTimeout(timer); reject(new Error('product-photo-load-failed')); };
-                img.src = apiUrl((window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?') + new URLSearchParams({url}));
+                img.src = apiUrl((window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?') + new URLSearchParams({url, quality: 'high'}));
             });
             return img;
         } catch (_) {
@@ -3198,7 +3198,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 (1080 - 76) / hero.naturalHeight
             );
             if (photoUpscale > 1.35) {
-                throw new Error('Product photo resolution is too low for a sharp 1000x1500 pin. Choose a higher-resolution exact-product photo.');
+                throw new Error('No sufficiently sharp photo of this exact product was found, even after checking larger versions from the seller image CDN. Choose another listing with a higher-resolution original photo.');
             }
             _drawHeroImage(ctx, hero, W, 1080);
         } else {
