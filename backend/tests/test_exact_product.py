@@ -86,3 +86,30 @@ def test_unidentified_amazon_department_link_cannot_guess_product():
             analyze_exact_product(affiliate_home)
     assert exc.value.status_code==422
     assert fetch.call_count==1
+
+
+def test_specific_amazon_share_link_resolves_canonical_product_metadata():
+    from backend.exact_product import _product_target_in_share_page
+    share='https://link.amazon/B0iKF5FXp'
+    wrapped='<html><head><link rel="canonical" href="https://www.amazon.com/dp/B012345678?tag=demo-20"></head></html>'
+    assert _product_target_in_share_page(share,share,wrapped)=='https://www.amazon.com/dp/B012345678?tag=demo-20'
+    assert _product_target_in_share_page(share,share,'<title>Amazon shopping</title>') is None
+    assert _product_target_in_share_page(share,share,'<link rel="canonical" href="https://www.amazon.com/s?k=desk">') is None
+    conflicting=wrapped+'<meta property="og:url" content="https://www.amazon.com/dp/B098765432">'
+    assert _product_target_in_share_page(share,share,conflicting) is None
+
+
+def test_share_link_with_product_metadata_auto_fetches_single_exact_item():
+    share='https://link.amazon/B0iKF5FXp'
+    landing='<link rel="canonical" href="https://www.amazon.com/dp/B012345678">'
+    calls=[]
+    def fetch(url,timeout=10):
+        calls.append(url)
+        return (share,landing,None) if len(calls)==1 else (URL,HTML,None)
+    with patch('backend.exact_product._safe_get',side_effect=fetch),patch('backend.product_control_agent.ProductControlAgent.evaluate') as evaluate:
+        evaluate.side_effect=lambda winner:type('Report',(),{'ok':True,'product':winner})()
+        result=analyze_exact_product(share)
+    assert len(calls)==2
+    assert result['name']=='Chosen Juicer Model Z'
+    assert result['affiliate_candidate_url']==share
+    assert result['product_identity_verified'] is True
