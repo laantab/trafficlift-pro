@@ -457,6 +457,62 @@
         }
     }
 
+    // Research listings are NOT approved sales destinations. Approval is per
+    // selected winner, is cleared when the winner changes, and is not evidence
+    // of affiliate enrollment or commissions.
+    function _approvedCampaignDestination(winner) {
+        const current = winner && restoreCurrentWinner();
+        if (!current || !winner || current.url !== winner.url || current.name !== winner.name) return '';
+        const url = String(current.approved_ad_url || '').trim();
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !parsed.hostname.includes('.')) return '';
+            return url;
+        } catch (_) { return ''; }
+    }
+    function requireCampaignDestination(winner) {
+        const destination = _approvedCampaignDestination(winner);
+        if (!destination) throw new Error('Marketing link not approved. Add your own eligible product or affiliate link in the Winning Product card before copying, downloading, or purchasing an ad.');
+        return destination;
+    }
+    function saveCampaignDestination() {
+        const winner = restoreCurrentWinner();
+        const input = document.getElementById('campaignDestinationInput');
+        const approval = document.getElementById('campaignDestinationConfirm');
+        const status = document.getElementById('campaignDestinationStatus');
+        if (!winner || !input || !approval || !status) return;
+        const value = input.value.trim();
+        try {
+            const url = new URL(value);
+            if (url.protocol !== 'https:' || url.username || url.password || !url.hostname.includes('.')) {
+                throw new Error('Enter a valid HTTPS product or affiliate link.');
+            }
+            if (!approval.checked) throw new Error('Confirm that you are authorized to promote this link and that it points to the exact product.');
+            winner.approved_ad_url = url.href;
+            persistCurrentWinner(winner);
+            status.textContent = 'Sales destination approved for this selected product. Research listing remains separate.';
+            status.className = 'text-xs text-emerald-300';
+            // A previous pin used a different link: prevent accidental reuse.
+            window.__lastPinDataUrl = null;
+        } catch (error) {
+            status.textContent = error.message || String(error);
+            status.className = 'text-xs text-rose-300';
+        }
+    }
+    function invalidateCampaignDestination() {
+        const winner = restoreCurrentWinner();
+        if (winner && winner.approved_ad_url) {
+            delete winner.approved_ad_url;
+            persistCurrentWinner(winner);
+        }
+        const status = document.getElementById('campaignDestinationStatus');
+        if (status) {
+            status.textContent = 'Not approved. Save and confirm the marketing destination before publishing.';
+            status.className = 'text-xs text-amber-300';
+        }
+        window.__lastPinDataUrl = null;
+    }
+
     function clearSelectedProduct() {
         persistCurrentWinner(null);
         currentResults = null;
@@ -1504,6 +1560,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('premiumDemoFile').value = '';
         document.getElementById('freeProductPreview').src = winner.image_url || '';
         document.getElementById('freeProductName').value = winner.name;
+        // The product_url is kept as seller research evidence. Publishing uses
+        // the separately authorized marketing link shown on the winner card.
         document.getElementById('freeProductUrl').value = winner.url || '';
         // Discovery sometimes stores the Markdown product heading as a
         // pseudo-benefit. Never prefill it as if it were a seller claim.
@@ -2109,6 +2167,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const winner = restoreCurrentWinner();
         if (!winner || !winner.image_url) throw new Error('Choose a product with a verified seller image first.');
+        requireCampaignDestination(winner);
         const approved = window.confirm('High-quality video uses paid HeyGen credits. Start ONE 15-second product video? Cancel means no paid generation. Only proceed after checking your provider pricing.');
         if (!approved) {
             statusEl.textContent = 'HeyGen generation cancelled. No paid request sent.';
@@ -2553,6 +2612,18 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                                 </span>` : ''}
                         </div>
                         <h4 class="font-bold text-base text-purple-300">${escapeHtml(data.name)}</h4>
+                        <div class="rounded-lg border border-amber-600/50 bg-amber-950/30 p-3 space-y-2">
+                            <p class="font-semibold text-sm text-amber-200">Your approved marketing link</p>
+                            <p class="text-xs text-slate-300">Research can use Walmart, Amazon, or other stores. Advertising uses only a link you are eligible to promote for this exact product. A listing alone does not prove commission eligibility.</p>
+                            <input id="campaignDestinationInput" type="url" inputmode="url" autocomplete="off"
+                                value="${escapeHtml(_approvedCampaignDestination(data))}"
+                                oninput="invalidateCampaignDestination()"
+                                placeholder="Paste your eligible product or affiliate link (https://...)"
+                                class="w-full rounded bg-slate-950 border border-slate-700 p-2 text-sm text-white">
+                            <label class="flex gap-2 items-start text-xs text-slate-300"><input id="campaignDestinationConfirm" type="checkbox" class="mt-0.5">I am authorized to promote this link, and it leads to the exact product.</label>
+                            <button type="button" onclick="saveCampaignDestination()" class="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">Save marketing link</button>
+                            <p id="campaignDestinationStatus" role="status" class="text-xs text-amber-300">Not approved — no retailer listing will be automatically used as your ad destination.</p>
+                        </div>
                         <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(data.angle)}</p>
                         ${hook ? `<p class="text-xs italic text-pink-300/90 border-l-2 border-pink-500/40 pl-3">"${escapeHtml(hook)}"</p>` : ''}
                     </div>
@@ -2870,7 +2941,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const dims          = reviewedPkg.optimal_pin_dimensions ?? pkg.dimensions ?? '1000 x 1500 px (2:3 vertical ratio)';
         const cta           = reviewedPkg.pin_cta_suggestion ?? 'Check details and current price';
         const hashtags      = Array.isArray(winner?.hashtags) ? winner.hashtags : [];
-        const destUrl       = winner?.url ?? data.input_url ?? '';
+        const destUrl       = _approvedCampaignDestination(winner);
 
         document.getElementById('executionOutput')?.classList.remove('hidden');
         document.getElementById('resultsContent')?.classList.remove('hidden');
@@ -2955,6 +3026,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function copyPinterestPackage(btn) {
+        try { requireCampaignDestination(restoreCurrentWinner()); }
+        catch (error) { showToast('Marketing link needed', error.message, 'warning'); return; }
         const text = [
             'Board: ' + (btn.dataset.board || ''),
             '',
@@ -3221,6 +3294,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     function downloadPinImage() {
+        try { requireCampaignDestination(restoreCurrentWinner()); }
+        catch (error) { showToast('Marketing link needed', error.message, 'warning'); return; }
         // Use the cached designed pin if available (so download matches
         // what's on screen); otherwise re-render synchronously with no image.
         if (!window.__lastPinDataUrl) {
