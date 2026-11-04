@@ -215,12 +215,13 @@
                     <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Product URL</label>
                     <div class="relative">
                         <i data-lucide="link" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none"></i>
-                        <input type="url" id="productUrl"
+                        <input type="url" id="productUrl" autocomplete="off"
                             placeholder="Paste Amazon, Shopify, WooCommerce, or product URL"
                             class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition">
                     </div>
                     <p id="productUrlError" class="hidden mt-1.5 text-xs text-rose-400"></p>
                     <button id="clearProductUrlBtn" type="button"
+                        onclick="document.getElementById('productUrl').value='';document.getElementById('productUrl').focus();document.getElementById('productUrlError').textContent='';document.getElementById('productUrlError').classList.add('hidden')"
                         class="text-xs text-slate-300 hover:text-white underline py-1"
                         title="Clear the pasted product link without deleting your selected product">
                         Clear Link
@@ -1122,7 +1123,8 @@
             const data = await r.json();
             currentResults = data;
             renderResults(data);
-            document.getElementById('productUrl').value = data.input_url || '';
+            // Campaign history must not refill the new-product URL input.
+            document.getElementById('productUrl').value = '';
             setMode(data.mode === 'paid' ? 'paid' : 'organic');
             if (Number.isFinite(data.budget)) document.getElementById('dailyBudget').value = data.budget;
             for (const checkbox of document.querySelectorAll('#channelGrid input[type="checkbox"]')) {
@@ -3832,6 +3834,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         params.set('url', url);
         if (prev) params.set('exclude', prev);
         const requestUrl = apiUrl(`/api/v1/analyze-product-url?${params.toString()}`);
+        // The submitted link is already captured in requestUrl. Clear the
+        // visible field immediately, even if Amazon verification later fails.
+        if (urlInput) urlInput.value = '';
         await _runPickPipeline({
             btn,
             urlInput,
@@ -3864,13 +3869,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         .addEventListener('click', findWinningProduct);
     document.getElementById('analyzeProductBtn')
         .addEventListener('click', analyzeProductUrl);
-    document.getElementById('clearProductUrlBtn')
-        .addEventListener('click', () => {
-            const field = document.getElementById('productUrl');
-            const error = document.getElementById('productUrlError');
-            if (field) { field.value = ''; field.focus(); }
-            if (error) { error.textContent = ''; error.classList.add('hidden'); }
-        });
+    // Clear Link is wired directly on the button, so it still works if another page script fails.
     </script>
 </body>
 </html>
