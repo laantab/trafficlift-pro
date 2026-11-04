@@ -2617,13 +2617,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                             <p class="text-xs text-slate-300">Research can use Walmart, Amazon, or other stores. Advertising uses only a link you are eligible to promote for this exact product. A listing alone does not prove commission eligibility.</p>
                             <p class="text-xs text-slate-300">Affiliate captions copied here include #ad. If using Amazon Associates, make sure your social account is registered in Associates Central and its required Associate disclosure appears on your account.</p>
                             <input id="campaignDestinationInput" type="url" inputmode="url" autocomplete="off"
-                                value="${escapeHtml(_approvedCampaignDestination(data))}"
+                                value="${escapeHtml(_approvedCampaignDestination(data) || data.affiliate_candidate_url || '')}"
                                 oninput="invalidateCampaignDestination()"
                                 placeholder="Paste your eligible product or affiliate link (https://...)"
                                 class="w-full rounded bg-slate-950 border border-slate-700 p-2 text-sm text-white">
                             <label class="flex gap-2 items-start text-xs text-slate-300"><input id="campaignDestinationConfirm" type="checkbox" class="mt-0.5">I am authorized to promote this link, and it leads to the exact product.</label>
                             <button type="button" onclick="saveCampaignDestination()" class="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">Save marketing link</button>
-                            <p id="campaignDestinationStatus" role="status" class="text-xs text-amber-300">Not approved — no retailer listing will be automatically used as your ad destination.</p>
+                            <p id="campaignDestinationStatus" role="status" class="text-xs text-amber-300">Link filled from your pasted product URL when available. Confirm its affiliate tracking and exact product, then save once.</p>
                         </div>
                         <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(data.angle)}</p>
                         ${hook ? `<p class="text-xs italic text-pink-300/90 border-l-2 border-pink-500/40 pl-3">"${escapeHtml(hook)}"</p>` : ''}
@@ -3842,7 +3842,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             subtext: 'Resolving the URL, extracting product identity, and verifying the image.',
             noPhotoHeading: "We couldn't identify or validate that product URL. Try the full product page URL.",
             failHeading: 'Analyze Product failed',
-            failBody: 'Analyze Product failed â€” check your network and try again.',
+            failBody: 'The link could not be verified as one specific product. No other product was selected.',
         });
     }
     </script>
