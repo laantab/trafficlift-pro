@@ -29,3 +29,13 @@ def test_approved_destination_is_reset_on_product_change_or_link_edit():
     assert "function invalidateCampaignDestination()" in page
     assert "delete winner.approved_ad_url;" in page
     assert "oninput=\"invalidateCampaignDestination()\"" in page
+
+
+def test_product_url_can_be_cleared_without_losing_winner():
+    page = PAGE.read_text(encoding="utf-8")
+    assert 'id="clearProductUrlBtn"' in page
+    assert "getElementById('clearProductUrlBtn')" in page
+    assert "urlInput.value = '';" in page
+    assert "if (readUrlField && urlInput)" in page
+    assert "persistCurrentWinner(winner);" in page
+    assert "clearSelectedProduct();" in page  # only the new analyze action resets selection
