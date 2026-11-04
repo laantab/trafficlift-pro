@@ -57,3 +57,77 @@ def test_proxy_errors_are_actionable_and_do_not_fetch_unsafe_url(monkeypatch):
     failed = client.get("/api/v1/pin-image", params={"url": "https://cdn.shopify.com/fail.jpg"})
     assert failed.status_code == 502
     assert "exact product photo" in failed.json()["detail"]
+
+
+def test_larger_photo_versions_preserve_retail_image_identity():
+    amazon = "https://m.media-amazon.com/images/I/ABC123._AC_SL300_.jpg"
+    variants = pin._larger_same_photo_urls(amazon)
+    assert variants
+    assert all("/images/I/ABC123" in candidate for candidate in variants)
+    assert any("SL1500" in candidate for candidate in variants)
+    assert pin._larger_same_photo_urls("https://unknown.example/photo.jpg") == []
+    shopify = "https://cdn.shopify.com/s/files/1/abc/photo.jpg?width=300"
+    shopify_versions = pin._larger_same_photo_urls(shopify)
+    assert shopify_versions and "width=1600" in shopify_versions[0]
+    assert "/photo.jpg" in shopify_versions[0]
+
+
+def test_high_quality_pin_tries_same_image_at_larger_resolution(monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    from fastapi import FastAPI
+    pin._CACHE.clear()
+    pin._CALLS.clear()
+    pin._CACHE_BYTES = 0
+    requested = []
+    monkeypatch.setattr(pin, "_validate_public_https_url", lambda url: None)
+
+    def image_bytes(size):
+        output = BytesIO()
+        Image.new("RGB", size, (220, 220, 220)).save(output, format="JPEG")
+        return output.getvalue()
+
+    def download(url, directory):
+        requested.append(url)
+        target = directory / "product.jpg"
+        target.write_bytes(image_bytes((1200, 1200) if "SL1500" in url else (300, 300)))
+        return target
+
+    monkeypatch.setattr(pin, "_download_product_image", download)
+    app = FastAPI()
+    app.include_router(pin.router)
+    client = TestClient(app)
+    source = "https://m.media-amazon.com/images/I/verified._AC_SL300_.jpg"
+    reply = client.get("/api/v1/pin-image", params={"url": source, "quality": "high"})
+    assert reply.status_code == 200
+    assert "SL1500" in requested[0]
+    with Image.open(BytesIO(reply.content)) as img:
+        assert img.width == 1200
+
+
+def test_pin_does_not_upscale_or_substitute_if_no_sharp_exact_product(monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    from fastapi import FastAPI
+    pin._CACHE.clear()
+    pin._CALLS.clear()
+    pin._CACHE_BYTES = 0
+    monkeypatch.setattr(pin, "_validate_public_https_url", lambda url: None)
+
+    def download(url, directory):
+        image = directory / "product.jpg"
+        output = BytesIO()
+        Image.new("RGB", (250, 250), (220, 220, 220)).save(output, format="JPEG")
+        image.write_bytes(output.getvalue())
+        return image
+
+    monkeypatch.setattr(pin, "_download_product_image", download)
+    app = FastAPI()
+    app.include_router(pin.router)
+    client = TestClient(app)
+    reply = client.get("/api/v1/pin-image", params={
+        "url": "https://m.media-amazon.com/images/I/low._AC_SL200_.jpg",
+        "quality": "high",
+    })
+    assert reply.status_code == 422
+    assert "No sharp version" in reply.json()["detail"]
