@@ -26,6 +26,46 @@ def amazon_asin(url):
     return None
 
 
+
+def _product_target_in_share_page(original_url, final_url, html):
+    """A single explicit ASIN-bearing link in Amazon share-page metadata.
+
+    Never use unrelated product recommendations or guessing from a short token.
+    """
+    from urllib.parse import unquote
+    original_host=(urlsplit(original_url).hostname or '').lower()
+    if original_host not in {'link.amazon', 'amzn.to', 'amzn.asia'}:
+        return None
+    candidates=[]
+    for source in (original_url, final_url or ''):
+        parsed=urlsplit(source)
+        query=parse_qs(parsed.query)
+        for key, values in query.items():
+            if key.lower() not in {'url', 'u', 'redirect', 'redirecturl', 'destination', 'dest'}:
+                continue
+            for value in values[:2]:
+                nested=unquote(value)
+                if nested.startswith('/'):
+                    nested=urljoin('https://www.amazon.com',nested)
+                if amazon_asin(nested):
+                    candidates.append(nested)
+    if html:
+        soup=BeautifulSoup(html, 'html.parser')
+        for node in soup.select('link[rel="canonical"], meta[property="og:url"], meta[name="twitter:url"], meta[http-equiv="refresh"]'):
+            value=node.get('href') or node.get('content') or ''
+            if node.get('http-equiv', '').lower() == 'refresh':
+                value=re.sub(r'^.*?url\s*=\s*', '', value, flags=re.I)
+            value=value.strip(' "\'')
+            value=urljoin(final_url or original_url, value)
+            if amazon_asin(value):
+                candidates.append(value)
+    identities={amazon_asin(u) for u in candidates if amazon_asin(u)}
+    if len(identities)!=1:
+        return None
+    return next(u for u in candidates if amazon_asin(u) in identities)
+
+
+
 def _products(obj):
     if isinstance(obj,list):
         for child in obj:yield from _products(child)
@@ -98,7 +138,12 @@ def exact_listing(html, final_url):
 
 def analyze_exact_product(url):
     final_url,html,error=_safe_get(url,timeout=10)
-    requested=amazon_asin(url)
+    shared_target=_product_target_in_share_page(url,final_url,html)
+    if shared_target and not amazon_asin(final_url or ''):
+        share_url,share_html,share_error=_safe_get(shared_target,timeout=10)
+        if not share_error and share_html and amazon_asin(share_url or '')==amazon_asin(shared_target):
+            final_url,html,error=share_url,share_html,None
+    requested=amazon_asin(url) or amazon_asin(shared_target or '')
     actual=amazon_asin(final_url or '')
     if requested and actual and actual!=requested:
         raise HTTPException(422,'Amazon redirected to a different product. No other product was selected.')
