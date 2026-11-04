@@ -220,6 +220,11 @@
                             class="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition">
                     </div>
                     <p id="productUrlError" class="hidden mt-1.5 text-xs text-rose-400"></p>
+                    <button id="clearProductUrlBtn" type="button"
+                        class="text-xs text-slate-300 hover:text-white underline py-1"
+                        title="Clear the pasted product link without deleting your selected product">
+                        Clear Link
+                    </button>
                     <button id="analyzeProductBtn" type="button"
                         class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-medium py-3 px-4 rounded-xl transition flex items-center justify-center gap-2"
                         title="Analyze the specific product at this URL">
@@ -3488,10 +3493,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             rememberDiscoveredWinner(winner);
             window.__lastWinnerId = winner.id;
             persistCurrentWinner(winner);
-            // PATH A never reads the URL field. PATH B may update it with
-            // the resolved final URL so the user sees what we analyzed.
-            if (readUrlField && urlInput && winner.url) {
-                urlInput.value = winner.url;
+            // PATH B: clear the pasted URL after the exact product is
+            // verified. Keep the winner and affiliate candidate in saved
+            // state, never clear the field when analysis fails so retry works.
+            if (readUrlField && urlInput) {
+                urlInput.value = '';
+                const fieldError = document.getElementById('productUrlError');
+                if (fieldError) { fieldError.textContent = ''; fieldError.classList.add('hidden'); }
             }
 
             if (loadingEl) loadingEl.classList.add('hidden');
@@ -3856,6 +3864,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         .addEventListener('click', findWinningProduct);
     document.getElementById('analyzeProductBtn')
         .addEventListener('click', analyzeProductUrl);
+    document.getElementById('clearProductUrlBtn')
+        .addEventListener('click', () => {
+            const field = document.getElementById('productUrl');
+            const error = document.getElementById('productUrlError');
+            if (field) { field.value = ''; field.focus(); }
+            if (error) { error.textContent = ''; error.classList.add('hidden'); }
+        });
     </script>
 </body>
 </html>
