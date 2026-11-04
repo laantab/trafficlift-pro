@@ -129,7 +129,9 @@ def pin_image(url: str, request: Request, quality: str = "standard"):
             for n, candidate in enumerate(candidates):
                 try:
                     _validate_public_https_url(candidate)
-                    photo = _download_product_image(candidate, Path(directory) / str(n))
+                    target_dir = Path(directory) / str(n)
+                    target_dir.mkdir()
+                    photo = _download_product_image(candidate, target_dir)
                     data = photo.read_bytes()
                     kind = {".jpg": "image/jpeg", ".png": "image/png",
                             ".webp": "image/webp"}.get(photo.suffix)
