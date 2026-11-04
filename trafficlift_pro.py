@@ -796,6 +796,9 @@ app.include_router(social_exports_router)
 # Separate disabled-by-default low-cost Wan visual trial.
 from backend.wan_video_api import router as wan_video_router
 app.include_router(wan_video_router)
+
+from backend.longcat_video_api import router as longcat_video_router
+app.include_router(longcat_video_router)
 # Owner-only, no-provider-spend assembly of existing presenter footage.
 from backend.premium_ad_api import router as premium_ad_router
 app.include_router(premium_ad_router)
