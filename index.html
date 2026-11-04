@@ -2615,6 +2615,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         <div class="rounded-lg border border-amber-600/50 bg-amber-950/30 p-3 space-y-2">
                             <p class="font-semibold text-sm text-amber-200">Your approved marketing link</p>
                             <p class="text-xs text-slate-300">Research can use Walmart, Amazon, or other stores. Advertising uses only a link you are eligible to promote for this exact product. A listing alone does not prove commission eligibility.</p>
+                            <p class="text-xs text-slate-300">Affiliate captions copied here include #ad. If using Amazon Associates, make sure your social account is registered in Associates Central and its required Associate disclosure appears on your account.</p>
                             <input id="campaignDestinationInput" type="url" inputmode="url" autocomplete="off"
                                 value="${escapeHtml(_approvedCampaignDestination(data))}"
                                 oninput="invalidateCampaignDestination()"
@@ -3034,7 +3035,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             '',
             'Pin Title: ' + (btn.dataset.pin || ''),
             '',
-            (btn.dataset.desc || '') + ' ' + (btn.dataset.tags || ''),
+            '#ad ' + (btn.dataset.desc || '') + ' ' + (btn.dataset.tags || ''),
             '',
             'CTA: ' + (btn.dataset.cta || ''),
             '',
@@ -3341,7 +3342,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // This legacy winner-card action previously stretched the retailer's
         // raw photo into a 1000x1500 JPEG. Never distribute that as a pin.
         // Copy text, then use only the actual designed pin preview export.
-        const fullText = `${decodeURIComponent(title)}\n\n${decodeURIComponent(desc)} ${decodeURIComponent(tags)}\n\nProduct link: ${approvedLink}`;
+        const fullText = `${decodeURIComponent(title)}\n\n#ad ${decodeURIComponent(desc)} ${decodeURIComponent(tags)}\n\nProduct link: ${approvedLink}`;
         try {
             await navigator.clipboard.writeText(fullText);
         } catch (e) {
