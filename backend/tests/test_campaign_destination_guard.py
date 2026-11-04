@@ -1,0 +1,31 @@
+"""Destination-approval regression tests: no retailer research URL is silently marketed."""
+from pathlib import Path
+
+PAGE = Path(__file__).resolve().parents[2] / "index.html"
+
+
+def test_publication_actions_require_explicit_destination():
+    page = PAGE.read_text(encoding="utf-8")
+    assert "function saveCampaignDestination()" in page
+    assert "function requireCampaignDestination(winner)" in page
+    assert "I am authorized to promote this link" in page
+    assert "requireCampaignDestination(winner);" in page
+    assert "try { requireCampaignDestination(restoreCurrentWinner()); }" in page
+    assert "approvedLink = requireCampaignDestination(restoreCurrentWinner());" in page
+
+
+def test_retail_research_and_marketing_link_remain_distinct():
+    page = PAGE.read_text(encoding="utf-8")
+    assert "Research listing (seller evidence; not your promotional link)" in page
+    assert "const destUrl       = _approvedCampaignDestination(winner);" in page
+    assert "'Link: ' + approvedLink" in page
+    assert "Product link: ${approvedLink}" in page
+    assert "Pinterest Draft — approve marketing link first" in page
+
+
+def test_approved_destination_is_reset_on_product_change_or_link_edit():
+    page = PAGE.read_text(encoding="utf-8")
+    assert "current.url !== winner.url || current.name !== winner.name" in page
+    assert "function invalidateCampaignDestination()" in page
+    assert "delete winner.approved_ad_url;" in page
+    assert "oninput=\"invalidateCampaignDestination()\"" in page
