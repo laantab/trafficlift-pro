@@ -1333,7 +1333,7 @@
                     </div>
                     </details>
                     <details class="rounded-lg border border-slate-800 p-3"><summary class="cursor-pointer text-sm text-slate-400">Edit product details (optional)</summary>
-                    <label class="block mt-3 text-xs text-slate-400">Product destination (use the seller’s page)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
+                    <label class="block mt-3 text-xs text-slate-400">Research listing (seller evidence; not your promotional link)<input id="freeProductUrl" type="url" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
                     <label class="block text-xs text-slate-400">Product benefit (automatically researched; optional override)<textarea id="freeProductFact" maxlength="160" rows="2" placeholder="Leave blank to retrieve product facts automatically." class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></textarea></label>
                     <details class="mt-3 rounded-lg border border-slate-800 p-3"><summary class="cursor-pointer text-sm text-slate-400">Script and style options</summary>
                     <label class="block mt-3 text-xs text-slate-400">Buyer need (optional)<input id="freeBuyerNeed" maxlength="100" placeholder="For example: Easier sipping at your desk" class="mt-1 w-full bg-slate-950 rounded-lg p-2 text-slate-100"></label>
@@ -3026,7 +3026,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function copyPinterestPackage(btn) {
-        try { requireCampaignDestination(restoreCurrentWinner()); }
+        let approvedLink;
+        try { approvedLink = requireCampaignDestination(restoreCurrentWinner()); }
         catch (error) { showToast('Marketing link needed', error.message, 'warning'); return; }
         const text = [
             'Board: ' + (btn.dataset.board || ''),
@@ -3037,7 +3038,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             '',
             'CTA: ' + (btn.dataset.cta || ''),
             '',
-            'Link: ' + (btn.dataset.url || ''),
+            'Link: ' + approvedLink,
         ].join('\n');
         try {
             await navigator.clipboard.writeText(text);
@@ -3334,10 +3335,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function copyPinBundle(title, desc, tags, imageUrl, productUrl) {
+        let approvedLink;
+        try { approvedLink = requireCampaignDestination(restoreCurrentWinner()); }
+        catch (error) { showToast('Marketing link needed', error.message, 'warning'); return; }
         // This legacy winner-card action previously stretched the retailer's
         // raw photo into a 1000x1500 JPEG. Never distribute that as a pin.
         // Copy text, then use only the actual designed pin preview export.
-        const fullText = `${decodeURIComponent(title)}\n\n${decodeURIComponent(desc)} ${decodeURIComponent(tags)}`;
+        const fullText = `${decodeURIComponent(title)}\n\n${decodeURIComponent(desc)} ${decodeURIComponent(tags)}\n\nProduct link: ${approvedLink}`;
         try {
             await navigator.clipboard.writeText(fullText);
         } catch (e) {
