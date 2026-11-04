@@ -52,3 +52,37 @@ def test_matching_non_amazon_product_supported():
 def test_recommended_product_block_cannot_replace_main_product():
     html=HTML+'<script type="application/ld+json">{"@type":"Product","name":"Other Blender","image":"https://example.com/blender.jpg"}</script>'
     assert exact_listing(html,URL)['image_url']=='https://example.com/juicer.jpg'
+
+
+def test_amazon_mobile_product_paths_recognized():
+    assert amazon_asin('https://www.amazon.com/gp/aw/d/B012345678?tag=demo-20') == 'B012345678'
+    assert amazon_asin('https://www.amazon.com/Some-Name/dp/B012345678?tag=demo-20') == 'B012345678'
+    assert amazon_asin('https://www.amazon.com/gp/product/B012345678') == 'B012345678'
+    assert amazon_asin('https://www.amazon.com/s?k=organizer&tag=demo-20') is None
+
+
+def test_mobile_amazon_product_link_auto_recovers_canonical_listing():
+    mobile='https://www.amazon.com/gp/aw/d/B012345678?tag=demo-20'
+    calls=[]
+    def fetch(url, timeout=10):
+        calls.append(url)
+        if len(calls)==1:
+            return 'https://www.amazon.com/s?k=organizer', '<title>Amazon shopping</title>', None
+        return URL, HTML, None
+    with patch('backend.exact_product._safe_get',side_effect=fetch),patch('backend.product_control_agent.ProductControlAgent.evaluate') as evaluate:
+        evaluate.side_effect=lambda winner:type('Report',(),{'ok':True,'product':winner})()
+        result=analyze_exact_product(mobile)
+    assert len(calls)==2
+    assert '/dp/B012345678' in calls[-1]
+    assert result['affiliate_candidate_url']==mobile
+    assert result['product_identity_verified'] is True
+    assert result['name']=='Chosen Juicer Model Z'
+
+
+def test_unidentified_amazon_department_link_cannot_guess_product():
+    affiliate_home='https://www.amazon.com/?tag=demo-20'
+    with patch('backend.exact_product._safe_get',return_value=(affiliate_home,'<title>Amazon shopping</title>',None)) as fetch:
+        with pytest.raises(HTTPException) as exc:
+            analyze_exact_product(affiliate_home)
+    assert exc.value.status_code==422
+    assert fetch.call_count==1
