@@ -175,7 +175,7 @@ def _display_name(value):
                   "", name, flags=re.I)
     name = re.sub(r"\s+", " ", name).strip(" ,-")
     # A common marketplace listing: brand, product, color, tiers and retailer.
-    if len(name) > 48 and re.search(r"drawer organizer", name, flags=re.I):
+    if len(name) > 40 and re.search(r"drawer organizer", name, flags=re.I):
         brand = name.split(",")[0].split(" ")[0].strip()
         tiers = re.search(r"\b([2-9])\s*[- ]?\s*tier\b", name, flags=re.I)
         if tiers:
