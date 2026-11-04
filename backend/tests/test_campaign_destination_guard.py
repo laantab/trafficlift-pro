@@ -39,3 +39,12 @@ def test_product_url_can_be_cleared_without_losing_winner():
     assert "if (readUrlField && urlInput)" in page
     assert "persistCurrentWinner(winner);" in page
     assert "clearSelectedProduct();" in page  # only the new analyze action resets selection
+
+
+def test_analyze_submits_captured_url_then_clears_field_even_if_request_fails():
+    page = PAGE.read_text(encoding="utf-8")
+    section = page.split("async function analyzeProductUrl()", 1)[1]
+    assert "params.set('url', url);" in section
+    assert section.index("const requestUrl = apiUrl(") < section.index("if (urlInput) urlInput.value = '';") < section.index("await _runPickPipeline({")
+    assert 'onclick="document.getElementById(\'productUrl\').value=\'\'' in page
+    assert "document.getElementById('productUrl').value = data.input_url || '';" not in page
