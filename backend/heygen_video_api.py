@@ -46,13 +46,13 @@ def provider_request(method, url, **kwargs):
 def _spoken_identity(name):
     """Remove retailer suffixes and catalog variants without losing model IDs."""
     from backend.sales_script import is_model_identifier
-    raw = re.sub(r"\\s+[-–]\\s+(?:[\\w-]+\\.)?(?:com|net|org)\\s*$", "", str(name)).strip()
+    raw = re.sub(r"\s+[-–]\s+(?:[\w-]+\.)?(?:com|net|org)\s*$", "", str(name)).strip()
     parts = [part.strip() for part in raw.split(",") if part.strip()]
     base = ", ".join(parts[:2]) if len(parts) > 1 else raw
     # Keep exact model codes even if the seller title puts them after color/size.
     models = [token for token in re.findall(r"[A-Za-z0-9-]+", raw) if is_model_identifier(token)]
     for model in models:
-        if not re.search(r"\\b" + re.escape(model) + r"\\b", base, re.I):
+        if not re.search(r"\b" + re.escape(model) + r"\b", base, re.I):
             base += " " + model
     return base.strip(" ,")
 
@@ -102,9 +102,10 @@ def compose_heygen_narration(name, plan, max_words=34):
             continue
         # Validate the verified listing evidence, then select intact concise
         # clauses rather than attempting to narrate the entire seller paragraph.
-        if not is_distinct_product_fact(source_text, name):
-            continue
         for fact in _short_seller_facts(source_text):
+            if not (is_distinct_product_fact(source_text, name)
+                    or is_distinct_product_fact(fact, name)):
+                continue
             tokens = set(re.findall(r"[a-z0-9]+", fact.casefold()))
             if tokens and not any(tokens == older for older in seen):
                 seen.append(tokens)
@@ -123,7 +124,7 @@ def compose_heygen_narration(name, plan, max_words=34):
     }
     def repeats_identity(fact):
         normalized = " ".join(re.findall(r"[a-z0-9]+", fact.casefold()))
-        return any(re.search(r"\\b" + re.escape(phrase) + r"\\b", normalized)
+        return any(re.search(r"\b" + re.escape(phrase) + r"\b", normalized)
                    for phrase in identity_phrases)
 
     chosen = []
@@ -209,7 +210,7 @@ def product_prompt(name, plan):
         "or obscure the product with a still-photo overlay. "
         "At the end show one crisp, high-contrast, readable call to action: "
         "\'VISIT PRODUCT LINK\'. Keep it away from the product silhouette; "
-        "no other new text; no invented features, labels, brands, or badges. "
+        "no other new text; never invent features, labels, brands, or badges. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
         "Speak exactly the following once, including the final call to action: " + narration
