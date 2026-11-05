@@ -3927,39 +3927,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (urlInput) urlInput.focus();
             return;
         }
-        // Amazon short share URLs frequently resolve to mobile landing pages
-        // for server clients. Never pretend a short token is the exact ASIN.
-        // For an already verified product, offer the explicit owner-match path
-        // before another likely-to-fail server scrape.
+        // Send Amazon short/share URLs through the same exact-product
+        // analyzer as full seller URLs. The backend now verifies productTitle,
+        // hidden ASIN and the primary landing image before accepting the item,
+        // so the browser no longer blocks these links pre-emptively.
         window.__lastSubmittedProductUrl = url;
-        let parsedUrl;
-        try { parsedUrl = new URL(url); } catch (_) { parsedUrl = null; }
-        const shortShare = parsedUrl && ['link.amazon', 'amzn.to', 'amzn.asia'].includes(parsedUrl.hostname.toLowerCase());
-        if (shortShare) {
-            const saved = restoreCurrentWinner();
-            const status = document.getElementById('existingProductLinkStatus');
-            if (saved && saved.name && saved.image_url && saved.image_status === 'verified') {
-                if (status) {
-                    status.textContent = 'Amazon share links cannot reliably identify the item in our server. If this link opens the exact saved product (' + saved.name + '), check the confirmation and choose Attach Link to Verified Product. No new product will be selected.';
-                    status.className = 'text-xs text-amber-200';
-                    status.scrollIntoView({block:'nearest',behavior:'smooth'});
-                }
-                if (inlineErrEl) {
-                    inlineErrEl.textContent = 'Your saved product is available below. Confirm that the Amazon link leads to that exact item, then use the button below.';
-                    inlineErrEl.classList.remove('hidden');
-                }
-                return;
-            }
-            if (status) {
-                status.textContent = 'This is an Amazon share link, not a verifiable product page. Find a product in TrafficLift first, then attach this link only if it opens that same item.';
-                status.className = 'text-xs text-amber-200';
-            }
-            if (inlineErrEl) {
-                inlineErrEl.textContent = 'Amazon share links do not identify an exact product reliably. Use Find Winning Product to choose an item, then verify this link matches it.';
-                inlineErrEl.classList.remove('hidden');
-            }
-            return;
-        }
         // Keep previously verified product available if Amazon blocks this new URL.
         // A replacement winner is persisted only once analysis succeeds.
         const isFirstRun = !window.__pickPipelineRanOnce;
