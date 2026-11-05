@@ -52,5 +52,9 @@ def test_same_listing_multiple_facts_pass_preflight_without_paid_generation():
 def test_unrelated_listing_does_not_convert_compound_text_to_verified_facts():
     with patch("backend.product_facts.facts_from_sources", return_value=_listing_facts("https://other.example/p/lamp")), \
          patch("backend.product_facts.resolve_video_facts", return_value={}):
-        with pytest.raises(ValueError, match="two distinct facts"):
-            prepare_video_plan(_payload(), require_renderable=True)
+        plan, _ = prepare_video_plan(_payload(), require_renderable=True)
+    assert plan["mode"] == "product_overview"
+    assert plan["evidence"] == []
+    gate = marketing_readiness_gate(plan)
+    assert gate["distinct_product_facts"] == 0
+    assert gate["claims"] == "identity_and_photo_only"
