@@ -170,3 +170,27 @@ def test_share_page_product_html_can_anchor_exact_identity_without_dp_url():
     assert result['url']=='https://www.amazon.com/dp/B012345678'
     assert result['affiliate_candidate_url']==share
     assert result['product_identity_verified'] is True
+
+
+def test_verified_amazon_asin_can_use_product_metadata_when_dom_widgets_are_missing():
+    html=(
+        '<meta property="og:title" content="Silicone Baking Mat">'
+        '<meta property="og:image" content="https://m.media-amazon.com/images/I/mat-main.jpg">'
+        '<meta name="description" content="Reusable nonstick baking surface for easier cleanup.">'
+    )
+    result=exact_listing(html,'https://www.amazon.com/dp/B012345678')
+    assert result['asin']=='B012345678'
+    assert result['name']=='Silicone Baking Mat'
+    assert result['image_url']=='https://m.media-amazon.com/images/I/mat-main.jpg'
+
+
+def test_amazon_primary_image_beats_social_gallery_image():
+    html=(
+        '<span id="productTitle">Silicone Baking Mat</span>'
+        '<input id="ASIN" value="B012345678">'
+        '<img id="landingImage" data-old-hires="https://m.media-amazon.com/images/I/mat-primary.jpg" '
+        'src="https://m.media-amazon.com/images/I/mat-thumb.jpg">'
+        '<meta property="og:image" content="https://m.media-amazon.com/images/I/mat-detail.jpg">'
+    )
+    result=exact_listing(html,URL)
+    assert result['image_url']=='https://m.media-amazon.com/images/I/mat-primary.jpg'
