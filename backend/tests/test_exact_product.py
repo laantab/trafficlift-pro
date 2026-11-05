@@ -154,3 +154,19 @@ def test_share_redirect_works_when_final_page_is_shopping_page():
     assert result['name']=='Chosen Juicer Model Z'
     assert result['affiliate_candidate_url']==share
     assert result['product_identity_verified'] is True
+
+
+def test_share_page_product_html_can_anchor_exact_identity_without_dp_url():
+    share='https://link.amazon/B03bHi8EM'
+    generic='https://www.amazon.com/hz/mobile/mission?foo=1'
+    share_html='<span id="productTitle">Silicone Baking Mat</span><input id="ASIN" value="B012345678"><img id="landingImage" src="https://m.media-amazon.com/images/I/mat.jpg"><div id="feature-bullets">Reusable nonstick baking surface for easier cleanup.</div>'
+    with patch('backend.exact_product._safe_get',return_value=(generic,share_html,None)),\
+         patch('backend.exact_product._exact_product_from_share_redirects',return_value=None),\
+         patch('backend.product_control_agent.ProductControlAgent.evaluate') as evaluate:
+        evaluate.side_effect=lambda winner:type('Report',(),{'ok':True,'product':winner})()
+        result=analyze_exact_product(share)
+    assert result['name']=='Silicone Baking Mat'
+    assert result['image_url']=='https://m.media-amazon.com/images/I/mat.jpg'
+    assert result['url']=='https://www.amazon.com/dp/B012345678'
+    assert result['affiliate_candidate_url']==share
+    assert result['product_identity_verified'] is True
