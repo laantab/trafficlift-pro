@@ -68,6 +68,22 @@ def listing_images(name, url, *, timeout=4, details=None):
             absolute = urljoin(final_url or url, value.strip())
             if absolute.startswith(('https://', 'http://')) and absolute not in images:
                 images.append(absolute)
+    # Prefer the retailer's primary product photo before JSON-LD/gallery
+    # images. This mirrors Pin Factory Pro's reliable hero-image behavior.
+    title_meta = soup.select_one('meta[property="og:title"]')
+    page_title = title_meta.get('content', '') if title_meta else (soup.title.get_text() if soup.title else '')
+    if matches(page_title):
+        landing = soup.select_one('#landingImage, #imgBlkFront')
+        if landing:
+            primary = landing.get('data-old-hires') or landing.get('src')
+            try:
+                variants = json.loads(landing.get('data-a-dynamic-image', '{}'))
+                if variants:
+                    primary = max(variants, key=lambda key: variants[key][0] * variants[key][1])
+            except (ValueError, TypeError, IndexError):
+                pass
+            add(primary)
+
     def walk(obj):
         if isinstance(obj, list):
             for item in obj: walk(item)
@@ -96,8 +112,6 @@ def listing_images(name, url, *, timeout=4, details=None):
     for script in soup.select('script[type="application/ld+json"]'):
         try: walk(json.loads(script.string or script.get_text()))
         except (ValueError, TypeError): pass
-    title = soup.select_one('meta[property="og:title"]')
-    page_title = title.get('content', '') if title else (soup.title.get_text() if soup.title else '')
     if matches(page_title):
         if details is not None and not details.get('seller_benefit'):
             for meta in soup.select('meta[property="og:description"],meta[name="description"],meta[name="twitter:description"]'):
