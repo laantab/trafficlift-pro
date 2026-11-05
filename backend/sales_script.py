@@ -254,18 +254,19 @@ def creative_copy_gate(plan):
 
 
 def marketing_readiness_gate(plan):
-    """A photo-only overview is not a publishable narrated advertisement.
+    """Approve either a sourced benefit-led ad or a claim-safe product overview.
 
-    Preserve honest no-fact previews for research, but never spend CPU rendering
-    five generic seller-listing reminders as a finished product video.
-    Require two different product facts from the exact listing or an attributed
-    seller/manufacturer brief. This checks source presence, not truth of claims;
-    visual and factual human approval is still mandatory.
+    Pin Factory Pro's reliable mock path demonstrates a useful production rule:
+    missing AI/seller detail should degrade to a truthful product-first output,
+    not a dead end. Product-overview mode may use only the exact identity/photo
+    and therefore makes no performance, popularity, price, or feature claims.
     """
-    # Explain the evidence failure before running creative review. Otherwise a
-    # title-only listing can throw the misleading "Generic placeholder" error.
+    if plan.get('mode') == 'product_overview':
+        creative_copy_gate(plan)
+        return {'status': 'PASS', 'distinct_product_facts': 0,
+                'mode': 'product_overview', 'claims': 'identity_and_photo_only'}
     if plan.get('mode') != 'benefit_led':
-        raise ValueError('Not enough product-specific seller facts for a narrated ad: the benefit is missing or repeats the title. Supply two distinct facts from the exact seller listing before rendering. No video was rendered.')
+        raise ValueError('Unsupported video plan mode.')
     distinct = []
     for item in (plan.get('evidence') or []):
         if not isinstance(item, dict):
