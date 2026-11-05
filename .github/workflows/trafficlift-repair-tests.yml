@@ -25,7 +25,9 @@ jobs:
         run: python scripts/owner_video_live_acceptance.py --preflight
 
   repair-tests:
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 supports Ubuntu 24.04; pin the runner so GitHub's
+    # ubuntu-latest image upgrades cannot break Chromium acceptance.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -161,7 +163,8 @@ jobs:
           if-no-files-found: ignore
 
   real-kokoro-video-acceptance:
-    runs-on: ubuntu-latest
+    # This job installs Chromium after rendering the real Kokoro MP4.
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
