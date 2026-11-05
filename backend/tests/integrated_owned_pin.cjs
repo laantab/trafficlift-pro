@@ -36,7 +36,10 @@ const {createCanvas, Image} = require('@napi-rs/canvas');
     const result = await page.evaluate(async () => {
       window.__pinRenderGeneration = 1;
       const winner = {name: 'Desk Organizer', category: 'Office Organization',
+        url: 'https://seller.example/owned-desk-organizer',
+        approved_ad_url: 'https://seller.example/owned-desk-organizer',
         image_url: 'https://images.example/owned-desk-organizer.png'};
+      persistCurrentWinner(winner);
       const pkg = editPinterestPackage({
         pin_title: 'Desk Organizer — Teal Body and Orange Lower Panel',
         pin_cta_suggestion: 'See Desk Organizer Details',
