@@ -31,7 +31,11 @@ const { createCanvas } = require('@napi-rs/canvas');
     await page.goto('http://127.0.0.1:8000/studio',{waitUntil:'domcontentloaded'});
     const result=await page.evaluate(async()=>{
       window.__pinRenderGeneration=1;
-      const winner={name:'Mainstays 17 LED Catch-All Base AC Outlet Adjustable Flexible Desk Lamp',category:'Home Lighting',image_url:'https://images.example/lamp.png'};
+      const winner={name:'Mainstays 17 LED Catch-All Base AC Outlet Adjustable Flexible Desk Lamp',category:'Home Lighting',
+        url:'https://seller.example/mainstays-lamp',
+        approved_ad_url:'https://seller.example/mainstays-lamp',
+        image_url:'https://images.example/lamp.png'};
+      persistCurrentWinner(winner);
       const pkg=editPinterestPackage({pin_title:winner.name},winner);
       const jpeg=await renderPinPreview(winner,pkg);
       const img=new Image(); img.src=jpeg; await img.decode();
