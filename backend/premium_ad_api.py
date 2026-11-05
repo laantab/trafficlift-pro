@@ -175,7 +175,12 @@ def _display_name(value):
                   "", name, flags=re.I)
     name = re.sub(r"\s+", " ", name).strip(" ,-")
     # A common marketplace listing: brand, product, color, tiers and retailer.
-    if len(name) > 48 and re.search(r"drawer organizer", name, flags=re.I):
+    if re.search(r"drawer organizer", name, flags=re.I) and (
+            len(name) > 48 or re.search(r"\bdesk\s+drawer\s+organizer\b", name, flags=re.I)):
+        # "Desk" is often marketplace keyword stuffing in titles that already
+        # identify the exact product as an expandable multi-tier drawer
+        # organizer. Keep brand, expandability and tier count; remove the
+        # redundant placement keyword from the customer-facing card.
         brand = name.split(",")[0].split(" ")[0].strip()
         tiers = re.search(r"\b([2-9])\s*[- ]?\s*tier\b", name, flags=re.I)
         if tiers:
