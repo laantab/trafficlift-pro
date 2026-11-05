@@ -124,15 +124,19 @@ def exact_listing(html, final_url):
     asin=amazon_asin(final_url)
     host=(urlsplit(final_url).hostname or '').lower()
     amazon=host=='link.amazon' or host.startswith('amzn.') or bool(re.search(r'(^|\.)amazon\.',host))
+    main=soup.select_one('#productTitle') if amazon else None
+    landing=soup.select_one('#landingImage, #imgBlkFront') if amazon else None
+    identity=soup.select_one('input#ASIN, input[name="ASIN"]') if amazon else None
+    page_asin=(identity.get('value','').strip().upper() if identity else '')
+    if amazon and not asin and re.fullmatch(r'[A-Z0-9]{10}',page_asin) and main and landing:
+        asin=page_asin
     if amazon and not asin:
         raise ValueError('Amazon link opened a department, search or shopping page instead of a product page.')
     meta=soup.select_one('meta[property="og:title"]')
     title=meta.get('content','').strip() if meta else ''
-    main=soup.select_one('#productTitle') if amazon else None
     if main:title=main.get_text(' ',strip=True)
     if amazon:
-        identity=soup.select_one('input#ASIN, input[name="ASIN"]')
-        if identity and identity.get('value','').upper()!=asin:
+        if identity and identity.get('value','').strip().upper()!=asin:
             raise ValueError('Amazon page identifier does not match the requested product.')
     products=[]
     for script in soup.select('script[type="application/ld+json"]'):
@@ -149,7 +153,6 @@ def exact_listing(html, final_url):
             matched=product;title=name;break
     image=None
     if amazon:
-        landing=soup.select_one('#landingImage, #imgBlkFront')
         if not main and not (matched and landing):
             raise ValueError('Amazon did not supply identifiable main-product details.')
         if landing:
@@ -213,6 +216,11 @@ def analyze_exact_product(url):
     try:data=exact_listing(html,final_url)
     except ValueError as exc:
         raise HTTPException(422,str(exc)+' No other product was selected. This link must resolve to one identifiable item.') from exc
+    if data.get('asin') and not amazon_asin(final_url or ''):
+        host=(urlsplit(final_url or url).hostname or '').lower()
+        if not re.fullmatch(r'(?:[a-z0-9-]+\.)*amazon\.(?:com|ca|co\.uk|com\.au|de|fr|it|es|co\.jp|in|com\.mx)',host):
+            host='www.amazon.com'
+        final_url=f'https://{host}/dp/{data["asin"]}'
     from backend.product_research import _build_url_candidate, _card_category
     from backend.product_scout import get_researcher
     from backend.product_control_agent import ProductControlAgent
