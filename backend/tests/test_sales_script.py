@@ -126,13 +126,16 @@ def test_creative_copy_must_identify_exact_product_on_screen_and_in_voice():
         creative_copy_gate(plan)
 
 
-def test_jas11242_photo_only_overview_is_not_approved_for_marketing_render():
+def test_jas11242_photo_only_overview_is_approved_only_as_claim_safe_overview():
     from backend.sales_script import marketing_readiness_gate
     overview=build_sales_plan('JAS11242 LED Motion-Sensor Night Light', '',
                               'https://seller.example/jas11242', 30)
     assert overview['mode']=='product_overview'
-    with pytest.raises(ValueError,match='Not enough product-specific seller facts'):
-        marketing_readiness_gate(overview)
+    gate=marketing_readiness_gate(overview)
+    assert gate['status']=='PASS'
+    assert gate['mode']=='product_overview'
+    assert gate['distinct_product_facts']==0
+    assert gate['claims']=='identity_and_photo_only'
 
 
 def test_marketing_render_requires_two_distinct_exact_product_facts():
@@ -462,7 +465,7 @@ def test_mezmut_caption_requires_brand_and_type_not_generic_cup_text():
         creative_copy_gate(restored)
 
 
-def test_mezmut_markdown_title_is_not_a_seller_benefit_or_renderable_ad():
+def test_mezmut_markdown_title_is_not_a_seller_benefit_but_allows_claim_safe_overview():
     from backend.sales_script import marketing_readiness_gate
     result = build_sales_plan(
         MEZMUT_TITLE, f'# {MEZMUT_TITLE}',
@@ -472,8 +475,9 @@ def test_mezmut_markdown_title_is_not_a_seller_benefit_or_renderable_ad():
     assert result['evidence'] == []
     assert result['creative_review']['status'] == 'PASS'
     assert 'benefit details unavailable' in result['evidence_status']
-    with pytest.raises(ValueError, match='two distinct facts from the exact seller listing'):
-        marketing_readiness_gate(result)
+    gate=marketing_readiness_gate(result)
+    assert gate['mode']=='product_overview'
+    assert gate['claims']=='identity_and_photo_only'
 
 
 def test_mezmut_title_only_input_can_use_two_distinct_seller_fact_fixtures():
