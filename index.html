@@ -3095,21 +3095,57 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function _loadImageWithCors(url) {
-        // Studio retrieves validated image bytes on the same origin for canvas export.
-        if (!url) return null;
-        try {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            await new Promise((resolve, reject) => {
-                const timer = setTimeout(() => reject(new Error('product-photo-timeout')), 25000);
-                img.onload = () => { clearTimeout(timer); resolve(); };
-                img.onerror = () => { clearTimeout(timer); reject(new Error('product-photo-load-failed')); };
-                img.src = apiUrl((window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?') + new URLSearchParams({url, quality: 'high'}));
-            });
-            return img;
-        } catch (_) {
-            return null;
+        // Keep the exact winning photo. Prefer the same-origin high-res
+        // endpoint, then try the original-size endpoint, and finally
+        // a CORS-safe direct load. The canvas quality check still rejects
+        // blurry small images; a different product is never substituted.
+        if (!url) throw new Error('The selected product has no verified photo URL.');
+        const base = window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?';
+        const candidates = [
+            apiUrl(base + new URLSearchParams({url, quality: 'high'})),
+            ...(base.includes('pin-image') ? [apiUrl(base + new URLSearchParams({url, quality: 'standard'}))] : []),
+            url
+        ];
+        const failures = [];
+        for (const candidate of candidates) {
+            try {
+                if (candidate !== url) {
+                    const reply = await fetch(candidate, {credentials:'same-origin',signal:AbortSignal.timeout(16000)});
+                    if (!reply.ok) {
+                        let reason = '';
+                        try { reason = (await reply.json()).detail || ''; } catch (_) {}
+                        failures.push(reply.status + (reason ? ': ' + reason : ''));
+                        continue;
+                    }
+                    // Fetching through the proxy lets us inspect the HTTP
+                    // status; the blob is same-origin and safe for the canvas.
+                    const bytes = await reply.blob();
+                    if (!bytes.type.startsWith('image/')) throw new Error('Photo endpoint returned non-image data.');
+                    const blobUrl = URL.createObjectURL(bytes);
+                    try {
+                        const img = await new Promise((resolve, reject) => {
+                            const element = new Image();
+                            element.onload = () => resolve(element);
+                            element.onerror = () => reject(new Error('Image bytes could not be decoded.'));
+                            element.src = blobUrl;
+                        });
+                        return img;
+                    } finally { URL.revokeObjectURL(blobUrl); }
+                }
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                await new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => reject(new Error('Direct photo request timed out.')), 12000);
+                    img.onload = () => { clearTimeout(timer); resolve(); };
+                    img.onerror = () => { clearTimeout(timer); reject(new Error('Seller blocked cross-origin canvas use.')); };
+                    img.src = candidate;
+                });
+                return img;
+            } catch (err) { failures.push(err?.message || String(err)); }
         }
+        throw new Error('The verified photo is visible, but Pinterest could not access its original image bytes. ' +
+            'Image checks: ' + failures.slice(0, 2).join('; ') +
+            '. Your selected product is saved; try another original photo of this same item.');
     }
 
     function _wrapText(ctx, text, maxWidth, maxLines) {
