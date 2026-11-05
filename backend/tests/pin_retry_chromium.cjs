@@ -14,7 +14,8 @@ const {createCanvas, Image} = require('@napi-rs/canvas');
   const image=canvas.toBuffer('image/png');
   const winner={id:'verified-pin-1',name:'MEZMUT 20 oz Insulated Tumbler Cup Travel Coffee Mug with Lid (Mixed1, 6Pack)',
     image_url:'https://m.media-amazon.com/images/I/real-listing.jpg',image_status:'verified',
-    url:'https://www.amazon.com/dp/B0GVF21RZG',source:'discovery',
+    url:'https://www.amazon.com/dp/B0GVF21RZG',
+    approved_ad_url:'https://www.amazon.com/dp/B0GVF21RZG',source:'discovery',
     discovery:{version:'3.0'},category:'Kitchen',identity_keys:['asin:B0GVF21RZG']};
   const pkg={pin_title:winner.name,board_title:'Coffee Tumblers',pin_cta_suggestion:'See Product Details',
     recommended_keywords:['coffee tumbler'],optimized_description:'Review this exact listing.'};
