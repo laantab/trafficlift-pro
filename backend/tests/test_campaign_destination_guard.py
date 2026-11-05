@@ -48,3 +48,13 @@ def test_analyze_submits_captured_url_then_clears_field_even_if_request_fails():
     assert section.index("const requestUrl = apiUrl(") < section.index("if (urlInput) urlInput.value = '';") < section.index("await _runPickPipeline({")
     assert 'onclick="document.getElementById(\'productUrl\').value=\'\'' in page
     assert "document.getElementById('productUrl').value = data.input_url || '';" not in page
+
+def test_short_amazon_share_link_uses_exact_match_approval_instead_of_analyzer():
+    page = PAGE.read_text(encoding="utf-8")
+    section = page.split("async function analyzeProductUrl()", 1)[1]
+    assert "['link.amazon', 'amzn.to', 'amzn.asia']" in section
+    assert "if (shortShare)" in section
+    assert section.index("if (shortShare)") < section.index("const requestUrl = apiUrl(")
+    assert "Attach Link to Verified Product" in page
+    assert "if (!check?.checked)" in page
+    assert "winner.image_status !== 'verified'" in page
