@@ -25,49 +25,53 @@ def request(**overrides):
     return VideoRequest.model_construct(**data)
 
 
-def test_reproduced_title_only_mezmut_has_specific_evidence_error_not_placeholder():
+def test_reproduced_title_only_mezmut_becomes_claim_safe_overview():
     payload = request()
     with patch('backend.photo_video_api.resolve_video_facts', return_value={}):
         plan, photos = prepare_video_plan(payload)
     assert plan['mode'] == 'product_overview'
     assert plan['evidence'] == []
     assert photos == []
-    with pytest.raises(ValueError, match='Supply two distinct facts from the exact seller listing') as error:
-        marketing_readiness_gate(plan)
-    assert 'Generic placeholder' not in str(error.value)
+    gate=marketing_readiness_gate(plan)
+    assert gate['status']=='PASS'
+    assert gate['claims']=='identity_and_photo_only'
     assert 'MEZMUT' in plan['product']
 
 
-def test_video_post_rejects_title_only_before_dependency_or_capacity_or_render():
+def test_video_post_accepts_title_only_as_claim_safe_overview(tmp_path, monkeypatch):
     payload = request()
+    monkeypatch.setenv('TRAFFICLIFT_VIDEO_DIR', str(tmp_path))
     with patch('backend.photo_video_api.video_guard'), \
          patch('backend.photo_video_api.resolve_video_facts', return_value={}), \
          patch('backend.photo_video_api.dependencies') as dependencies, \
-         patch('backend.photo_video_api.reserve_hosted_render') as reserve:
-        with pytest.raises(HTTPException) as error:
-            create(payload, request=None)
-    assert error.value.status_code == 422
-    assert 'two distinct facts from the exact seller listing' in error.value.detail
-    assert 'Generic placeholder' not in error.value.detail
-    dependencies.assert_not_called()
-    reserve.assert_not_called()
+         patch('backend.photo_video_api.reserve_hosted_render') as reserve, \
+         patch('backend.photo_video_api.threading.Thread') as thread, \
+         patch('backend.photo_video_api.lock') as lock:
+        lock.acquire.return_value=True
+        response=create(payload, request=None)
+    assert response.status_code == 202
+    dependencies.assert_called_once()
+    reserve.assert_called_once()
+    thread.assert_called_once()
 
 
-def test_worker_reports_specific_failure_without_downloading_or_rendering(tmp_path):
+def test_worker_renders_title_only_as_claim_safe_overview(tmp_path):
     payload = request()
     record = {'id': 'f' * 32, 'status': 'queued'}
+    photo=tmp_path/'photo.jpg'
+    photo.write_bytes(b'fixture')
     with patch('backend.photo_video_api.resolve_video_facts', return_value={}), \
-         patch('backend.photo_video_api._download_product_image') as download, \
+         patch('backend.photo_video_api._download_product_image', return_value=photo) as download, \
+         patch('backend.photo_quality.choose_photos', return_value=[(photo, {'status':'SOURCE_CHECKS_PASS','concerns':[]})]), \
          patch('backend.photo_video_api.render') as render, \
          patch('backend.photo_video_api.lock') as lock:
         worker(record, payload, tmp_path)
-    assert record['status'] == 'failed'
+    assert record['status'] == 'succeeded'
     assert record['sales_plan']['mode'] == 'product_overview'
-    assert 'two distinct facts from the exact seller listing' in record['message']
-    assert 'Generic placeholder' not in record['message']
-    assert record['video_url'] is None
-    download.assert_not_called()
-    render.assert_not_called()
+    assert 'Product overview rendered' in record['message']
+    assert record['video_url']
+    download.assert_called()
+    render.assert_called_once()
     lock.release.assert_called_once()
 
 
@@ -87,7 +91,7 @@ def test_two_exact_listing_fact_fixtures_survive_title_only_override():
     assert all('Review listed features' not in line for line in plan['phrases'])
 
 
-def test_generic_seller_snippets_do_not_count_as_two_facts():
+def test_generic_seller_snippets_do_not_count_as_facts_but_allow_safe_overview():
     payload = request(fact_sources=[{
         'title': TITLE, 'url': URL,
         'snippet': 'Review listed features. Check the seller listing for exact options.'
@@ -95,8 +99,9 @@ def test_generic_seller_snippets_do_not_count_as_two_facts():
     with patch('backend.photo_video_api.resolve_video_facts', return_value={}):
         plan, _ = prepare_video_plan(payload)
     assert plan['mode'] == 'product_overview'
-    with pytest.raises(ValueError, match='two distinct facts'):
-        marketing_readiness_gate(plan)
+    gate=marketing_readiness_gate(plan)
+    assert gate['distinct_product_facts']==0
+    assert gate['claims']=='identity_and_photo_only'
 
 
 def test_real_model_mismatch_remains_rejected():
