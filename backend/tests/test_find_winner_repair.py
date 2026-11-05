@@ -735,7 +735,7 @@ def test_pin_preview_target_is_visible_in_winner_panel_once():
     """The generated pin preview/download target must live beside the winner."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     assert src.count('id="pinterestResult"') == 1
-    winner_idx = src.index("Pinterest Ready-to-Post Pin")
+    winner_idx = src.index("Pinterest Draft — approve marketing link first")
     result_idx = src.index('id="pinterestResult"')
     why_idx = src.index("Why this is a winner")
     assert winner_idx < result_idx < why_idx
