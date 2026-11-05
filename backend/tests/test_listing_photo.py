@@ -75,3 +75,16 @@ def test_numbered_retailer_headings_and_warranty_nav_are_not_seller_facts():
     assert usable_facts('4, Plastic Material: Made of plastic material, it has strong load-bearing capacity.') == []
     assert usable_facts('Warranty and Support: Includes support information for buyers.') == []
     assert usable_facts('Includes a weighted base for stability.') == ['Includes a weighted base for stability.']
+
+
+def test_primary_product_photo_precedes_gallery_detail(monkeypatch):
+    html = ('<meta property="og:title" content="Silicone Baking Mat">'
+            '<img id="landingImage" data-old-hires="/primary.jpg" '
+            'data-a-dynamic-image='{"/primary-hires.jpg":[1500,1500]}'>'
+            '<script type="application/ld+json">'
+            '{"@type":"Product","name":"Silicone Baking Mat","image":["/detail.jpg","/detail2.jpg"]}'
+            '</script>')
+    page(monkeypatch, html)
+    images = listing_photo.listing_images('Silicone Baking Mat','https://shop.example/product')
+    assert images[0] == 'https://shop.example/primary-hires.jpg'
+    assert 'https://shop.example/detail.jpg' in images
