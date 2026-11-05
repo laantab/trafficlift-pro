@@ -3511,7 +3511,6 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         let success = false;
         let winnerFetched = false;
         try {
-            winnerFetched = true;
             console.log('[pick-pipeline] â†’ GET', requestUrl);
 
             // Front-end safety timeout.
@@ -3551,6 +3550,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!winner || !winner.id) {
                 throw new Error('Server returned an empty payload.');
             }
+            winnerFetched = true;
             if (winner.image_status && winner.image_status !== 'verified') {
                 throw new Error('Winner image was not verified (status: '
                     + winner.image_status + '). Please try again.');
