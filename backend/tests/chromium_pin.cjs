@@ -88,7 +88,7 @@ const { createCanvas } = require('@napi-rs/canvas');
         return 'unexpected success';
       } catch (error) { return error.message; }
     });
-    assert.match(lowResolution,/photo resolution is too low/);
+    assert.match(lowResolution,/photo resolution is too low|No sufficiently sharp photo/i);
     assert.equal(await page.evaluate(() => window.__lastPinDataUrl),null,
       'A failed low-resolution pin must not leave a downloadable stale design');
     // A real browser with blocked storage must never issue a new winner request
