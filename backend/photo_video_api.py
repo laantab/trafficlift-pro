@@ -232,19 +232,18 @@ def prepare_video_plan(payload, *, require_renderable=False):
     if payload.consideration:
         facts['consideration'] = payload.consideration
     benefit = facts.pop('benefit', '')
-    if require_renderable:
-        # Do this BEFORE creative-copy validation. A title-only listing
-        # must return an actionable 422, never a misleading model-copy error.
-        # The full marketing gate still checks provenance and copy afterward.
-        candidates = [benefit, *(facts.get('feature_details') or []),
-                      facts.get('consideration'), facts.get('routine')]
-        distinct = {frozenset(re.findall(r'[a-z0-9]+', str(fact).casefold()))
-                    for fact in candidates if is_distinct_product_fact(fact, payload.name)}
-        if len(distinct) < 2:
-            raise ValueError(
-                'Not enough product-specific seller facts for a narrated ad: '
-                'supply two distinct facts from the exact seller listing. '
-                'No video was rendered.')
+    candidates = [benefit, *(facts.get('feature_details') or []),
+                  facts.get('consideration'), facts.get('routine')]
+    distinct = {frozenset(re.findall(r'[a-z0-9]+', str(fact).casefold()))
+                for fact in candidates if is_distinct_product_fact(fact, payload.name)}
+    if len(distinct) < 2:
+        # Mirror Pin Factory's safe fallback: keep the exact product/photo and
+        # intentionally remove incomplete claims so build_sales_plan creates a
+        # truthful product overview instead of failing or inventing copy.
+        benefit = ''
+        facts['feature_details'] = []
+        facts['consideration'] = ''
+        facts['routine'] = ''
     plan = build_sales_plan(payload.name, benefit, payload.product_url, 120, **facts)
     return plan, photos
 
