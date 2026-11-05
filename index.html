@@ -3560,7 +3560,6 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (!winner || !winner.id) {
                 throw new Error('Server returned an empty payload.');
             }
-            winnerFetched = true;
             if (winner.image_status && winner.image_status !== 'verified') {
                 throw new Error('Winner image was not verified (status: '
                     + winner.image_status + '). Please try again.');
@@ -3580,6 +3579,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
 
             console.log('[pick-pipeline] âœ“', { id: winner.id, name: winner.name });
+            winnerFetched = true;
 
             rememberDiscoveredWinner(winner);
             window.__lastWinnerId = winner.id;
