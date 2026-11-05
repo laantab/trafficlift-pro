@@ -1727,7 +1727,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             // No valid session, hosted mode disabled, or network unavailable: keep login locked.
             return;
         }
-        document.getElementById('videoOwnerAccessStatus').textContent = 'Owner session active.';
+        document.getElementById('videoOwnerAccessStatus').textContent = 'Owner session restored securely.';
         document.getElementById('videoOwnerAccessDetails').open = false;
         document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
         await loadFreeVideoHistory();
