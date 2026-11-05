@@ -3880,6 +3880,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         let url = '';
         if (urlInput && typeof urlInput.value === 'string') {
             url = urlInput.value.trim();
+            // Pasted chat links can have punctuation and non-breaking spaces
+            // immediately after the Amazon share token. Normalize only this
+            // known Amazon share form; never edit arbitrary affiliate URLs.
+            url = url.replace(/[\u00a0\u200b\u200c\u200d\ufeff]/g, '').trim();
+            const shortMatch = url.match(/^(https:\/\/(?:link\.amazon|amzn\.to|amzn\.asia)\/)([a-z0-9]{5,15})[:.,;!?\s]*$/i);
+            if (shortMatch) url = shortMatch[1] + shortMatch[2];
+            urlInput.value = url;
         }
         if (!url) {
             if (inlineErrEl) {
@@ -3918,7 +3925,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const status = document.getElementById('existingProductLinkStatus');
             if (saved && saved.name && saved.image_url && saved.image_status === 'verified') {
                 if (status) {
-                    status.textContent = 'Amazon share links cannot reliably identify the item in our server. If this link opens the exact saved product (' + saved.name + '), check the confirmation and choose Use Link With My Verified Product. No new product will be selected.';
+                    status.textContent = 'Amazon share links cannot reliably identify the item in our server. If this link opens the exact saved product (' + saved.name + '), check the confirmation and choose Attach Link to Verified Product. No new product will be selected.';
                     status.className = 'text-xs text-amber-200';
                     status.scrollIntoView({block:'nearest',behavior:'smooth'});
                 }
