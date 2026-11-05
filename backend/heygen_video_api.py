@@ -100,11 +100,12 @@ def compose_heygen_narration(name, plan, max_words=34):
         source_text = item.get("text") or ""
         if not isinstance(source_text, str) or not source_text.strip():
             continue
-        # Validate the verified listing evidence, then select intact concise
-        # clauses rather than attempting to narrate the entire seller paragraph.
-        if not is_distinct_product_fact(source_text, name):
-            continue
+        # Split long seller prose first, then validate each intact clause.
+        # A useful short fact must not be discarded just because its surrounding
+        # paragraph also contains generic catalog language.
         for fact in _short_seller_facts(source_text):
+            if not is_distinct_product_fact(fact, name):
+                continue
             tokens = set(re.findall(r"[a-z0-9]+", fact.casefold()))
             if tokens and not any(tokens == older for older in seen):
                 seen.append(tokens)
@@ -122,9 +123,12 @@ def compose_heygen_narration(name, plan, max_words=34):
         if len(identity_words[i]) >= 4 and len(identity_words[i + 1]) >= 4
     }
     def repeats_identity(fact):
-        normalized = " ".join(re.findall(r"[a-z0-9]+", fact.casefold()))
-        return any(re.search(r"\\b" + re.escape(phrase) + r"\\b", normalized)
-                   for phrase in identity_phrases)
+        words = re.findall(r"[a-z0-9]+", fact.casefold())
+        fact_phrases = {
+            " ".join(words[i:i + 2])
+            for i in range(len(words) - 1)
+        }
+        return bool(identity_phrases.intersection(fact_phrases))
 
     chosen = []
     # Favor concise facts that add new product information.
@@ -178,7 +182,8 @@ def product_prompt(name, plan):
         "Vertical product advertisement. Use the supplied exact seller product photo "
         "as the opening frame; preserve product identity, design, markings and proportions. "
         "PRODUCT IDENTITY LOCK: Preserve the exact organizer design, proportions "
-        "and identifying features across scenes; do not invent a different model. "
+        "and identifying features across scenes; never invent a different model, "
+        "feature, label, brand, or product mechanic. "
         "SCENE SEPARATION: The provided seller product/packaging photograph is "
         "REFERENCE INPUT and may appear only in the initial 0-2 second opening "
         "hero shot. Then make a clean, complete CUT to a full-frame product "
