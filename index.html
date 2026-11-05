@@ -1166,8 +1166,10 @@
             const data = await r.json();
             currentResults = data;
             renderResults(data);
-            // Campaign history must not refill the new-product URL input.
-            document.getElementById('productUrl').value = '';
+            // Reopening a saved campaign restores its verified destination so
+            // the user can see/copy/reuse the exact product link without
+            // re-analyzing or rediscovering the product.
+            document.getElementById('productUrl').value = data.input_url || '';
             setMode(data.mode === 'paid' ? 'paid' : 'organic');
             if (Number.isFinite(data.budget)) document.getElementById('dailyBudget').value = data.budget;
             for (const checkbox of document.querySelectorAll('#channelGrid input[type="checkbox"]')) {
