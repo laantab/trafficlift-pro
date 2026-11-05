@@ -232,6 +232,12 @@
                         <i data-lucide="search" class="w-4 h-4"></i>
                         <span class="analyzeProductLabel">Analyze Product</span>
                     </button>
+                    <div class="rounded-lg border border-slate-700 p-3 space-y-2">
+                        <p class="text-xs text-slate-300">Amazon blocks some automatic product checks. Already verified this exact item in TrafficLift? You can attach your promotional link without rescraping Amazon.</p>
+                        <label class="flex gap-2 text-xs text-slate-300 items-start"><input id="existingProductExactMatch" type="checkbox" class="mt-0.5">I checked that this link opens the exact product currently shown in TrafficLift, and I am authorized to promote it.</label>
+                        <button id="useVerifiedProductLinkBtn" type="button" class="w-full bg-indigo-800 hover:bg-indigo-700 border border-indigo-600 text-white text-sm rounded-lg p-2">Use Link With My Verified Product</button>
+                        <p id="existingProductLinkStatus" role="status" class="text-xs text-slate-400"></p>
+                    </div>
                 </div>
 
                 <!-- Strategy Mode Toggle -->
@@ -517,6 +523,41 @@
             status.className = 'text-xs text-amber-300';
         }
         window.__lastPinDataUrl = null;
+    }
+
+    function useLinkWithVerifiedProduct() {
+        const status = document.getElementById('existingProductLinkStatus');
+        const input = document.getElementById('productUrl');
+        const check = document.getElementById('existingProductExactMatch');
+        const winner = restoreCurrentWinner();
+        const link = (input?.value || window.__lastSubmittedProductUrl || '').trim();
+        const fail = (message) => {
+            if (status) { status.textContent = message; status.className = 'text-xs text-rose-300'; }
+        };
+        if (!winner || !winner.name || !winner.image_url || winner.image_status !== 'verified')
+            return fail('Choose a verified product in TrafficLift first. Your link has not been attached.');
+        if (!check?.checked) return fail('Confirm that this is the exact same product shown in TrafficLift.');
+        let parsed;
+        try { parsed = new URL(link); } catch (_) { return fail('Enter a valid HTTPS promotional product link.'); }
+        if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password)
+            return fail('Use a valid HTTPS promotional product link.');
+        // Human confirmation is explicit: an Amazon-blocked URL is NOT
+        // falsely represented as independently product-verified by the app.
+        winner.approved_ad_url = parsed.href;
+        winner.destination_match_method = 'owner_confirmed_exact_match';
+        persistCurrentWinner(winner);
+        window.__lastPinDataUrl = null;
+        displayWinnerCard(winner);
+        const destinationInput = document.getElementById('campaignDestinationInput');
+        if (destinationInput) destinationInput.value = parsed.href;
+        const destinationStatus = document.getElementById('campaignDestinationStatus');
+        if (destinationStatus) {
+            destinationStatus.textContent = 'Link attached to the previously verified product using your exact-match confirmation. Amazon destination was not independently verified.';
+            destinationStatus.className = 'text-xs text-amber-200';
+        }
+        if (input) input.value = '';
+        if (check) check.checked = false;
+        if (status) { status.textContent = 'Saved to the verified product. Continue with the Pinterest draft.'; status.className = 'text-xs text-emerald-300'; }
     }
 
     function clearSelectedProduct() {
@@ -3468,7 +3509,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
 
         let success = false;
+        let winnerFetched = false;
         try {
+            winnerFetched = true;
             console.log('[pick-pipeline] â†’ GET', requestUrl);
 
             // Front-end safety timeout.
@@ -3595,7 +3638,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         } catch (err) {
             console.error('[pick-pipeline] failed:', err);
             const msg = (err && err.message) || String(err);
-            const isWinnerStage = !window.__currentWinner;
+            const isWinnerStage = !winnerFetched;
             const isTimeout = /took too long/i.test(msg);
             // Catalog exhaustion is a legitimate permanent-history outcome, not
             // an image failure. Do not tell returning users to retry until
@@ -3862,7 +3905,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             if (urlInput) urlInput.focus();
             return;
         }
-        clearSelectedProduct();
+        // Keep previously verified product available if Amazon blocks this new URL.
+        // A replacement winner is persisted only once analysis succeeds.
+        window.__lastSubmittedProductUrl = url;
         const isFirstRun = !window.__pickPipelineRanOnce;
         window.__pickPipelineRanOnce = true;
         const prev = window.__lastWinnerId || '';
@@ -3905,6 +3950,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         .addEventListener('click', findWinningProduct);
     document.getElementById('analyzeProductBtn')
         .addEventListener('click', analyzeProductUrl);
+    document.getElementById('useVerifiedProductLinkBtn')
+        .addEventListener('click', useLinkWithVerifiedProduct);
     // Clear Link is wired directly on the button, so it still works if another page script fails.
     </script>
 </body>
