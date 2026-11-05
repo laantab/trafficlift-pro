@@ -109,15 +109,33 @@ class ProductScraper:
             or meta.get("description")
             or ""
         )
+        # Match Pin Factory's stable product-image rule: retailer primary
+        # image first, then structured/social metadata. This prevents a
+        # gallery detail shot from becoming the campaign hero.
+        retailer_primary = None
+        landing = soup.select_one("#landingImage, #imgBlkFront")
+        if landing:
+            retailer_primary = landing.get("data-old-hires") or landing.get("src")
+            if not retailer_primary:
+                try:
+                    variants = json.loads(landing.get("data-a-dynamic-image", "{}"))
+                    if variants:
+                        retailer_primary = max(
+                            variants,
+                            key=lambda key: variants[key][0] * variants[key][1],
+                        )
+                except (ValueError, TypeError, IndexError, KeyError):
+                    pass
         image = (
-            og.get("og:image")
+            retailer_primary
+            or og.get("og:image")
             or twitter.get("twitter:image")
             or ld_json.get("image")
             or None
         )
         site_name = og.get("og:site_name") or meta.get("application-name") or self._extract_domain(url)
         price = ld_json.get("offers", {}).get("price") or meta.get("product:price:amount")
-        additional_images = self._extract_gallery_images(soup, og.get("og:image"))
+        additional_images = self._extract_gallery_images(soup, image)
 
         return ScrapedProduct(
             url=url,
