@@ -74,20 +74,21 @@ def request(**changes):
     return VideoRequest.model_construct(**data)
 
 
-def test_actual_request_shape_returns_precise_422_before_any_render_resources():
+def test_actual_request_shape_accepts_claim_safe_overview_without_false_facts(tmp_path, monkeypatch):
     payload = request()
+    monkeypatch.setenv('TRAFFICLIFT_VIDEO_DIR', str(tmp_path))
     with patch('backend.photo_video_api.video_guard'), \
          patch('backend.photo_video_api.resolve_video_facts', return_value={}), \
          patch('backend.photo_video_api.dependencies') as dependencies, \
-         patch('backend.photo_video_api.reserve_hosted_render') as reserve:
-        with pytest.raises(HTTPException) as err:
-            create(payload, request=None)
-    assert err.value.status_code == 422
-    assert 'two distinct facts from the exact seller listing' in err.value.detail
-    assert 'On-screen captions' not in err.value.detail
-    assert 'Generic placeholder' not in err.value.detail
-    dependencies.assert_not_called()
-    reserve.assert_not_called()
+         patch('backend.photo_video_api.reserve_hosted_render') as reserve, \
+         patch('backend.photo_video_api.threading.Thread') as thread, \
+         patch('backend.photo_video_api.lock') as lock:
+        lock.acquire.return_value=True
+        response=create(payload, request=None)
+    assert response.status_code == 202
+    dependencies.assert_called_once()
+    reserve.assert_called_once()
+    thread.assert_called_once()
 
 
 def test_sourced_fact_fixture_creates_identity_aware_plan_without_unsupported_claims():
