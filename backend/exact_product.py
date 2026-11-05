@@ -66,6 +66,48 @@ def _product_target_in_share_page(original_url, final_url, html):
 
 
 
+
+def _exact_product_from_share_redirects(url):
+    """Inspect redirects, preserving an exact Amazon product encountered en route.
+
+    A link.amazon token is not an ASIN. Do not infer a product from its token.
+    Restrict every hop to Amazon-owned HTTP(S) hosts to avoid an open proxy.
+    """
+    import requests
+    from urllib.parse import urljoin
+    start=(urlsplit(url).hostname or '').lower()
+    if start not in {'link.amazon', 'amzn.to', 'amzn.asia'}:
+        return None
+    current=url
+    seen=set()
+    for _ in range(7):
+        if current in seen:
+            break
+        seen.add(current)
+        parsed=urlsplit(current)
+        host=(parsed.hostname or '').lower()
+        if parsed.scheme!='https' or (host not in {'link.amazon','amzn.to','amzn.asia'} and
+                not re.fullmatch(r'(?:[a-z0-9-]+\.)*amazon\.(?:com|ca|co\.uk|com\.au|de|fr|it|es|co\.jp|in|com\.mx)',host)):
+            break
+        asin=amazon_asin(current)
+        if asin:
+            return current
+        try:
+            reply=requests.get(current,allow_redirects=False,stream=True,
+                timeout=6,headers={'User-Agent':'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+                                   'Accept':'text/html,application/xhtml+xml'})
+            try:
+                destination=reply.headers.get('location','') if 300 <= reply.status_code < 400 else ''
+            finally:
+                reply.close()
+        except requests.RequestException:
+            break
+        if not destination:
+            break
+        current=urljoin(current,destination)
+    return None
+
+
 def _products(obj):
     if isinstance(obj,list):
         for child in obj:yield from _products(child)
@@ -139,6 +181,10 @@ def exact_listing(html, final_url):
 def analyze_exact_product(url):
     final_url,html,error=_safe_get(url,timeout=10)
     shared_target=_product_target_in_share_page(url,final_url,html)
+    # Some mobile share links point through an exact /dp/ product URL
+    # before eventually landing on a generic Amazon page in a bot client.
+    if not shared_target and not amazon_asin(final_url or ''):
+        shared_target=_exact_product_from_share_redirects(url)
     if shared_target and not amazon_asin(final_url or ''):
         share_url,share_html,share_error=_safe_get(shared_target,timeout=10)
         if not share_error and share_html and amazon_asin(share_url or '')==amazon_asin(shared_target):
@@ -154,7 +200,7 @@ def analyze_exact_product(url):
     known_asin=requested or actual
     if known_asin and (error or not html or not final_url or not actual):
         host=(urlsplit(final_url or url).hostname or '').lower()
-        if not re.fullmatch(r'(?:[a-z0-9-]+\\.)*amazon\\.(?:com|ca|co\\.uk|com\\.au|de|fr|it|es|co\\.jp|in|com\\.mx)',host):
+        if not re.fullmatch(r'(?:[a-z0-9-]+\.)*amazon\.(?:com|ca|co\.uk|com\.au|de|fr|it|es|co\.jp|in|com\.mx)',host):
             host='www.amazon.com'
         canonical=f'https://{host}/dp/{known_asin}'
         retry_url,retry_html,retry_error=_safe_get(canonical,timeout=10)
