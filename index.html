@@ -366,7 +366,7 @@
                     <div id="executionOutput" class="hidden"></div>
 
                     <!-- Product Summary -->
-                    <div id="productSummary" class="bg-slate-950 border border-slate-800 rounded-xl p-4 flex items-start gap-4">
+                    <div id="productSummary" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 items-start gap-4">
                         <img id="resImage" src="" alt="Product" class="w-14 h-14 object-cover rounded-lg bg-slate-800 flex-shrink-0">
                         <div class="min-w-0 flex-1">
                             <h3 id="resTitle" class="font-semibold text-sm text-white truncate"></h3>
@@ -795,6 +795,8 @@
 
         const p = data.scraped_product;
         const pkg = data.compiled_package;
+        document.getElementById('productSummary').classList.remove('hidden');
+        document.getElementById('productSummary').classList.add('flex');
 
         document.getElementById('resTitle').textContent = p.title || 'Trending Product (no title extracted — try a different URL)';
         document.getElementById('resDescription').textContent = p.description || '';
@@ -3507,6 +3509,14 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             executionEl.classList.add('hidden');
             executionEl.innerHTML = '';
         }
+        // Starting an exact-product check must not expose stale campaign
+        // summary data or a broken empty image while waiting for verification.
+        if (readUrlField && !currentResults) {
+            const summary = document.getElementById('productSummary');
+            if (summary) { summary.classList.add('hidden'); summary.classList.remove('flex'); }
+            const assetOutput = document.getElementById('assetOutput');
+            if (assetOutput) assetOutput.innerHTML = '';
+        }
 
         let success = false;
         let winnerFetched = false;
@@ -3544,7 +3554,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     openResearchConnection(); return;
                 }
                 throw new Error('HTTP ' + resp.status
-                    + (detail ? ' â€” ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
+                    + (detail ? ': ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''));
             }
             const winner = await resp.json();
             if (!winner || !winner.id) {
@@ -3638,6 +3648,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         } catch (err) {
             console.error('[pick-pipeline] failed:', err);
             const msg = (err && err.message) || String(err);
+            const amazonBlocked = readUrlField && /Amazon did not supply identifiable main-product details|product listing could not be read/i.test(msg);
             const isWinnerStage = !winnerFetched;
             const isTimeout = /took too long/i.test(msg);
             // Catalog exhaustion is a legitimate permanent-history outcome, not
@@ -3669,7 +3680,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         ? 'No new eligible product is available from this search. Previously selected winners remain excluded. Please check again when fresh products are available.'
                         : isNoPhotoError
                             ? 'Research completed, but no new photo-qualified product passed the checks. Previous products are still excluded. See the research result below.'
-                            : failBody)
+                            : amazonBlocked
+                                ? 'Amazon is not providing usable product details to this server. Your product link was not verified. Repeated Analyze clicks will not fix this; use an existing verified product only when its identity matches.'
+                                : failBody)
                 : (isTimeout
                     ? 'Pinterest generation took too long. Use Generate Pinterest Pin; your winner is saved.'
                     : 'Winner card is below — Pinterest package generation hit an error. Use “Generate Pinterest Pin” to retry without another discovery.');
