@@ -113,3 +113,44 @@ def test_share_link_with_product_metadata_auto_fetches_single_exact_item():
     assert result['name']=='Chosen Juicer Model Z'
     assert result['affiliate_candidate_url']==share
     assert result['product_identity_verified'] is True
+
+
+
+def test_share_redirect_hops_extract_exact_product_not_short_token():
+    from backend.exact_product import _exact_product_from_share_redirects
+    from types import SimpleNamespace
+    def fake_get(url, **kwargs):
+        target = ('https://www.amazon.com/dp/B012345678?tag=demo-20'
+                  if url == 'https://link.amazon/B0iKF5FXp' else '')
+        return SimpleNamespace(status_code=302, headers={'location':target}, close=lambda: None)
+    with patch('requests.get',side_effect=fake_get) as request:
+        found=_exact_product_from_share_redirects('https://link.amazon/B0iKF5FXp')
+    assert found=='https://www.amazon.com/dp/B012345678?tag=demo-20'
+    assert request.call_args.kwargs['allow_redirects'] is False
+
+
+def test_share_redirects_cannot_follow_untrusted_host_or_fake_asin():
+    from backend.exact_product import _exact_product_from_share_redirects
+    from types import SimpleNamespace
+    def fake_get(url, **kwargs):
+        return SimpleNamespace(status_code=302,headers={'location':'https://evil.test/dp/B012345678'},close=lambda:None)
+    with patch('requests.get',side_effect=fake_get) as request:
+        assert _exact_product_from_share_redirects('https://link.amazon/B0iKF5FXp') is None
+    assert request.call_count==1
+
+
+def test_share_redirect_works_when_final_page_is_shopping_page():
+    share='https://link.amazon/B0iKF5FXp'
+    calls=[]
+    def get_page(url,timeout=10):
+        calls.append(url)
+        if len(calls)==1:return 'https://www.amazon.com/s?k=kitchen','<title>Amazon shopping</title>',None
+        return URL,HTML,None
+    with patch('backend.exact_product._safe_get',side_effect=get_page),\
+         patch('backend.exact_product._exact_product_from_share_redirects',return_value=URL),\
+         patch('backend.product_control_agent.ProductControlAgent.evaluate') as evaluate:
+        evaluate.side_effect=lambda winner:type('Report',(),{'ok':True,'product':winner})()
+        result=analyze_exact_product(share)
+    assert result['name']=='Chosen Juicer Model Z'
+    assert result['affiliate_candidate_url']==share
+    assert result['product_identity_verified'] is True
