@@ -39,19 +39,25 @@ def test_setup_missing_no_job(client,payload,tmp_path):
         assert client.post('/api/v1/photo-videos',json=payload).status_code==503
     assert not list(tmp_path.iterdir())
 
-def test_blank_benefit_without_seller_facts_never_starts_job(client,payload,tmp_path):
+def test_blank_benefit_without_seller_facts_starts_claim_safe_overview(client,payload,tmp_path):
     payload['benefit']=''
     payload['fact_sources']=[]
     payload['seconds']=15
-    with patch.object(api,'resolve_video_facts',return_value={}), \
-         patch.object(api,'dependencies') as dependencies, \
-         patch.object(api.threading,'Thread') as thread:
-        response=client.post('/api/v1/photo-videos',json=payload)
-    assert response.status_code==422
-    assert 'two distinct facts from the exact seller listing' in response.json()['detail']
-    dependencies.assert_not_called()
-    thread.assert_not_called()
-    assert not list(tmp_path.iterdir())
+    try:
+        with patch.object(api,'resolve_video_facts',return_value={}), \
+             patch.object(api,'dependencies') as dependencies, \
+             patch.object(api.threading,'Thread') as thread:
+            response=client.post('/api/v1/photo-videos',json=payload)
+        assert response.status_code==202
+        job=response.json()['video']
+        saved=json.loads((tmp_path/job['id']/'job.json').read_text())
+        assert saved['sales_plan']['mode']=='product_overview'
+        assert saved['sales_plan']['evidence']==[]
+        assert 'benefit details unavailable' in saved['sales_plan']['evidence_status']
+        dependencies.assert_called_once()
+        thread.assert_called_once()
+    finally:
+        if api.lock.locked():api.lock.release()
 
 def test_reviewed_sales_plan_saved_with_job(client,payload,tmp_path):
     payload.update(buyer_need='A warmer room',consideration='Includes a stand')
