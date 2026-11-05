@@ -168,6 +168,8 @@ function scenario(firstStatus, shared = {creates: 0, storage: new Map()}) {
   const pinContext = {
     navigator: {clipboard: {writeText: async () => {}}},
     window: {__lastPinDataUrl: 'data:image/jpeg;base64,fixture'},
+    restoreCurrentWinner: () => ({campaign_destination_url: 'https://seller.example/product'}),
+    requireCampaignDestination: () => 'https://seller.example/product',
     downloadPinImage: () => {pinCalls.downloads++;},
     showToast: (...args) => {pinCalls.notices.push(args);},
   };
