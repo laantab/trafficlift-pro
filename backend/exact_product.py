@@ -153,23 +153,32 @@ def exact_listing(html, final_url):
             matched=product;title=name;break
     image=None
     if amazon:
-        if not main and not (matched and landing):
-            raise ValueError('Amazon did not supply identifiable main-product details.')
+        # Pin Factory's proven rule: prefer the retailer's explicit primary
+        # image before any gallery/social image. A verified ASIN in the URL
+        # anchors product identity, so we do not require brittle DOM widgets
+        # such as #productTitle when metadata still identifies the same item.
         if landing:
             image=landing.get('data-old-hires') or landing.get('src')
             try:
                 variants=json.loads(landing.get('data-a-dynamic-image','{}'))
-                if variants:image=max(variants,key=lambda key:variants[key][0]*variants[key][1])
-            except (ValueError,TypeError,IndexError):pass
+                if variants:
+                    image=max(variants,key=lambda key:variants[key][0]*variants[key][1])
+            except (ValueError,TypeError,IndexError):
+                pass
     if not image and matched:
         value=matched.get('image')
         if isinstance(value,list):value=value[0] if value else None
         if isinstance(value,dict):value=value.get('url') or value.get('contentUrl')
         if isinstance(value,str):image=value
-    if not image and (main or matched):
-        meta_image=soup.select_one('meta[property="og:image"]')
+    if not image:
+        meta_image=soup.select_one('meta[property="og:image"],meta[name="twitter:image"]')
         if meta_image:image=meta_image.get('content')
-    if not title or not image or not (main or matched):
+    if amazon:
+        if not asin:
+            raise ValueError('Amazon link did not identify one exact product.')
+        if not title or not image:
+            raise ValueError('The Amazon product page did not provide both a product title and primary image.')
+    elif not title or not image or not (main or matched):
         raise ValueError('The page did not identify one product with its own photo.')
     description=str((matched or {}).get('description') or '')
     if amazon:
