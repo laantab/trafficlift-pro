@@ -1709,7 +1709,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     // Never persist access codes in localStorage, logs, links or video URLs.
     const hostedVideoSite = typeof window !== 'undefined' && window.location.hostname === 'trafficlift-pro.onrender.com';
     if (hostedVideoSite) {
-        document.getElementById('videoOwnerAccessDetails')?.classList.remove('hidden');
+        const ownerDetails = document.getElementById('videoOwnerAccessDetails');
+        const ownerPanel = document.getElementById('hostedVideoOwnerAccess');
+        ownerDetails?.classList.remove('hidden');
+        ownerPanel?.classList.remove('hidden');
         const note = document.getElementById('freeStudioInstructions');
         if (note) note.textContent = 'Hosted narration beta: unlock owner access below, then create and download a draft MP4.';
         // An existing HttpOnly session survives reloads; never ask the browser for its secret.
