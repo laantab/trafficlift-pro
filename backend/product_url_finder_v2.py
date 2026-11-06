@@ -288,6 +288,58 @@ def _walk_products(obj):
                 yield from _walk_products(value)
 
 
+def _clean_product_title(value: str) -> str:
+    """Remove retailer rating/price/delivery suffixes from a product name."""
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    cut_patterns = (
+        r"\s+\d(?:\.\d)?\s+out of 5 stars\b.*$",
+        r"\s+\$\d[\d,.]*(?:\s|$).*$",
+        r"\s+FREE\s+delivery\b.*$",
+        r"\s+delivery\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b.*$",
+        r"\s+\d[\d,]*\+?\s+bought\s+in\s+past\s+month\b.*$",
+    )
+    for pattern in cut_patterns:
+        text = re.sub(pattern, "", text, flags=re.I).strip()
+    return text.strip(" -|,;")
+
+
+def _infer_product_category(name: str) -> Optional[str]:
+    """Infer only high-confidence top-level categories from the verified name."""
+    low = str(name or "").lower()
+    groups = (
+        (
+            "Home & Kitchen",
+            (
+                "baking mat", "pastry mat", "oven liner", "cookware", "kitchen",
+                "drawer organizer", "home organizer", "storage organizer",
+                "vacuum", "air fryer", "blender", "coffee maker", "cutting board",
+            ),
+        ),
+        (
+            "Fitness & Wellness",
+            ("kettlebell", "dumbbell", "resistance band", "yoga mat", "fitness"),
+        ),
+        (
+            "Beauty & Personal Care",
+            ("skincare", "skin care", "makeup", "hair dryer", "shampoo", "serum"),
+        ),
+        (
+            "Electronics",
+            ("headphones", "earbuds", "charger", "power bank", "smartwatch", "speaker"),
+        ),
+        (
+            "Pet Supplies",
+            ("dog ", "cat ", "pet ", "litter", "leash", "pet bed"),
+        ),
+    )
+    for category, terms in groups:
+        if any(term in low for term in terms):
+            return category
+    return None
+
+
 def _looks_specific_title(title: str) -> bool:
     low = " ".join(title.lower().split())
     if len(low) < 5:
@@ -391,37 +443,40 @@ def _extract_mission_primary_product(html: str, base_url: str) -> Optional[dict]
             image_node.get("src"),
         )
 
-    # Prefer title text attached to the same ASIN. If that DOM shape is absent,
-    # Amazon image alt text is product-specific and safer than the whole card's
-    # price/review text.
+    # Prefer clean product text. Image alt is usually free of price/review
+    # suffixes; link/card text can be more complete, so compare cleaned forms.
     title = ""
+    if image_node:
+        alt = _clean_product_title(str(image_node.get("alt") or ""))
+        if _looks_specific_title(alt):
+            title = alt
+
     for link in section.select("a[href]"):
         href = str(link.get("href") or "")
         if asin not in href:
             continue
-        text = " ".join(link.stripped_strings).strip()
-        if _looks_specific_title(text) and len(text) > len(title):
-            title = text
+        candidate = _clean_product_title(" ".join(link.stripped_strings))
+        if _looks_specific_title(candidate) and len(candidate) > len(title):
+            title = candidate
 
-    if not title and image_node:
-        alt = str(image_node.get("alt") or "").strip()
-        if _looks_specific_title(alt):
-            title = alt
-
-    if not title and container:
-        card_text = " ".join(container.stripped_strings).strip()
-        # Avoid accepting obvious price-only/ratings-only card fragments.
-        if _looks_specific_title(card_text) and len(card_text) >= 15:
+    if container:
+        card_text = _clean_product_title(" ".join(container.stripped_strings))
+        if (
+            _looks_specific_title(card_text)
+            and len(card_text) >= 15
+            and len(card_text) > len(title)
+        ):
             title = card_text[:500]
 
     if not _looks_specific_title(title) or not _looks_product_image(image):
         return None
 
     return {
-        "name": title,
+        "name": _clean_product_title(title),
         "image_url": _upgrade_amazon_image(urljoin(base_url, image)),
         "asin": asin,
         "description": "",
+        "category": _infer_product_category(title),
         "final_url": f"https://www.amazon.com/dp/{asin}",
         "source": "amazon_mission_previously_viewed",
     }
@@ -767,8 +822,14 @@ def analyze_product_url_v2(url: str) -> dict:
         source=data.get("source") or "product_url_finder_v2",
     )
     card = _build_url_candidate(resolution)
-    winner = get_researcher()._materialize(card, _card_category(card))
+    resolved_category = (
+        data.get("category")
+        or _infer_product_category(data.get("name", ""))
+        or _card_category(card)
+    )
+    winner = get_researcher()._materialize(card, resolved_category)
     winner.update(
+        category=resolved_category,
         image_url=data["image_url"],
         image_source=data.get("final_url") or url,
         description=data.get("description", ""),
