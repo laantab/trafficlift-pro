@@ -3905,6 +3905,22 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             // immediately after the Amazon share token. Normalize only this
             // known Amazon share form; never edit arbitrary affiliate URLs.
             url = url.replace(/[\u00a0\u200b\u200c\u200d\ufeff]/g, '').trim();
+
+            // If an old URL and a new URL were accidentally pasted together,
+            // keep the first product URL. Do not split legitimate nested
+            // redirect parameters such as ?url=https://...
+            const schemeLen = /^https:\/\//i.test(url) ? 8 : (/^http:\/\//i.test(url) ? 7 : 0);
+            if (schemeLen) {
+                const later = url.slice(schemeLen).search(/https?:\/\//i);
+                if (later >= 0) {
+                    const splitAt = schemeLen + later;
+                    const prev = url.charAt(splitAt - 1);
+                    if (/[A-Za-z0-9/_-]/.test(prev)) {
+                        url = url.slice(0, splitAt).trim();
+                    }
+                }
+            }
+
             const shortMatch = url.match(/^(https:\/\/(?:link\.amazon|amzn\.to|amzn\.asia)\/)([a-z0-9]{5,15})[:.,;!?\s]*$/i);
             if (shortMatch) url = shortMatch[1] + shortMatch[2];
             urlInput.value = url;
@@ -3947,9 +3963,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         params.set('url', url);
         if (prev) params.set('exclude', prev);
         const requestUrl = apiUrl(`/api/v1/analyze-product-url?${params.toString()}`);
-        // The submitted link is already captured in requestUrl. Clear the
-        // visible field immediately, even if Amazon verification later fails.
-        if (urlInput) urlInput.value = '';
+        // Keep the submitted link visible until analysis succeeds or the user
+        // replaces it. This makes failures recoverable without re-pasting.
         await _runPickPipeline({
             btn,
             urlInput,
