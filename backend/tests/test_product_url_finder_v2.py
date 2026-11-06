@@ -82,6 +82,9 @@ def test_generic_amazon_shopping_page_is_not_accepted_as_product():
         "backend.product_url_finder_v2._browser_get",
         return_value=generic,
     ), patch(
+        "backend.product_url_finder_v2._javascript_get",
+        side_effect=RuntimeError("javascript unavailable in this isolated test"),
+    ), patch(
         "backend.product_url_finder_v2._pin_factory_fallback",
         return_value=None,
     ):
