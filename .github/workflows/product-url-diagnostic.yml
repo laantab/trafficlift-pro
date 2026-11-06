@@ -1,0 +1,31 @@
+name: Product URL Diagnostic
+
+on:
+  push:
+    branches:
+      - "test/product-url-diagnostic"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Print live Analyze Product response
+        run: |
+          python - <<'PY'
+          import urllib.parse, urllib.request, urllib.error
+          product="https://link.amazon/B03bHi8EM"
+          url="https://trafficlift-pro.onrender.com/api/v1/analyze-product-url?url="+urllib.parse.quote(product,safe="")
+          try:
+              with urllib.request.urlopen(url, timeout=60) as r:
+                  print("STATUS",r.status)
+                  print(r.read().decode("utf-8","replace"))
+          except urllib.error.HTTPError as e:
+              print("STATUS",e.code)
+              print(e.read().decode("utf-8","replace"))
+          except Exception as e:
+              print("EXCEPTION",repr(e))
+          PY
