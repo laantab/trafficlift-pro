@@ -1,0 +1,87 @@
+from unittest.mock import patch
+
+import pytest
+
+from backend.product_url_finder_v2 import (
+    FetchSnapshot,
+    resolve_product_identity,
+)
+
+
+def test_short_link_uses_exact_asin_seen_in_redirect_chain():
+    share = "https://link.amazon/B03bHi8EM"
+    generic = FetchSnapshot(
+        final_url="https://www.amazon.com/hz/mobile/mission?x=1",
+        html="<html><head><title>Amazon Shopping</title></head></html>",
+        status_code=200,
+        history_urls=["https://www.amazon.com/dp/B012345678"],
+    )
+    product = FetchSnapshot(
+        final_url="https://www.amazon.com/dp/B012345678",
+        html=(
+            '<span id="productTitle">Silicone Baking Mat</span>'
+            '<img id="landingImage" '
+            'data-old-hires="https://m.media-amazon.com/images/I/mat-main.jpg">'
+            '<input id="ASIN" value="B012345678">'
+        ),
+        status_code=200,
+        history_urls=[],
+    )
+    with patch(
+        "backend.product_url_finder_v2._browser_get",
+        side_effect=[generic, product],
+    ):
+        result = resolve_product_identity(share)
+
+    assert result["asin"] == "B012345678"
+    assert result["name"] == "Silicone Baking Mat"
+    assert result["image_url"] == "https://m.media-amazon.com/images/I/mat-main.jpg"
+    assert result["source"] == "amazon_browser_exact"
+
+
+def test_short_link_accepts_product_specific_metadata_from_same_response():
+    share = "https://link.amazon/B03bHi8EM"
+    mission = FetchSnapshot(
+        final_url="https://www.amazon.com/hz/mobile/mission?p=opaque",
+        html=(
+            '<meta property="og:title" content="Silicone Baking Mat">'
+            '<meta property="og:image" '
+            'content="https://m.media-amazon.com/images/I/mat-main.jpg">'
+            '<meta name="description" '
+            'content="Reusable nonstick baking surface for cookies and roasting.">'
+        ),
+        status_code=200,
+        history_urls=[],
+    )
+    with patch(
+        "backend.product_url_finder_v2._browser_get",
+        return_value=mission,
+    ):
+        result = resolve_product_identity(share)
+
+    assert result["name"] == "Silicone Baking Mat"
+    assert result["image_url"] == "https://m.media-amazon.com/images/I/mat-main.jpg"
+    assert result["source"] == "amazon_share_metadata"
+
+
+def test_generic_amazon_shopping_page_is_not_accepted_as_product():
+    share = "https://link.amazon/B03bHi8EM"
+    generic = FetchSnapshot(
+        final_url="https://www.amazon.com/hz/mobile/mission?p=opaque",
+        html=(
+            '<meta property="og:title" content="Amazon.com: Online Shopping">'
+            '<meta property="og:image" '
+            'content="https://images-na.ssl-images-amazon.com/images/G/01/gno/amazon-logo.png">'
+        ),
+        status_code=200,
+        history_urls=[],
+    )
+    with patch(
+        "backend.product_url_finder_v2._browser_get",
+        return_value=generic,
+    ), patch(
+        "backend.product_url_finder_v2._pin_factory_fallback",
+        return_value=None,
+    ):
+        with pytest.raises(ValueError):
+            resolve_product_identity(share)
