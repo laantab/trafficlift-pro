@@ -128,6 +128,27 @@ def _browser_get(url: str, timeout: float = 12.0) -> FetchSnapshot:
         )
 
 
+def _javascript_get(url: str, timeout: float = 30.0) -> FetchSnapshot:
+    """Render one URL with JavaScript, used only as a short-link fallback."""
+    import brimp
+
+    with brimp.Session() as session:
+        reply = session.get(url, timeout=timeout)
+        html = str(
+            getattr(reply, "html", "")
+            or getattr(reply, "text", "")
+            or ""
+        )
+        final_url = str(getattr(reply, "url", "") or url)
+        status_code = int(getattr(reply, "status_code", 0) or 0)
+        return FetchSnapshot(
+            final_url=final_url,
+            html=html,
+            status_code=status_code,
+            history_urls=[],
+        )
+
+
 def _first_text(*values: object) -> str:
     for value in values:
         text = str(value or "").strip()
@@ -418,6 +439,18 @@ def resolve_product_identity(url: str) -> dict:
 
     snapshot = _browser_get(clean)
     if snapshot.status_code >= 500 or not snapshot.html:
+        if _is_short_link(clean):
+            try:
+                rendered = _javascript_get(clean)
+                mission = _extract_mission_primary_product(
+                    rendered.html,
+                    rendered.final_url or clean,
+                )
+                if mission:
+                    mission["source"] = "amazon_mission_js_previously_viewed"
+                    return mission
+            except Exception:
+                pass
         fallback = _pin_factory_fallback(clean)
         if fallback:
             return fallback
@@ -474,7 +507,27 @@ def resolve_product_identity(url: str) -> dict:
             snapshot.html,
             snapshot.final_url or clean,
         )
+        used_javascript = False
+
+        # Amazon may return the mission shell to server-side HTTP clients while
+        # populating "Previously viewed" only after JavaScript runs. Render the
+        # same submitted URL only when the static response did not identify the
+        # seeded product.
+        if not mission:
+            try:
+                rendered = _javascript_get(clean)
+                mission = _extract_mission_primary_product(
+                    rendered.html,
+                    rendered.final_url or snapshot.final_url or clean,
+                )
+                used_javascript = bool(mission)
+            except Exception:
+                mission = None
+
         if mission:
+            if used_javascript:
+                mission["source"] = "amazon_mission_js_previously_viewed"
+
             # Try to enrich from the canonical /dp/ page, but keep the mission
             # card as the verified fallback if Amazon still serves a generic page.
             try:
@@ -491,7 +544,11 @@ def resolve_product_identity(url: str) -> dict:
                     canonical_meta.update(
                         asin=mission["asin"],
                         final_url=mission["final_url"],
-                        source="amazon_mission_canonical",
+                        source=(
+                            "amazon_mission_js_canonical"
+                            if used_javascript
+                            else "amazon_mission_canonical"
+                        ),
                     )
                     return canonical_meta
             except Exception:
