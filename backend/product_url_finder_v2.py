@@ -176,6 +176,91 @@ def _looks_product_image(url: str) -> bool:
         return False
     return True
 
+def _upgrade_amazon_image(url: str) -> str:
+    if not url or "m.media-amazon.com/images/I/" not in url:
+        return url
+    # Remove Amazon thumbnail/rendering modifiers and request a large image.
+    # Example: 51abc._MCnd_AC_.jpg -> 51abc._AC_SL1500_.jpg
+    upgraded = re.sub(r"\._[^./]+_(?=\.(?:jpg|jpeg|png|webp)$)", "", url, flags=re.I)
+    upgraded = re.sub(
+        r"\.(jpg|jpeg|png|webp)$",
+        r"._AC_SL1500_.\1",
+        upgraded,
+        flags=re.I,
+    )
+    return upgraded
+
+
+def _extract_mission_primary_product(html: str, base_url: str) -> Optional[dict]:
+    """Extract Amazon's first 'Previously viewed' product from a mission page.
+
+    Amazon share links can land on a mission page instead of /dp/<ASIN>. The
+    mission page includes the product that seeded that mission in the
+    'Previously viewed' section. We accept only the FIRST product card from
+    that section and never select from recommendation/ranking carousels.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    section = soup.select_one("#previously-viewed-content")
+    if not section:
+        return None
+
+    first_link = None
+    asin = None
+    for link in section.select("a[href]"):
+        href = str(link.get("href") or "")
+        match = _ASIN_PATH_RE.search(urlsplit(urljoin(base_url, href)).path)
+        if match:
+            first_link = link
+            asin = match.group(1).upper()
+            break
+    if not first_link or not asin:
+        return None
+
+    # Find a compact ancestor containing the product image/title. The mission
+    # DOM changes class names often, so avoid depending on generated classes.
+    container = first_link
+    for _ in range(6):
+        parent = getattr(container, "parent", None)
+        if not parent:
+            break
+        container = parent
+        text = " ".join(container.stripped_strings)
+        if len(text) >= 20 and container.find("img"):
+            break
+
+    image_node = container.find("img") if container else None
+    image = ""
+    if image_node:
+        image = _first_text(
+            image_node.get("data-old-hires"),
+            image_node.get("src"),
+        )
+
+    title = ""
+    # Prefer meaningful link text from the same ASIN card.
+    for link in section.select("a[href]"):
+        href = str(link.get("href") or "")
+        if asin not in href:
+            continue
+        text = " ".join(link.stripped_strings).strip()
+        if _looks_specific_title(text) and len(text) > len(title):
+            title = text
+    if not title and image_node:
+        title = str(image_node.get("alt") or "").strip()
+
+    if not _looks_specific_title(title) or not _looks_product_image(image):
+        return None
+
+    return {
+        "name": title,
+        "image_url": _upgrade_amazon_image(urljoin(base_url, image)),
+        "asin": asin,
+        "description": "",
+        "final_url": f"https://www.amazon.com/dp/{asin}",
+        "source": "amazon_mission_previously_viewed",
+    }
+
+
 
 def _extract_metadata(html: str, base_url: str) -> dict:
     soup = BeautifulSoup(html or "", "html.parser")
@@ -380,6 +465,38 @@ def resolve_product_identity(url: str) -> dict:
             source="amazon_share_metadata",
         )
         return metadata
+
+    # For Amazon "Keep shopping for" mission pages, use only the first item in
+    # Amazon's own Previously viewed section. This is the item that seeded the
+    # mission and is materially different from choosing a recommendation.
+    if _is_short_link(clean):
+        mission = _extract_mission_primary_product(
+            snapshot.html,
+            snapshot.final_url or clean,
+        )
+        if mission:
+            # Try to enrich from the canonical /dp/ page, but keep the mission
+            # card as the verified fallback if Amazon still serves a generic page.
+            try:
+                canonical_snapshot = _browser_get(mission["final_url"])
+                canonical_meta = _extract_metadata(
+                    canonical_snapshot.html,
+                    canonical_snapshot.final_url or mission["final_url"],
+                )
+                if (
+                    canonical_snapshot.status_code < 400
+                    and _looks_specific_title(canonical_meta.get("name", ""))
+                    and _looks_product_image(canonical_meta.get("image_url", ""))
+                ):
+                    canonical_meta.update(
+                        asin=mission["asin"],
+                        final_url=mission["final_url"],
+                        source="amazon_mission_canonical",
+                    )
+                    return canonical_meta
+            except Exception:
+                pass
+            return mission
 
     fallback = _pin_factory_fallback(clean)
     if fallback:
