@@ -1,0 +1,81 @@
+name: Probe Amazon Mission Candidates
+
+on:
+  push:
+    branches:
+      - "fix/product-url-finder-js"
+
+jobs:
+  probe-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install probe
+        run: pip install brimp==0.1.1 beautifulsoup4
+      - name: Extract product candidates from rendered mission page
+        run: |
+          python - <<'PY'
+          import re, json, collections
+          import brimp
+          from bs4 import BeautifulSoup
+
+          url="https://link.amazon/B03bHi8EM"
+          with brimp.Session() as session:
+              r=session.get(url, timeout=30)
+              html=r.html or r.text or ""
+              soup=BeautifulSoup(html,"html.parser")
+              print("status",r.status_code,"url",getattr(r,"url",""),"len",len(html))
+
+              asin_re=re.compile(r'/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})(?:[/?#]|$)',re.I)
+              rows=[]
+              for a in soup.find_all("a", href=True):
+                  href=a.get("href","")
+                  m=asin_re.search(href)
+                  if not m:
+                      continue
+                  text=" ".join(a.stripped_strings)
+                  img=a.find("img")
+                  rows.append({
+                      "asin":m.group(1).upper(),
+                      "href":href[:700],
+                      "text":text[:400],
+                      "img_alt":(img.get("alt","") if img else "")[:400],
+                      "img_src":(img.get("src","") if img else "")[:700],
+                      "classes":" ".join(a.get("class",[]))[:200],
+                  })
+              print("DP_LINK_COUNT",len(rows))
+              counts=collections.Counter(row["asin"] for row in rows)
+              print("ASIN_COUNTS",counts.most_common(50))
+              seen=set()
+              for row in rows:
+                  key=(row["asin"],row["href"])
+                  if key in seen: continue
+                  seen.add(key)
+                  print("CANDIDATE",json.dumps(row,ensure_ascii=False))
+
+              attrs=[]
+              for node in soup.select("[data-asin]"):
+                  asin=(node.get("data-asin") or "").strip().upper()
+                  if re.fullmatch(r"[A-Z0-9]{10}",asin):
+                      attrs.append({
+                          "asin":asin,
+                          "tag":node.name,
+                          "text":" ".join(node.stripped_strings)[:500],
+                          "class":" ".join(node.get("class",[]))[:200],
+                      })
+              print("DATA_ASIN_COUNT",len(attrs))
+              for row in attrs[:100]:
+                  print("DATA_ASIN",json.dumps(row,ensure_ascii=False))
+
+              all_asins=collections.Counter(re.findall(r'(?<![A-Z0-9])B0[A-Z0-9]{8}(?![A-Z0-9])',html,re.I))
+              print("RAW_B0_COUNTS",all_asins.most_common(80))
+
+              for term in ["silicone","baking","mat","keep shopping for","product"]:
+                  loc=html.lower().find(term)
+                  print("TERM",term,"LOC",loc)
+                  if loc>=0:
+                      print("CONTEXT",re.sub(r'\s+',' ',html[max(0,loc-700):loc+1500])[:2400])
+          PY
