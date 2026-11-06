@@ -1,0 +1,66 @@
+name: Final Product URL Live Acceptance
+
+on:
+  push:
+    branches:
+      - "test/product-url-final-live"
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify exact Amazon short link on deployed TrafficLift
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          product = "https://link.amazon/B03bHi8EM"
+          endpoint = "https://trafficlift-pro.onrender.com/api/v1/analyze-product-url"
+          url = endpoint + "?url=" + urllib.parse.quote(product, safe="")
+          last = None
+
+          for attempt in range(18):
+              try:
+                  with urllib.request.urlopen(url, timeout=45) as r:
+                      status = r.status
+                      body = r.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as e:
+                  status = e.code
+                  body = e.read().decode("utf-8", "replace")
+              except Exception as e:
+                  status = 0
+                  body = repr(e)
+
+              print("attempt", attempt + 1, "status", status)
+              print(body[:5000])
+              last = (status, body)
+
+              if status == 200:
+                  data = json.loads(body)
+                  name = str(data.get("name") or data.get("title") or "")
+                  image = str(data.get("image_url") or "")
+                  source = str(data.get("source") or "")
+                  assert data.get("product_identity_verified") is True, data
+                  assert "silicone" in name.lower(), name
+                  assert "mat" in name.lower(), name
+                  assert image.startswith("http"), image
+                  assert "amazon_mission" in source or "amazon_browser_exact" in source, source
+                  print("LIVE_PRODUCT_URL_ACCEPTANCE=PASS")
+                  print("ACCEPTED_NAME=", name)
+                  print("ACCEPTED_ASIN=", data.get("asin") or data.get("url_resolution", {}).get("asin"))
+                  print("ACCEPTED_IMAGE=", image)
+                  print("ACCEPTED_SOURCE=", source)
+                  raise SystemExit(0)
+
+              time.sleep(5)
+
+          raise SystemExit(f"LIVE_PRODUCT_URL_ACCEPTANCE=FAIL last={last!r}")
+          PY
