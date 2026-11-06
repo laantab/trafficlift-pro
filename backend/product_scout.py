@@ -25,6 +25,7 @@ Stability guarantees
   fields never break the dashboard.
 """
 from __future__ import annotations
+import re
 
 import logging
 import os
@@ -335,6 +336,26 @@ def find_winner_get(
     )
 
 
+def _normalize_analyze_product_url(value: str) -> str:
+    """Return one product URL from a paste, trimming accidental concatenation.
+
+    The dashboard accepts exactly one product at a time. A common copy/paste
+    failure is an old URL being left in the field and a new URL being pasted
+    directly after it. Nested redirect query values such as ?url=https://...
+    are intentionally left intact.
+    """
+    cleaned = (value or "").replace("\u00a0", "").replace("\u200b", "").replace("\ufeff", "").strip()
+    if not cleaned:
+        return ""
+    for match in re.finditer(r"https?://", cleaned, flags=re.I):
+        if match.start() == 0:
+            continue
+        prev = cleaned[match.start() - 1]
+        if re.match(r"[A-Za-z0-9/_-]", prev):
+            return cleaned[:match.start()].rstrip()
+    return cleaned
+
+
 @router.get("/analyze-product-url")
 def analyze_product_url_get(
     url: str = Query(
@@ -358,7 +379,8 @@ def analyze_product_url_get(
     pool candidate when the URL can't be resolved.
     """
     from fastapi import HTTPException
-    if not url or not url.strip():
+    url = _normalize_analyze_product_url(url)
+    if not url:
         raise HTTPException(
             status_code=400,
             detail="URL is required for /analyze-product-url.",
@@ -372,7 +394,7 @@ def analyze_product_url_get(
             ),
         )
     from backend.exact_product import analyze_exact_product
-    return analyze_exact_product(url.strip())
+    return analyze_exact_product(url)
 
 
 @router.get("/discover-winner")
