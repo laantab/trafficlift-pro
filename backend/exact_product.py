@@ -190,6 +190,61 @@ def exact_listing(html, final_url):
     return dict(name=title,image_url=urljoin(final_url,image),asin=asin,description=description)
 
 
+
+def _pin_factory_product_fallback(url):
+    """Resolve the same explicit URL through Pin Factory's proven extractor.
+
+    This is used only when Amazon gives TrafficLift a generic shopping page to
+    the Render server. Pin Factory must return a concrete product name and
+    primary image for the same submitted URL; otherwise the fallback is
+    rejected. No search or substitute product is allowed.
+    """
+    import os
+    import requests
+
+    endpoint=os.getenv(
+        'PIN_FACTORY_RESOLVER_URL',
+        'https://pin-factory-pro.onrender.com/api/text',
+    )
+    try:
+        reply=requests.post(
+            endpoint,
+            json={'input':url,'niche':'home','tone':'high-energy'},
+            timeout=20,
+            headers={'User-Agent':'TrafficLift-Pro/1.0'},
+        )
+        if reply.status_code!=200:
+            return None
+        payload=reply.json()
+    except (requests.RequestException, ValueError, TypeError):
+        return None
+
+    if not isinstance(payload,dict) or not payload.get('ok'):
+        return None
+    name=str(payload.get('productName') or '').strip()
+    image=str(payload.get('productImage') or '').strip()
+    if not name or not image or not image.startswith(('http://','https://')):
+        return None
+
+    final=str(payload.get('finalUrl') or payload.get('url') or url).strip()
+    asin=amazon_asin(final) or None
+    description=''
+    copy=payload.get('copy')
+    if isinstance(copy,dict):
+        descriptions=copy.get('descriptions')
+        if isinstance(descriptions,list) and descriptions:
+            description=str(descriptions[0] or '').strip()
+
+    return {
+        'name':name,
+        'image_url':image,
+        'asin':asin,
+        'description':description,
+        'final_url':final if final.startswith(('http://','https://')) else url,
+        'source':'pin_factory_exact_url',
+    }
+
+
 def analyze_exact_product(url):
     final_url,html,error=_safe_get(url,timeout=10)
     shared_target=_product_target_in_share_page(url,final_url,html)
@@ -222,9 +277,16 @@ def analyze_exact_product(url):
         raise HTTPException(502,'The product listing could not be read. No unrelated product was selected. Try another link to this exact item.')
     if requested and amazon_asin(final_url)!=requested:
         raise HTTPException(422,'Amazon redirected away from the requested item. No other product was selected.')
-    try:data=exact_listing(html,final_url)
+    try:
+        data=exact_listing(html,final_url)
     except ValueError as exc:
-        raise HTTPException(422,str(exc)+' No other product was selected. This link must resolve to one identifiable item.') from exc
+        # Amazon often serves Render a generic shopping/mission page for
+        # share links. Reuse Pin Factory's extractor for the exact same URL
+        # instead of asking the user to hunt for a different link.
+        data=_pin_factory_product_fallback(url)
+        if not data:
+            raise HTTPException(422,str(exc)+' No other product was selected. This link must resolve to one identifiable item.') from exc
+        final_url=data.pop('final_url',final_url or url)
     if data.get('asin') and not amazon_asin(final_url or ''):
         host=(urlsplit(final_url or url).hostname or '').lower()
         if not re.fullmatch(r'(?:[a-z0-9-]+\.)*amazon\.(?:com|ca|co\.uk|com\.au|de|fr|it|es|co\.jp|in|com\.mx)',host):
@@ -233,13 +295,36 @@ def analyze_exact_product(url):
     from backend.product_research import _build_url_candidate, _card_category
     from backend.product_scout import get_researcher
     from backend.product_control_agent import ProductControlAgent
-    resolution=ResolvedProduct(original_url=url,final_url=final_url,asin=data['asin'],title=data['name'],source='exact_seller_page')
+    fallback_source=data.pop('source',None)
+    resolution=ResolvedProduct(
+        original_url=url,
+        final_url=final_url,
+        asin=data.get('asin'),
+        title=data['name'],
+        source=fallback_source or 'exact_seller_page',
+    )
     card=_build_url_candidate(resolution)
     winner=get_researcher()._materialize(card,_card_category(card))
-    winner.update(image_url=data['image_url'],image_source=final_url,description=data['description'],source='exact_url_resolved',url_resolution=resolution.to_dict())
+    winner.update(
+        image_url=data['image_url'],
+        image_source=final_url,
+        description=data.get('description',''),
+        source=fallback_source or 'exact_url_resolved',
+        url_resolution=resolution.to_dict(),
+    )
     report=ProductControlAgent.evaluate(winner)
     if not report.ok:
         raise HTTPException(422,'The selected product photo could not be validated. No other product or photo was selected.')
     result=report.product
-    result.update(source='exact_url_resolved',product_identity_verified=True,url_resolution=resolution.to_dict(),description=data['description'],research_status='not_requested',trend_signals=[],trend_score=0,margin_estimate='Not established',affiliate_candidate_url=url if urlsplit(url).scheme=='https' else '')
+    result.update(
+        source=fallback_source or 'exact_url_resolved',
+        product_identity_verified=True,
+        url_resolution=resolution.to_dict(),
+        description=data.get('description',''),
+        research_status='not_requested',
+        trend_signals=[],
+        trend_score=0,
+        margin_estimate='Not established',
+        affiliate_candidate_url=url if urlsplit(url).scheme=='https' else '',
+    )
     return result
