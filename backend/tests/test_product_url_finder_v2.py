@@ -85,3 +85,55 @@ def test_generic_amazon_shopping_page_is_not_accepted_as_product():
     ):
         with pytest.raises(ValueError):
             resolve_product_identity(share)
+
+
+def test_short_link_uses_first_previously_viewed_product_from_mission_page():
+    share = "https://link.amazon/B03bHi8EM"
+    mission_html = """
+    <html><body>
+      <div id="previously-viewed-content">
+        <div>
+          <a href="/Silicone-Resistant-Reusable-Sourdough-Pastries/dp/B0HJ7Z522R/ref=x">
+            <img alt="Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet"
+                 src="https://m.media-amazon.com/images/I/41oiCTE5kfL._MCnd_AC_.jpg">
+          </a>
+          <a href="/Silicone-Resistant-Reusable-Sourdough-Pastries/dp/B0HJ7Z522R/ref=title">
+            Generic Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet
+          </a>
+        </div>
+        <div>
+          <a href="/Other-Recommendation/dp/B012345678/ref=y">
+            <img alt="Other Product" src="https://m.media-amazon.com/images/I/other.jpg">
+          </a>
+        </div>
+      </div>
+    </body></html>
+    """
+    mission = FetchSnapshot(
+        final_url="https://www.amazon.com/hz/mobile/mission?p=opaque",
+        html=mission_html,
+        status_code=200,
+        history_urls=[],
+    )
+    generic_canonical = FetchSnapshot(
+        final_url="https://www.amazon.com/hz/mobile/mission?p=still-generic",
+        html="<title>Amazon Shopping</title>",
+        status_code=200,
+        history_urls=[],
+    )
+    with patch(
+        "backend.product_url_finder_v2._browser_get",
+        side_effect=[mission, generic_canonical],
+    ), patch(
+        "backend.product_url_finder_v2._pin_factory_fallback",
+        return_value=None,
+    ):
+        result = resolve_product_identity(share)
+
+    assert result["asin"] == "B0HJ7Z522R"
+    assert result["name"].startswith("Generic Silicone Baking Mat")
+    assert result["image_url"] == (
+        "https://m.media-amazon.com/images/I/41oiCTE5kfL._AC_SL1500_.jpg"
+    )
+    assert result["source"] == "amazon_mission_previously_viewed"
+    assert result["final_url"] == "https://www.amazon.com/dp/B0HJ7Z522R"
