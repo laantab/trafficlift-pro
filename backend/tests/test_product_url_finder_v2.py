@@ -4,6 +4,8 @@ import pytest
 
 from backend.product_url_finder_v2 import (
     FetchSnapshot,
+    _clean_product_title,
+    _infer_product_category,
     resolve_product_identity,
 )
 
@@ -301,3 +303,19 @@ def test_rendered_mission_finds_real_previously_viewed_carousel_by_heading():
     assert result["asin"] == "B0HJ7Z522R"
     assert "Silicone Baking Mat" in result["name"]
     assert result["source"] == "amazon_mission_js_previously_viewed"
+
+
+def test_product_title_cleanup_removes_retail_suffixes():
+    raw = (
+        "Generic Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet "
+        "| Reusable Food Grade Silicone Baking Mat With Non Stick For Bread. "
+        "$6.49 $ 6 . 49 $2.99 delivery Mon, Nov 23"
+    )
+    cleaned = _clean_product_title(raw)
+    assert "$6.49" not in cleaned
+    assert "delivery Mon" not in cleaned
+    assert cleaned.endswith("Bread.")
+
+
+def test_baking_mat_category_is_home_and_kitchen():
+    assert _infer_product_category("Generic Silicone Baking Mat") == "Home & Kitchen"
