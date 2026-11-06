@@ -393,8 +393,8 @@ def analyze_product_url_get(
                 "Try the full product page URL (must start with http:// or https://)."
             ),
         )
-    from backend.exact_product import analyze_exact_product
-    return analyze_exact_product(url)
+    from backend.product_url_finder_v2 import analyze_product_url_v2
+    return analyze_product_url_v2(url)
 
 
 @router.get("/discover-winner")
