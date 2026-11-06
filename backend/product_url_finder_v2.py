@@ -158,16 +158,55 @@ def _mission_debug(html: str, base_url: str) -> dict:
     section = soup.select_one("#previously-viewed-content")
     links = []
     data_asins = []
+    raw_asins = []
+    asin_attrs = []
+    first_img_alt = ""
+    first_img_src = ""
     if section:
         for link in section.select("a[href]"):
             href = str(link.get("href") or "")
-            match = _ASIN_PATH_RE.search(urlsplit(urljoin(base_url, href)).path)
+            decoded = unquote(href)
+            match = (
+                _ASIN_PATH_RE.search(urlsplit(urljoin(base_url, href)).path)
+                or _ASIN_PATH_RE.search(decoded)
+            )
             if match:
                 links.append(match.group(1).upper())
         for node in section.select("[data-asin]"):
             value = str(node.get("data-asin") or "").strip().upper()
             if re.fullmatch(r"[A-Z0-9]{10}", value):
                 data_asins.append(value)
+        section_html = str(section)
+        raw_asins = re.findall(
+            r"(?<![A-Z0-9])(B0[A-Z0-9]{8})(?![A-Z0-9])",
+            section_html,
+            flags=re.I,
+        )
+        raw_asins = [value.upper() for value in raw_asins]
+        for node in section.find_all(True):
+            for key, value in node.attrs.items():
+                text_value = " ".join(value) if isinstance(value, list) else str(value)
+                match = re.search(
+                    r"(?<![A-Z0-9])(B0[A-Z0-9]{8})(?![A-Z0-9])",
+                    unquote(text_value),
+                    flags=re.I,
+                )
+                if match:
+                    asin_attrs.append(
+                        {
+                            "tag": node.name,
+                            "attr": key,
+                            "asin": match.group(1).upper(),
+                        }
+                    )
+                    if len(asin_attrs) >= 5:
+                        break
+            if len(asin_attrs) >= 5:
+                break
+        first_img = section.find("img")
+        if first_img:
+            first_img_alt = str(first_img.get("alt") or "")[:160]
+            first_img_src = str(first_img.get("src") or first_img.get("data-src") or "")[:220]
     label = soup.select_one("#mission-page-label")
     return {
         "html_len": len(html or ""),
@@ -176,6 +215,11 @@ def _mission_debug(html: str, base_url: str) -> dict:
         "first_previous_asin": links[0] if links else "",
         "data_asin_count": len(data_asins),
         "first_data_asin": data_asins[0] if data_asins else "",
+        "raw_asin_count": len(raw_asins),
+        "first_raw_asins": raw_asins[:5],
+        "asin_attr_hits": asin_attrs,
+        "first_img_alt": first_img_alt,
+        "first_img_src": first_img_src,
         "mission_label": " ".join(label.stripped_strings)[:80] if label else "",
     }
 
