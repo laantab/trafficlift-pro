@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - "fix/product-url-finder-v2"
+      - "fix/product-url-finder-js"
       - main
 
 jobs:
