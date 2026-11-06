@@ -194,3 +194,27 @@ def test_amazon_primary_image_beats_social_gallery_image():
     )
     result=exact_listing(html,URL)
     assert result['image_url']=='https://m.media-amazon.com/images/I/mat-primary.jpg'
+
+
+def test_amazon_share_generic_page_uses_pin_factory_exact_fallback():
+    share='https://link.amazon/B03bHi8EM'
+    generic='https://www.amazon.com/hz/mobile/mission?foo=1'
+    fallback={
+        'name':'Silicone Baking Mat',
+        'image_url':'https://m.media-amazon.com/images/I/mat-main.jpg',
+        'asin':None,
+        'description':'Reusable nonstick baking surface.',
+        'final_url':share,
+        'source':'pin_factory_exact_url',
+    }
+    with patch('backend.exact_product._safe_get',return_value=(generic,'<title>Amazon shopping</title>',None)),\
+         patch('backend.exact_product._exact_product_from_share_redirects',return_value=None),\
+         patch('backend.exact_product._pin_factory_product_fallback',return_value=fallback),\
+         patch('backend.product_control_agent.ProductControlAgent.evaluate') as evaluate:
+        evaluate.side_effect=lambda winner:type('Report',(),{'ok':True,'product':winner})()
+        result=analyze_exact_product(share)
+    assert result['name']=='Silicone Baking Mat'
+    assert result['image_url']=='https://m.media-amazon.com/images/I/mat-main.jpg'
+    assert result['source']=='pin_factory_exact_url'
+    assert result['product_identity_verified'] is True
+    assert result['affiliate_candidate_url']==share
