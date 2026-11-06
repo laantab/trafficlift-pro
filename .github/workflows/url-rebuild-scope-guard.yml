@@ -1,0 +1,58 @@
+name: URL Rebuild Scope Guard
+
+on:
+  push:
+    branches:
+      - "fix/product-url-finder-js"
+      - "fix/product-url-finder-v2"
+      - "fix/product-url-live-acceptance"
+  pull_request:
+    branches: [main]
+
+jobs:
+  freeze-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enforce TrafficLift frozen working surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin stable/trafficlift-working-20261105:refs/remotes/origin/stable/trafficlift-working-20261105
+          changed="$(git diff --name-only origin/stable/trafficlift-working-20261105...HEAD)"
+          printf '%s\n' "$changed"
+
+          allowed='^(
+            backend/product_url_finder_v2\.py|
+            backend/url_resolver\.py|
+            backend/exact_product\.py|
+            backend/product_scout\.py|
+            backend/tests/test_product_url_finder_v2\.py|
+            requirements\.txt|
+            \.github/workflows/product-url-finder-v2\.yml|
+            \.github/workflows/product-url-live-acceptance\.yml|
+            \.github/workflows/probe-amazon-js\.yml|
+            \.github/workflows/probe-amazon-mission-candidates\.yml|
+            \.github/workflows/probe-pin-factory-response\.yml|
+            \.github/workflows/trafficlift-repair-tests\.yml|
+            \.github/workflows/url-rebuild-scope-guard\.yml
+          )$'
+          allowed="$(printf '%s' "$allowed" | tr -d '[:space:]')"
+
+          blocked=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if ! [[ "$file" =~ $allowed ]]; then
+              echo "::error file=$file::Frozen TrafficLift area changed during Product URL Finder rebuild."
+              blocked=1
+            fi
+          done <<< "$changed"
+
+          if [ "$blocked" -ne 0 ]; then
+            echo "Freeze guard failed. Only URL-resolution files may change during this rebuild."
+            exit 1
+          fi
+
+          echo "Freeze guard passed: working TrafficLift surfaces remain untouched."
