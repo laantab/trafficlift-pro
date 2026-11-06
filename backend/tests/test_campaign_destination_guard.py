@@ -9,9 +9,9 @@ def test_publication_actions_require_explicit_destination():
     assert "function saveCampaignDestination()" in page
     assert "function requireCampaignDestination(winner)" in page
     assert "I am authorized to promote this link" in page
-    assert "requireCampaignDestination(winner);" in page
     assert "try { requireCampaignDestination(restoreCurrentWinner()); }" in page
     assert "approvedLink = requireCampaignDestination(restoreCurrentWinner());" in page
+    assert page.count("requireCampaignDestination(restoreCurrentWinner())") >= 3
 
 
 def test_retail_research_and_marketing_link_remain_distinct():
@@ -34,20 +34,20 @@ def test_approved_destination_is_reset_on_product_change_or_link_edit():
 def test_product_url_can_be_cleared_without_losing_winner():
     page = PAGE.read_text(encoding="utf-8")
     assert 'id="clearProductUrlBtn"' in page
-    assert "getElementById('clearProductUrlBtn')" in page
-    assert "urlInput.value = '';" in page
-    assert "if (readUrlField && urlInput)" in page
-    assert "persistCurrentWinner(winner);" in page
-    assert "clearSelectedProduct();" in page  # only the new analyze action resets selection
+    clear_button = page.split('id="clearProductUrlBtn"', 1)[1].split("</button>", 1)[0]
+    assert "document.getElementById('productUrl').value='';" in clear_button
+    assert "clearSelectedProduct()" not in clear_button
+    assert "Clear the pasted product link without deleting your selected product" in clear_button
 
 
-def test_analyze_submits_captured_url_then_clears_field_even_if_request_fails():
+def test_analyze_submits_captured_url_and_keeps_it_visible_on_failure():
     page = PAGE.read_text(encoding="utf-8")
-    section = page.split("async function analyzeProductUrl()", 1)[1]
+    section = page.split("async function analyzeProductUrl()", 1)[1].split("</script>", 1)[0]
+    assert "urlInput.value = url;" in section
     assert "params.set('url', url);" in section
-    assert section.index("const requestUrl = apiUrl(") < section.index("if (urlInput) urlInput.value = '';") < section.index("await _runPickPipeline({")
-    assert 'onclick="document.getElementById(\'productUrl\').value=\'\'' in page
-    assert "document.getElementById('productUrl').value = data.input_url || '';" in page
+    assert section.index("const requestUrl = apiUrl(") < section.index("await _runPickPipeline({")
+    assert "Keep the submitted link visible until analysis succeeds" in section
+    assert "if (urlInput) urlInput.value = '';" not in section
 
 def test_short_amazon_share_link_reaches_exact_product_analyzer():
     page = PAGE.read_text(encoding="utf-8")
