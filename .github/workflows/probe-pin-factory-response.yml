@@ -1,0 +1,35 @@
+name: Probe Pin Factory Product Payload
+
+on:
+  push:
+    branches:
+      - "fix/product-url-finder-js"
+
+jobs:
+  probe-pin-factory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Read Pin Factory response for exact Amazon link
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          body=json.dumps({
+              "input":"https://link.amazon/B03bHi8EM",
+              "niche":"home",
+              "tone":"high-energy"
+          }).encode()
+          req=urllib.request.Request(
+              "https://pin-factory-pro.onrender.com/api/text",
+              data=body,
+              headers={"Content-Type":"application/json","User-Agent":"TrafficLift-Probe/1.0"},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=40) as r:
+              raw=r.read().decode("utf-8","replace")
+              print("status",r.status)
+              print(raw[:12000])
+          PY
