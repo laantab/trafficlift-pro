@@ -195,3 +195,54 @@ def test_short_link_uses_javascript_render_when_static_mission_shell_has_no_prod
         "https://m.media-amazon.com/images/I/41oiCTE5kfL._AC_SL1500_.jpg"
     )
     assert result["source"] == "amazon_mission_js_previously_viewed"
+
+
+def test_rendered_mission_can_resolve_first_product_from_data_asin_without_dp_href():
+    share = "https://link.amazon/B03bHi8EM"
+    static_blocked = FetchSnapshot(
+        final_url=share,
+        html="<title>Service unavailable</title>",
+        status_code=503,
+        history_urls=[],
+    )
+    rendered_mission = FetchSnapshot(
+        final_url="https://www.amazon.com/hz/mobile/mission?p=opaque",
+        html="""
+        <html><body>
+          <div id="mission-page-label">Baking mats</div>
+          <div id="previously-viewed-content">
+            <div class="card" data-asin="B0HJ7Z522R">
+              <div class="image-wrap">
+                <img alt="Generic Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet"
+                     src="https://m.media-amazon.com/images/I/41oiCTE5kfL._MCnd_AC_.jpg">
+              </div>
+              <div class="title">Generic Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet</div>
+            </div>
+            <div class="card" data-asin="B012345678">
+              <img alt="Other product" src="https://m.media-amazon.com/images/I/other.jpg">
+            </div>
+          </div>
+        </body></html>
+        """,
+        status_code=200,
+        history_urls=[],
+    )
+
+    with patch(
+        "backend.product_url_finder_v2._browser_get",
+        return_value=static_blocked,
+    ), patch(
+        "backend.product_url_finder_v2._javascript_get",
+        return_value=rendered_mission,
+    ), patch(
+        "backend.product_url_finder_v2._pin_factory_fallback",
+        return_value=None,
+    ):
+        result = resolve_product_identity(share)
+
+    assert result["asin"] == "B0HJ7Z522R"
+    assert "Silicone Baking Mat" in result["name"]
+    assert result["image_url"] == (
+        "https://m.media-amazon.com/images/I/41oiCTE5kfL._AC_SL1500_.jpg"
+    )
+    assert result["source"] == "amazon_mission_js_previously_viewed"

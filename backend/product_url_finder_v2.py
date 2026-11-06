@@ -157,18 +157,25 @@ def _mission_debug(html: str, base_url: str) -> dict:
     soup = BeautifulSoup(html or "", "html.parser")
     section = soup.select_one("#previously-viewed-content")
     links = []
+    data_asins = []
     if section:
         for link in section.select("a[href]"):
             href = str(link.get("href") or "")
             match = _ASIN_PATH_RE.search(urlsplit(urljoin(base_url, href)).path)
             if match:
                 links.append(match.group(1).upper())
+        for node in section.select("[data-asin]"):
+            value = str(node.get("data-asin") or "").strip().upper()
+            if re.fullmatch(r"[A-Z0-9]{10}", value):
+                data_asins.append(value)
     label = soup.select_one("#mission-page-label")
     return {
         "html_len": len(html or ""),
         "has_previous": bool(section),
         "previous_asin_count": len(links),
         "first_previous_asin": links[0] if links else "",
+        "data_asin_count": len(data_asins),
+        "first_data_asin": data_asins[0] if data_asins else "",
         "mission_label": " ".join(label.stripped_strings)[:80] if label else "",
     }
 
@@ -239,50 +246,76 @@ def _upgrade_amazon_image(url: str) -> str:
 def _extract_mission_primary_product(html: str, base_url: str) -> Optional[dict]:
     """Extract Amazon's first 'Previously viewed' product from a mission page.
 
-    Amazon share links can land on a mission page instead of /dp/<ASIN>. The
-    mission page includes the product that seeded that mission in the
-    'Previously viewed' section. We accept only the FIRST product card from
-    that section and never select from recommendation/ranking carousels.
+    Amazon renders this section in more than one DOM shape. Some versions put
+    the ASIN in /dp/<ASIN> hrefs; others expose it only through data-asin.
+    In both cases we accept only the FIRST product identity inside Amazon's
+    Previously viewed section and never select from recommendation carousels.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     section = soup.select_one("#previously-viewed-content")
     if not section:
         return None
 
-    first_link = None
+    identity_node = None
     asin = None
+
+    # Preferred shape: an explicit product URL inside Previously viewed.
     for link in section.select("a[href]"):
         href = str(link.get("href") or "")
         match = _ASIN_PATH_RE.search(urlsplit(urljoin(base_url, href)).path)
         if match:
-            first_link = link
+            identity_node = link
             asin = match.group(1).upper()
             break
-    if not first_link or not asin:
+
+    # Render/JS shape: Amazon may omit href product URLs but retain data-asin.
+    if not asin:
+        for node in section.select("[data-asin]"):
+            value = str(node.get("data-asin") or "").strip().upper()
+            if re.fullmatch(r"[A-Z0-9]{10}", value):
+                identity_node = node
+                asin = value
+                break
+
+    if not identity_node or not asin:
         return None
 
-    # Find a compact ancestor containing the product image/title. The mission
-    # DOM changes class names often, so avoid depending on generated classes.
-    container = first_link
-    for _ in range(6):
+    # Find the smallest ancestor that contains both useful product text and an
+    # image. This avoids depending on Amazon's generated CSS class names.
+    container = identity_node
+    for _ in range(10):
+        has_image = (
+            getattr(container, "name", None) == "img"
+            or bool(container.find("img"))
+        )
+        text = " ".join(getattr(container, "stripped_strings", []))
+        if has_image and len(text) >= 12:
+            break
         parent = getattr(container, "parent", None)
-        if not parent:
+        if not parent or parent is section:
+            if parent is section:
+                container = parent
             break
         container = parent
-        text = " ".join(container.stripped_strings)
-        if len(text) >= 20 and container.find("img"):
-            break
 
-    image_node = container.find("img") if container else None
+    image_node = (
+        container
+        if getattr(container, "name", None) == "img"
+        else container.find("img") if container else None
+    )
     image = ""
     if image_node:
         image = _first_text(
             image_node.get("data-old-hires"),
+            image_node.get("data-a-hires"),
+            image_node.get("data-src"),
             image_node.get("src"),
         )
 
+    # Prefer title text attached to the same ASIN. If that DOM shape is absent,
+    # Amazon image alt text is product-specific and safer than the whole card's
+    # price/review text.
     title = ""
-    # Prefer meaningful link text from the same ASIN card.
     for link in section.select("a[href]"):
         href = str(link.get("href") or "")
         if asin not in href:
@@ -290,8 +323,17 @@ def _extract_mission_primary_product(html: str, base_url: str) -> Optional[dict]
         text = " ".join(link.stripped_strings).strip()
         if _looks_specific_title(text) and len(text) > len(title):
             title = text
+
     if not title and image_node:
-        title = str(image_node.get("alt") or "").strip()
+        alt = str(image_node.get("alt") or "").strip()
+        if _looks_specific_title(alt):
+            title = alt
+
+    if not title and container:
+        card_text = " ".join(container.stripped_strings).strip()
+        # Avoid accepting obvious price-only/ratings-only card fragments.
+        if _looks_specific_title(card_text) and len(card_text) >= 15:
+            title = card_text[:500]
 
     if not _looks_specific_title(title) or not _looks_product_image(image):
         return None
