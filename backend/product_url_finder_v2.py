@@ -9,7 +9,6 @@ from that exact response may establish identity; otherwise resolution fails.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 from dataclasses import dataclass
@@ -18,9 +17,6 @@ from urllib.parse import parse_qs, unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
-
-
-logger = logging.getLogger(__name__)
 
 
 _AMAZON_HOST_RE = re.compile(
@@ -188,77 +184,6 @@ def _find_previously_viewed_region(soup: BeautifulSoup):
     return direct
 
 
-def _mission_debug(html: str, base_url: str) -> dict:
-    soup = BeautifulSoup(html or "", "html.parser")
-    section = _find_previously_viewed_region(soup)
-    links = []
-    data_asins = []
-    raw_asins = []
-    asin_attrs = []
-    first_img_alt = ""
-    first_img_src = ""
-    if section:
-        for link in section.select("a[href]"):
-            href = str(link.get("href") or "")
-            decoded = unquote(href)
-            match = (
-                _ASIN_PATH_RE.search(urlsplit(urljoin(base_url, href)).path)
-                or _ASIN_PATH_RE.search(decoded)
-            )
-            if match:
-                links.append(match.group(1).upper())
-        for node in section.select("[data-asin]"):
-            value = str(node.get("data-asin") or "").strip().upper()
-            if re.fullmatch(r"[A-Z0-9]{10}", value):
-                data_asins.append(value)
-        section_html = str(section)
-        raw_asins = re.findall(
-            r"(?<![A-Z0-9])(B0[A-Z0-9]{8})(?![A-Z0-9])",
-            section_html,
-            flags=re.I,
-        )
-        raw_asins = [value.upper() for value in raw_asins]
-        for node in section.find_all(True):
-            for key, value in node.attrs.items():
-                text_value = " ".join(value) if isinstance(value, list) else str(value)
-                match = re.search(
-                    r"(?<![A-Z0-9])(B0[A-Z0-9]{8})(?![A-Z0-9])",
-                    unquote(text_value),
-                    flags=re.I,
-                )
-                if match:
-                    asin_attrs.append(
-                        {
-                            "tag": node.name,
-                            "attr": key,
-                            "asin": match.group(1).upper(),
-                        }
-                    )
-                    if len(asin_attrs) >= 5:
-                        break
-            if len(asin_attrs) >= 5:
-                break
-        first_img = section.find("img")
-        if first_img:
-            first_img_alt = str(first_img.get("alt") or "")[:160]
-            first_img_src = str(first_img.get("src") or first_img.get("data-src") or "")[:220]
-    label = soup.select_one("#mission-page-label")
-    return {
-        "html_len": len(html or ""),
-        "has_previous": bool(section),
-        "previous_asin_count": len(links),
-        "first_previous_asin": links[0] if links else "",
-        "data_asin_count": len(data_asins),
-        "first_data_asin": data_asins[0] if data_asins else "",
-        "raw_asin_count": len(raw_asins),
-        "first_raw_asins": raw_asins[:5],
-        "asin_attr_hits": asin_attrs,
-        "first_img_alt": first_img_alt,
-        "first_img_src": first_img_src,
-        "mission_label": " ".join(label.stripped_strings)[:80] if label else "",
-    }
-
-
 def _first_text(*values: object) -> str:
     for value in values:
         text = str(value or "").strip()
@@ -302,7 +227,7 @@ def _clean_product_title(value: str) -> str:
     )
     for pattern in cut_patterns:
         text = re.sub(pattern, "", text, flags=re.I).strip()
-    return text.strip(" -|,;")
+    return text.rstrip(" .-|,;")
 
 
 def _infer_product_category(name: str) -> Optional[str]:
@@ -638,38 +563,19 @@ def resolve_product_identity(url: str) -> dict:
         raise ValueError("Product URL Finder V2 currently handles Amazon product links.")
 
     snapshot = _browser_get(clean)
-    if _is_short_link(clean):
-        logger.info(
-            "Product URL Finder static short-link status=%s diagnostics=%s",
-            snapshot.status_code,
-            _mission_debug(snapshot.html, snapshot.final_url or clean),
-        )
     if snapshot.status_code >= 500 or not snapshot.html:
         if _is_short_link(clean):
             try:
                 rendered = _javascript_get(clean)
-                logger.info(
-                    "Product URL Finder JS short-link status=%s diagnostics=%s",
-                    rendered.status_code,
-                    _mission_debug(rendered.html, rendered.final_url or clean),
-                )
                 mission = _extract_mission_primary_product(
                     rendered.html,
                     rendered.final_url or clean,
                 )
                 if mission:
-                    logger.info(
-                        "Product URL Finder JS resolved mission asin=%s",
-                        mission.get("asin"),
-                    )
                     mission["source"] = "amazon_mission_js_previously_viewed"
                     return mission
-            except Exception as exc:
-                logger.warning(
-                    "Product URL Finder JS short-link failed error=%s:%s",
-                    type(exc).__name__,
-                    str(exc)[:300],
-                )
+            except Exception:
+                pass
         fallback = _pin_factory_fallback(clean)
         if fallback:
             return fallback
@@ -735,30 +641,12 @@ def resolve_product_identity(url: str) -> dict:
         if not mission:
             try:
                 rendered = _javascript_get(clean)
-                logger.info(
-                    "Product URL Finder JS mission render status=%s diagnostics=%s",
-                    rendered.status_code,
-                    _mission_debug(
-                        rendered.html,
-                        rendered.final_url or snapshot.final_url or clean,
-                    ),
-                )
                 mission = _extract_mission_primary_product(
                     rendered.html,
                     rendered.final_url or snapshot.final_url or clean,
                 )
                 used_javascript = bool(mission)
-                if mission:
-                    logger.info(
-                        "Product URL Finder JS mission candidate asin=%s",
-                        mission.get("asin"),
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "Product URL Finder JS mission render failed error=%s:%s",
-                    type(exc).__name__,
-                    str(exc)[:300],
-                )
+            except Exception:
                 mission = None
 
         if mission:

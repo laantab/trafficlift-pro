@@ -314,7 +314,7 @@ def test_product_title_cleanup_removes_retail_suffixes():
     cleaned = _clean_product_title(raw)
     assert "$6.49" not in cleaned
     assert "delivery Mon" not in cleaned
-    assert cleaned.endswith("Bread.")
+    assert cleaned.endswith("Bread")
 
 
 def test_baking_mat_category_is_home_and_kitchen():
