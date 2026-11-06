@@ -153,9 +153,44 @@ def _javascript_get(url: str, timeout: float = 30.0) -> FetchSnapshot:
         )
 
 
+def _find_previously_viewed_region(soup: BeautifulSoup):
+    """Return the real Amazon Previously viewed product region."""
+    direct = soup.select_one("#previously-viewed-content")
+    if direct and (
+        direct.find("img")
+        or direct.select_one("a[href]")
+        or direct.select_one("[data-asin]")
+    ):
+        return direct
+
+    for heading in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        label = " ".join(heading.stripped_strings).strip().lower()
+        if label != "previously viewed":
+            continue
+
+        box = heading.parent
+        for _ in range(5):
+            if not box:
+                break
+            sibling = box.find_next_sibling()
+            hops = 0
+            while sibling is not None and hops < 4:
+                if (
+                    sibling.find("img")
+                    or sibling.select_one("a[href]")
+                    or sibling.select_one("[data-asin]")
+                ):
+                    return sibling
+                sibling = sibling.find_next_sibling()
+                hops += 1
+            box = getattr(box, "parent", None)
+
+    return direct
+
+
 def _mission_debug(html: str, base_url: str) -> dict:
     soup = BeautifulSoup(html or "", "html.parser")
-    section = soup.select_one("#previously-viewed-content")
+    section = _find_previously_viewed_region(soup)
     links = []
     data_asins = []
     raw_asins = []
@@ -296,7 +331,7 @@ def _extract_mission_primary_product(html: str, base_url: str) -> Optional[dict]
     Previously viewed section and never select from recommendation carousels.
     """
     soup = BeautifulSoup(html or "", "html.parser")
-    section = soup.select_one("#previously-viewed-content")
+    section = _find_previously_viewed_region(soup)
     if not section:
         return None
 
