@@ -2222,7 +2222,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const winner = restoreCurrentWinner();
         if (!winner || !winner.image_url) throw new Error('Choose a product with a verified seller image first.');
-        requireCampaignDestination(winner);
+        // Video rendering uses the verified seller listing for product identity.
+        // Marketing-destination approval is required later for outbound
+        // promotional actions, not for creating a reviewable draft video.
         const approved = window.confirm('High-quality video uses paid HeyGen credits. Start ONE 15-second product video? Cancel means no paid generation. Only proceed after checking your provider pricing.');
         if (!approved) {
             statusEl.textContent = 'HeyGen generation cancelled. No paid request sent.';
