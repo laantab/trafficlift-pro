@@ -1,0 +1,46 @@
+name: Probe Amazon JS Resolver
+
+on:
+  push:
+    branches:
+      - "fix/product-url-finder-js"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install JavaScript browser probe
+        run: pip install brimp==0.1.1 beautifulsoup4
+      - name: Resolve exact Amazon short link with JavaScript DOM
+        run: |
+          python - <<'PY'
+          import brimp
+          from bs4 import BeautifulSoup
+
+          url="https://link.amazon/B03bHi8EM"
+          with brimp.Session() as session:
+              response=session.get(url, timeout=30)
+              print("status", response.status_code)
+              print("response_url", getattr(response, "url", None))
+              try:
+                  print("location_href", session.evaluate("window.location.href"))
+              except Exception as exc:
+                  print("evaluate_href_error", repr(exc))
+              try:
+                  print("title_eval", session.evaluate("document.title"))
+              except Exception as exc:
+                  print("evaluate_title_error", repr(exc))
+              html=getattr(response, "html", "") or getattr(response, "text", "") or ""
+              print("html_len", len(html))
+              soup=BeautifulSoup(html, "html.parser")
+              print("html_title", soup.title.get_text(" ", strip=True) if soup.title else "")
+              for selector in ["#productTitle", "#landingImage", "#imgBlkFront", 'meta[property="og:title"]', 'meta[property="og:image"]', 'link[rel="canonical"]']:
+                  node=soup.select_one(selector)
+                  if node:
+                      print(selector, node.get_text(" ", strip=True)[:500], node.attrs)
+              print("html_head", html[:3000].replace("\n"," "))
+          PY
