@@ -1,0 +1,52 @@
+name: Data ASIN Product URL Live Acceptance
+
+on:
+  push:
+    branches:
+      - "test/product-url-data-asin-live"
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify exact Amazon short link on deployed TrafficLift
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          product="https://link.amazon/B03bHi8EM"
+          url="https://trafficlift-pro.onrender.com/api/v1/analyze-product-url?url="+urllib.parse.quote(product,safe="")
+          try:
+              with urllib.request.urlopen(url, timeout=70) as r:
+                  status=r.status
+                  body=r.read().decode("utf-8","replace")
+          except urllib.error.HTTPError as e:
+              status=e.code
+              body=e.read().decode("utf-8","replace")
+          print("STATUS",status)
+          print(body[:12000])
+          assert status == 200, body
+          data=json.loads(body)
+          name=str(data.get("name") or data.get("title") or "")
+          image=str(data.get("image_url") or "")
+          source=str(data.get("source") or "")
+          resolution=data.get("url_resolution") or {}
+          asin=str(data.get("asin") or resolution.get("asin") or "")
+          assert data.get("product_identity_verified") is True, data
+          assert asin == "B0HJ7Z522R", asin
+          assert "silicone" in name.lower(), name
+          assert "mat" in name.lower(), name
+          assert image.startswith("http"), image
+          print("LIVE_PRODUCT_URL_ACCEPTANCE=PASS")
+          print("NAME",name)
+          print("ASIN",asin)
+          print("IMAGE",image)
+          print("SOURCE",source)
+          PY
