@@ -61,3 +61,14 @@ def test_short_amazon_share_link_reaches_exact_product_analyzer():
     assert "Attach Link to Verified Product" in page
     assert "if (!check?.checked)" in page
     assert "winner.image_status !== 'verified'" in page
+
+
+def test_video_render_does_not_require_marketing_destination_approval():
+    page = PAGE.read_text(encoding="utf-8")
+    section = page.split("async function submitHeyGenVideo(statusEl, resultEl)", 1)[1]
+    section = section.split("async function pollHeyGenVideo", 1)[0]
+    assert "requireCampaignDestination(winner);" not in section
+    assert "Choose a product with a verified seller image first." in section
+    assert "approve_paid_generation:true" in section
+    # Publication/copy guards remain present elsewhere.
+    assert page.count("requireCampaignDestination(") >= 4
