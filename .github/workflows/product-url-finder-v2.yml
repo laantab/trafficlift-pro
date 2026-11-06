@@ -1,0 +1,27 @@
+name: Product URL Finder V2
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - "fix/product-url-finder-v2"
+      - main
+
+jobs:
+  resolver-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install resolver test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest requests beautifulsoup4 fastapi curl-cffi==0.17.0
+      - name: Run Product URL Finder V2 tests
+        run: python -m pytest backend/tests/test_product_url_finder_v2.py -q
+      - name: Compile resolver and route
+        run: python -m py_compile backend/product_url_finder_v2.py backend/product_scout.py
