@@ -1,0 +1,82 @@
+name: Current Video Preflight Diagnostic
+
+on:
+  push:
+    branches:
+      - "test/current-video-preflight"
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install app dependencies
+        run: pip install -r requirements.txt
+      - name: Run exact current-product video preflight
+        run: |
+          python - <<'PY'
+          import json, traceback
+          from backend.photo_video_api import VideoRequest, prepare_video_plan
+          from backend.sales_script import marketing_readiness_gate
+          from backend.heygen_video_api import verified_listing_image, compose_heygen_narration
+
+          payload = {
+              "name":"Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking",
+              "image_url":"https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg",
+              "product_url":"https://www.amazon.com/Silicone-Food-Grade-Non-Stick-Leakproof-Cooking/dp/B0HJ8LLXVL",
+              "benefit":"",
+              "fact_sources":[],
+              "buyer_need":"",
+              "consideration":"",
+              "seconds":15,
+              "style":"warm"
+          }
+          print("PAYLOAD", json.dumps(payload))
+          try:
+              product=VideoRequest(**payload)
+              print("SCHEMA=PASS")
+          except Exception as exc:
+              print("SCHEMA=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+              raise
+
+          try:
+              plan, photos=prepare_video_plan(product, require_renderable=True)
+              print("PLAN_MODE",plan.get("mode"))
+              print("PLAN_PRODUCT",plan.get("product"))
+              print("PLAN_EVIDENCE",json.dumps(plan.get("evidence"),default=str)[:12000])
+              print("PLAN_REVIEW",json.dumps(plan.get("review"),default=str))
+              print("PHOTOS",json.dumps(photos)[:12000])
+          except Exception as exc:
+              print("PREPARE=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+              raise
+
+          try:
+              result=marketing_readiness_gate(plan)
+              print("MARKETING_GATE=PASS",json.dumps(result))
+          except Exception as exc:
+              print("MARKETING_GATE=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+              raise
+
+          try:
+              image=verified_listing_image(photos)
+              print("IMAGE_GATE=PASS",image)
+          except Exception as exc:
+              print("IMAGE_GATE=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+              raise
+
+          try:
+              narration=compose_heygen_narration(product.name,plan)
+              print("NARRATION=PASS",narration)
+          except Exception as exc:
+              print("NARRATION=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+              raise
+          PY
