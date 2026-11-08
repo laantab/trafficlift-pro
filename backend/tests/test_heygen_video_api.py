@@ -3,7 +3,7 @@ from unittest.mock import patch, Mock
 import pytest
 from fastapi import HTTPException
 
-from backend.heygen_video_api import configured, product_prompt, provider_request, compose_heygen_narration, verified_listing_image
+from backend.heygen_video_api import configured, product_prompt, provider_request, compose_heygen_narration, verified_listing_image, trusted_winner_image
 
 
 def test_provider_defaults_off(monkeypatch):
@@ -226,3 +226,74 @@ def test_missing_evidence_never_submits_unverified_narration():
     with pytest.raises(HTTPException) as exc:
         compose_heygen_narration("Desk Organizer", {"evidence": []})
     assert exc.value.status_code == 422
+
+
+def test_product_overview_narration_is_claim_safe_and_allowed():
+    plan = {"mode": "product_overview", "evidence": []}
+    spoken = compose_heygen_narration(
+        "Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking",
+        plan,
+    )
+    assert "Explore the product details." in spoken
+    assert spoken.endswith(
+        "Tap the product link to visit the seller's page for current price and details."
+    )
+    assert len(spoken.split()) <= 34
+
+
+def test_verified_winner_image_can_replace_failed_rediscovery():
+    from backend.photo_video_api import VideoRequest
+    seller = (
+        "https://www.amazon.com/Silicone-Food-Grade-Non-Stick-Leakproof-Cooking/"
+        "dp/B0HJ8LLXVL"
+    )
+    image = "https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg"
+    product = VideoRequest(
+        name="Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking",
+        image_url=image,
+        product_url=seller,
+        image_source=seller + "?th=1",
+        product_identity_verified=True,
+    )
+    trusted = trusted_winner_image(product)
+    assert trusted == image
+    assert verified_listing_image([], trusted_image=trusted) == image
+
+
+def test_verified_winner_image_rejects_mismatched_listing_source():
+    from backend.photo_video_api import VideoRequest
+    image = "https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg"
+    product = VideoRequest(
+        name="Silicone Mats for Baking",
+        image_url=image,
+        product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+        image_source="https://www.amazon.com/dp/B0DIFFERENT",
+        product_identity_verified=True,
+    )
+    assert trusted_winner_image(product) is None
+    with pytest.raises(HTTPException):
+        verified_listing_image([], trusted_image=trusted_winner_image(product))
+
+
+def test_heygen_submit_uses_verified_winner_image_when_listing_rediscovery_is_empty():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    seller = "https://www.amazon.com/dp/B0HJ8LLXVL"
+    image = "https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg"
+    product = VideoRequest(
+        name="Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking",
+        image_url=image,
+        product_url=seller,
+        image_source=seller,
+        product_identity_verified=True,
+    )
+    body = HeyGenSubmit(product=product, approve_paid_generation=True)
+    plan = {"mode": "product_overview", "evidence": []}
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=(plan, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.provider_request", return_value={"video_id":"sample_valid_job_456"}) as send:
+        result = heygen_submit(body, Mock())
+    assert result["status"] == "submitted"
+    assert send.call_args.kwargs["json"]["image"]["url"] == image
