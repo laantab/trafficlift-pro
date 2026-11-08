@@ -1,0 +1,24 @@
+name: Fast Retailer Fragment Video Test
+
+on:
+  push:
+    branches:
+      - "test/retailer-fragment-video-fast"
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install targeted dependencies
+        run: pip install pytest requests beautifulsoup4 fastapi pydantic
+      - name: Run retailer-fragment and HeyGen tests
+        run: |
+          python -m pytest backend/tests/test_product_facts.py backend/tests/test_heygen_video_api.py -q
+      - name: Compile touched backend files
+        run: |
+          python -m py_compile backend/product_facts.py backend/heygen_video_api.py backend/photo_video_api.py
