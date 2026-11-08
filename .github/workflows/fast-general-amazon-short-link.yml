@@ -1,0 +1,22 @@
+name: Fast General Amazon Short-Link Test
+
+on:
+  push:
+    branches:
+      - "test/general-amazon-short-links-fast"
+
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install resolver dependencies
+        run: pip install pytest requests beautifulsoup4 fastapi curl-cffi==0.17.0 brimp==0.1.1
+      - name: Run Product URL Finder tests
+        run: python -m pytest backend/tests/test_product_url_finder_v2.py -q
+      - name: Compile resolver
+        run: python -m py_compile backend/product_url_finder_v2.py
