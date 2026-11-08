@@ -4,8 +4,17 @@ At most one connected search when exact seller HTML has no facts. A reviewed pac
 import re
 from datetime import date
 from backend.listing_photo import listing_images, product_name, usable_facts
-from backend.sales_script import is_distinct_product_fact
+from backend.sales_script import clean, is_distinct_product_fact
 from urllib.parse import urlsplit
+
+
+def _safe_listing_fact(value, product):
+    """Keep only narration-safe exact-listing facts; discard retailer fragments."""
+    try:
+        value = clean(value)
+    except ValueError:
+        return ""
+    return value if is_distinct_product_fact(value, product) else ""
 
 
 def resolve_video_facts(name, url):
@@ -23,8 +32,11 @@ def resolve_video_facts(name, url):
             supporting_sources=['https://support.ouraring.com/hc/en-us/articles/360025590653-How-to-Choose-the-Right-Oura-Ring-Size'])
     details = {}
     photos = listing_images(name, url, timeout=4, details=details)
-    seller_facts = [fact for fact in details.get('seller_facts', [])
-                    if is_distinct_product_fact(fact, title)]
+    seller_facts = []
+    for raw in details.get('seller_facts', []):
+        fact = _safe_listing_fact(raw, title)
+        if fact and fact not in seller_facts:
+            seller_facts.append(fact)
     if not seller_facts:
         # One bounded basic research request, only through the connected
         # provider; no repeated search or paid text generation.
@@ -58,8 +70,9 @@ def facts_from_sources(name, destination, sources):
         title=' '.join(re.findall(r'[a-z0-9]+',product_name(source.get('title','')).lower()))
         if title and f' {identity} ' not in f' {title} ':
             continue
-        for fact in usable_facts(source.get('content') or source.get('snippet') or ''):
-            if is_distinct_product_fact(fact, name) and fact not in facts:
+        for raw in usable_facts(source.get('content') or source.get('snippet') or ''):
+            fact = _safe_listing_fact(raw, name)
+            if fact and fact not in facts:
                 facts.append(fact)
         for image in source.get('image_urls',[]) or []:
             if isinstance(image,str) and image not in images:images.append(image)
