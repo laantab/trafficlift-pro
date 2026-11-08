@@ -1,0 +1,55 @@
+name: Live Current Amazon Link Acceptance
+
+on:
+  push:
+    branches:
+      - "test/live-current-amazon-link"
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify current Amazon share link on live TrafficLift
+        run: |
+          python - <<'PY'
+          import json,time,urllib.parse,urllib.request,urllib.error
+          product="https://link.amazon/B015cgvTm"
+          endpoint="https://trafficlift-pro.onrender.com/api/v1/analyze-product-url"
+          url=endpoint+"?url="+urllib.parse.quote(product,safe="")
+          last=None
+          for attempt in range(20):
+              try:
+                  with urllib.request.urlopen(url,timeout=60) as r:
+                      status=r.status
+                      body=r.read().decode("utf-8","replace")
+              except urllib.error.HTTPError as e:
+                  status=e.code
+                  body=e.read().decode("utf-8","replace")
+              except Exception as e:
+                  status=0
+                  body=repr(e)
+              print("ATTEMPT",attempt+1,"STATUS",status)
+              print(body[:8000])
+              last=(status,body)
+              if status==200:
+                  data=json.loads(body)
+                  resolution=data.get("url_resolution") or {}
+                  asin=str(data.get("asin") or resolution.get("asin") or "")
+                  name=str(data.get("name") or data.get("title") or "")
+                  image=str(data.get("image_url") or "")
+                  assert data.get("product_identity_verified") is True, data
+                  assert asin=="B0HJ8LLXVL", asin
+                  assert "silicone" in name.lower(), name
+                  assert image.startswith("http"), image
+                  print("LIVE_CURRENT_LINK_ACCEPTANCE=PASS")
+                  print("NAME",name)
+                  print("ASIN",asin)
+                  print("IMAGE",image)
+                  raise SystemExit(0)
+              time.sleep(5)
+          raise SystemExit(f"LIVE_CURRENT_LINK_ACCEPTANCE=FAIL last={last!r}")
+          PY
