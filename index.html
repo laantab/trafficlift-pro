@@ -2213,6 +2213,26 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         throw new Error('Wan is still processing. Do not start another paid request; check this job again.');
     }
 
+    function apiErrorText(data, fallback) {
+        const detail = data && data.detail;
+        if (typeof detail === 'string' && detail.trim()) return detail.trim();
+        if (Array.isArray(detail)) {
+            const messages = detail.map(item => {
+                if (item && typeof item.msg === 'string') {
+                    const field = Array.isArray(item.loc) ? item.loc.slice(1).join('.') : '';
+                    return field ? field + ': ' + item.msg : item.msg;
+                }
+                return '';
+            }).filter(Boolean);
+            if (messages.length) return messages.join('; ');
+        }
+        if (detail && typeof detail === 'object') {
+            if (typeof detail.msg === 'string') return detail.msg;
+            try { return JSON.stringify(detail); } catch (_) {}
+        }
+        return fallback;
+    }
+
     async function submitHeyGenVideo(statusEl, resultEl) {
         if (!hostedVideoSite) throw new Error('Open the official hosted TrafficLift website for HeyGen video.');
         if (heygenPendingVideoId) {
@@ -2231,13 +2251,15 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             return;
         }
         const product = {
-            name: document.getElementById('freeProductName').value.trim(),
+            name: document.getElementById('freeProductName').value.trim().slice(0,90),
             image_url: winner.image_url,
-            product_url: document.getElementById('freeProductUrl').value.trim(),
-            benefit: document.getElementById('freeProductFact').value.trim(),
+            product_url: (winner.url || document.getElementById('freeProductUrl').value.trim()).slice(0,2048),
+            image_source: (winner.image_source || winner.url_resolution?.final_url || winner.url || '').slice(0,2048),
+            product_identity_verified: winner.product_identity_verified === true && winner.image_status === 'verified',
+            benefit: document.getElementById('freeProductFact').value.trim().slice(0,160),
             fact_sources: [...(winner.seller_benefit_source && winner.seller_facts?.length ? [{title:winner.name,url:winner.seller_benefit_source,snippet:winner.seller_facts.join('\\n')}] : []), ...(winner.research_sources || [])].slice(0,4),
-            buyer_need: document.getElementById('freeBuyerNeed').value.trim(),
-            consideration: document.getElementById('freeBuyingDetail').value.trim(),
+            buyer_need: document.getElementById('freeBuyerNeed').value.trim().slice(0,100),
+            consideration: document.getElementById('freeBuyingDetail').value.trim().slice(0,120),
             seconds: 15,
             style: document.getElementById('freeVideoStyle').value
         };
@@ -2249,7 +2271,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             signal:AbortSignal.timeout(45000)
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.detail || 'HeyGen rejected the request (HTTP ' + response.status + ').');
+        if (!response.ok) throw new Error(apiErrorText(data, 'HeyGen rejected the request (HTTP ' + response.status + ').'));
         if (!/^[a-zA-Z0-9_-]{6,128}$/.test(data.video_id || '')) {
             throw new Error('HeyGen submission status is unknown. Do not submit again before reviewing HeyGen jobs.');
         }
@@ -2263,7 +2285,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 signal:AbortSignal.timeout(35000)
             });
             const data = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(data.detail || 'HeyGen status request failed. Retry checks, not generation.');
+            if (!response.ok) throw new Error(apiErrorText(data, 'HeyGen status request failed. Retry checks, not generation.'));
             if (data.status === 'completed' && /^https:\/\//.test(data.video_url || '')) {
                 statusEl.textContent = 'HeyGen video ready — review appearance, narration, flicker and product identity before posting.';
                 resultEl.classList.remove('hidden');
