@@ -130,6 +130,8 @@ class VideoRequest(BaseModel):
     name:str=Field(min_length=1,max_length=90)
     image_url:str=Field(max_length=2048)
     product_url:str=Field(max_length=2048)
+    image_source:str=Field(default='',max_length=2048)
+    product_identity_verified:bool=False
     benefit:str=Field(default='',max_length=160)
     fact_sources:list[dict]=Field(default_factory=list,max_length=4)
     buyer_need:str=Field(default='',max_length=100)
@@ -146,6 +148,11 @@ class VideoRequest(BaseModel):
     @classmethod
     def public_url(cls,value):
         _validate_public_https_url(value)
+        return value
+    @field_validator('image_source')
+    @classmethod
+    def optional_public_url(cls,value):
+        if value:_validate_public_https_url(value)
         return value
 
 def record_path(job_id):
