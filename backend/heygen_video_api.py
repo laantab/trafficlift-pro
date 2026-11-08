@@ -141,12 +141,15 @@ def compose_heygen_narration(name, plan, max_words=34):
         # Do not repeat the product name in consecutive spoken sentences.
         opening = "Take a closer look."
     if not chosen:
-        # Seller evidence was validated by the marketing gate before this
-        # function. A neutral bridge is preferable to fabricating a benefit,
-        # or blocking a customer solely because a listing uses long prose.
-        if not (plan.get("evidence") or []):
+        # Product-overview mode is intentionally claim-safe: exact identity and
+        # verified photo only. Do not block it merely because Amazon exposes no
+        # short seller facts.
+        if plan.get("mode") == "product_overview":
+            chosen = ["Explore the product details."]
+        elif not (plan.get("evidence") or []):
             raise HTTPException(422, "Verified seller facts are required; no paid video was started.")
-        chosen = ["Explore the product details."]
+        else:
+            chosen = ["Explore the product details."]
     narration = " ".join([opening, *chosen, cta])
     words = narration.split()
     if len(words) > max_words or narration.casefold().count("tap the product link") != 1:
@@ -154,15 +157,16 @@ def compose_heygen_narration(name, plan, max_words=34):
     return narration
 
 
-def verified_listing_image(photos):
-    """Use imagery returned by the same exact seller listing as the evidence.
+def verified_listing_image(photos, trusted_image=None):
+    """Use exact-listing imagery, including a previously verified winner image.
 
-    The browser's current selected image may belong to a previous product.
-    Never bill for that stale selection or for an unverified fallback.
+    A browser-selected image is accepted only when the caller proves that
+    Analyze Product verified its identity and that its source is the same seller
+    listing now being rendered.
     """
     from local_video.trafficlift_video_bridge import _validate_public_https_url
-    for photo in photos or []:
-        if not isinstance(photo, str):
+    for photo in [*(photos or []), trusted_image]:
+        if not isinstance(photo, str) or not photo:
             continue
         try:
             _validate_public_https_url(photo)
@@ -174,6 +178,29 @@ def verified_listing_image(photos):
         "Could not verify a product photo from the exact seller listing. "
         "Select a listing with an accessible product image; no paid video was started."
     )
+
+
+def trusted_winner_image(product):
+    """Return Analyze Product's verified image only for the same seller listing."""
+    if not getattr(product, "product_identity_verified", False):
+        return None
+    source = str(getattr(product, "image_source", "") or "")
+    destination = str(getattr(product, "product_url", "") or "")
+    image = str(getattr(product, "image_url", "") or "")
+    if not source or not destination or not image:
+        return None
+    from backend.product_facts import canonical
+    try:
+        if canonical(source) != canonical(destination):
+            return None
+    except Exception:
+        return None
+    from local_video.trafficlift_video_bridge import _validate_public_https_url
+    try:
+        _validate_public_https_url(image)
+    except (ValueError, TypeError):
+        return None
+    return image
 
 
 def product_prompt(name, plan):
@@ -257,7 +284,10 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
     try:
         plan, listing_photos = prepare_video_plan(product, require_renderable=True)
         marketing_readiness_gate(plan)
-        listing_image = verified_listing_image(listing_photos)
+        listing_image = verified_listing_image(
+            listing_photos,
+            trusted_image=trusted_winner_image(product),
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Image-to-video inherits the input image aspect ratio; vertical output requires
