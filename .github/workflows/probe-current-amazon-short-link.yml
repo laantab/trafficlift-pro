@@ -1,0 +1,69 @@
+name: Probe Current Amazon Short Link
+
+on:
+  push:
+    branches:
+      - "test/current-amazon-short-link"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install probe
+        run: pip install brimp==0.1.1 beautifulsoup4
+      - name: Inspect exact short link
+        run: |
+          python - <<'PY'
+          import json,re
+          import brimp
+          from bs4 import BeautifulSoup
+
+          url="https://link.amazon/B015cgvTm"
+          with brimp.Session() as session:
+              r=session.get(url,timeout=30)
+              html=r.html or r.text or ""
+              print("STATUS",r.status_code)
+              print("RESPONSE_URL",getattr(r,"url",""))
+              try:
+                  print("WINDOW_HREF",session.evaluate("window.location.href"))
+                  print("DOC_TITLE",session.evaluate("document.title"))
+              except Exception as e:
+                  print("EVAL_ERR",repr(e))
+              soup=BeautifulSoup(html,"html.parser")
+              print("HTML_LEN",len(html))
+              print("TITLE",soup.title.get_text(" ",strip=True) if soup.title else "")
+              for sel in [
+                  "#productTitle","#landingImage","#imgBlkFront",
+                  'meta[property="og:title"]','meta[property="og:image"]',
+                  'link[rel="canonical"]',"#mission-page-label","#previously-viewed-content"
+              ]:
+                  n=soup.select_one(sel)
+                  if n:
+                      print("SEL",sel,"TEXT"," ".join(n.stripped_strings)[:500],"ATTRS",dict(n.attrs))
+              asins=[]
+              for a in soup.find_all("a",href=True):
+                  href=a.get("href","")
+                  m=re.search(r'/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})(?:[/?#]|$)',href,re.I)
+                  if m:
+                      asins.append((m.group(1).upper()," ".join(a.stripped_strings)[:300],href[:500]))
+              print("DP_COUNT",len(asins))
+              for row in asins[:40]:
+                  print("DP",json.dumps(row))
+              data_asins=[]
+              for n in soup.select("[data-asin]"):
+                  v=(n.get("data-asin") or "").strip().upper()
+                  if re.fullmatch(r"[A-Z0-9]{10}",v):
+                      data_asins.append((v,n.name," ".join(n.stripped_strings)[:300],dict(n.attrs)))
+              print("DATA_ASIN_COUNT",len(data_asins))
+              for row in data_asins[:40]:
+                  print("DATA_ASIN",json.dumps(row,default=str))
+              print("RAW_ASINS",re.findall(r'(?<![A-Z0-9])(B0[A-Z0-9]{8})(?![A-Z0-9])',html,re.I)[:80])
+              for heading in soup.find_all(["h1","h2","h3","h4","h5","h6"]):
+                  txt=" ".join(heading.stripped_strings).strip()
+                  if txt:
+                      print("HEADING",heading.name,txt[:300])
+          PY
