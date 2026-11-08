@@ -322,3 +322,51 @@ def test_product_title_cleanup_removes_retail_suffixes():
 
 def test_baking_mat_category_is_home_and_kitchen():
     assert _infer_product_category("Generic Silicone Baking Mat") == "Home & Kitchen"
+
+
+def test_short_link_can_resolve_direct_rendered_product_page():
+    share = "https://link.amazon/B015cgvTm"
+    static_shell = FetchSnapshot(
+        final_url=share,
+        html="<title>Amazon shell</title>",
+        status_code=200,
+        history_urls=[],
+    )
+    rendered = FetchSnapshot(
+        final_url=(
+            "https://www.amazon.com/Silicone-Food-Grade-Non-Stick-Leakproof-Cooking/"
+            "dp/B0HJ8LLXVL?th=1"
+        ),
+        html="""
+        <html><head>
+          <link rel="canonical"
+                href="https://www.amazon.com/Silicone-Food-Grade-Non-Stick-Leakproof-Cooking/dp/B0HJ8LLXVL">
+        </head><body>
+          <span id="productTitle">Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking</span>
+          <img id="landingImage"
+               data-old-hires="https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg"
+               src="https://m.media-amazon.com/images/I/61SS+778qxL._AC_SY300_.jpg">
+        </body></html>
+        """,
+        status_code=200,
+        history_urls=[],
+    )
+
+    with patch(
+        "backend.product_url_finder_v2._browser_get",
+        return_value=static_shell,
+    ), patch(
+        "backend.product_url_finder_v2._javascript_get",
+        return_value=rendered,
+    ), patch(
+        "backend.product_url_finder_v2._pin_factory_fallback",
+        return_value=None,
+    ):
+        result = resolve_product_identity(share)
+
+    assert result["asin"] == "B0HJ8LLXVL"
+    assert result["name"] == "Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking"
+    assert result["image_url"] == (
+        "https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg"
+    )
+    assert result["source"] == "amazon_js_exact"

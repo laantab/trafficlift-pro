@@ -519,6 +519,28 @@ def _asin_from_redirect_chain(snapshot: FetchSnapshot) -> Optional[str]:
     return None
 
 
+def _resolved_product_from_rendered_page(snapshot: FetchSnapshot) -> Optional[dict]:
+    """Accept an exact product page reached only after JavaScript navigation."""
+    final_url = snapshot.final_url or ""
+    asin = _asin_from_url(final_url)
+    if not asin:
+        return None
+    data = _extract_metadata(snapshot.html, final_url)
+    title = _clean_product_title(data.get("name", ""))
+    image = data.get("image_url", "")
+    if not _looks_specific_title(title) or not _looks_product_image(image):
+        return None
+    return {
+        "name": title,
+        "image_url": _upgrade_amazon_image(image),
+        "asin": asin,
+        "description": data.get("description", ""),
+        "category": _infer_product_category(title),
+        "final_url": f"https://www.amazon.com/dp/{asin}",
+        "source": "amazon_js_exact",
+    }
+
+
 def _pin_factory_fallback(url: str) -> Optional[dict]:
     import requests
 
@@ -567,6 +589,9 @@ def resolve_product_identity(url: str) -> dict:
         if _is_short_link(clean):
             try:
                 rendered = _javascript_get(clean)
+                exact = _resolved_product_from_rendered_page(rendered)
+                if exact:
+                    return exact
                 mission = _extract_mission_primary_product(
                     rendered.html,
                     rendered.final_url or clean,
@@ -641,6 +666,9 @@ def resolve_product_identity(url: str) -> dict:
         if not mission:
             try:
                 rendered = _javascript_get(clean)
+                exact = _resolved_product_from_rendered_page(rendered)
+                if exact:
+                    return exact
                 mission = _extract_mission_primary_product(
                     rendered.html,
                     rendered.final_url or snapshot.final_url or clean,
