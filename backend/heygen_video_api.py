@@ -80,9 +80,12 @@ def _spoken_identity(name):
 
 
 def _natural_product_reference(identity):
-    """Make the spoken product reference conversational without losing identity."""
+    """Make the spoken product reference conversational without changing the record."""
     value = str(identity or "").strip()
     value = re.sub(r"^(?:generic)\s+", "", value, flags=re.I)
+    low = value.casefold()
+    if "silicone" in low and "mat" in low and ("baking" in low or "bake" in low):
+        return "silicone baking mat"
     return value or str(identity or "").strip()
 
 
