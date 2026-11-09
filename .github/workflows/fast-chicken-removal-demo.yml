@@ -1,0 +1,22 @@
+name: Fast Chicken Removal Demo
+
+on:
+  push:
+    branches:
+      - "test/chicken-removal-demo-fast"
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install targeted dependencies
+        run: pip install pytest requests fastapi pydantic beautifulsoup4
+      - name: Run HeyGen prompt regressions
+        run: python -m pytest backend/tests/test_heygen_video_api.py -q
+      - name: Compile touched backend
+        run: python -m py_compile backend/heygen_video_api.py
