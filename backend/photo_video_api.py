@@ -202,6 +202,22 @@ def save(record,directory):
         try:tmp.unlink(missing_ok=True)
         except OSError:pass
 
+def _safe_video_product_name(name):
+    """Normalize a saved product title before it reaches narration/fact gates."""
+    from backend.listing_photo import product_name
+    value = product_name(name)
+    value = re.sub(r'https?://\S+|www\.\S+', '', value, flags=re.I)
+    value = re.split(r'\.{3,}|…|\b(?:read more|see more)\b', value, maxsplit=1, flags=re.I)[0]
+    value = value.replace('|', ', ')
+    value = ' '.join(value.split()).strip(' ,;:-')
+    if len(value) > 90:
+        clipped = value[:90]
+        value = clipped.rsplit(' ', 1)[0].rstrip(' ,;:-') or clipped.rstrip(' ,;:-')
+    if not value:
+        raise ValueError('A specific product name is required for the ad.')
+    return value
+
+
 def prepare_video_plan(payload, *, require_renderable=False):
     """Resolve exact-listing evidence once, before reserving a render slot.
 
@@ -209,11 +225,12 @@ def prepare_video_plan(payload, *, require_renderable=False):
     This step does not download video media, synthesize speech, or render.
     """
     from backend.product_facts import facts_from_sources
-    facts = dict(facts_from_sources(payload.name, payload.product_url, payload.fact_sources) or {})
+    plan_name = _safe_video_product_name(payload.name)
+    facts = dict(facts_from_sources(plan_name, payload.product_url, payload.fact_sources) or {})
     valid = [value for value in [facts.get('benefit'), *(facts.get('feature_details') or [])]
-             if is_distinct_product_fact(value, payload.name)]
-    if len(valid) < 2 or 'oura ring 4' in payload.name.lower():
-        fetched = resolve_video_facts(payload.name, payload.product_url)
+             if is_distinct_product_fact(value, plan_name)]
+    if len(valid) < 2 or 'oura ring 4' in plan_name.lower():
+        fetched = resolve_video_facts(plan_name, payload.product_url)
         if fetched:
             facts = dict(fetched)
     # Expand only facts anchored to this exact seller listing. A pasted or
@@ -239,7 +256,7 @@ def prepare_video_plan(payload, *, require_renderable=False):
             candidate = clean(payload.benefit, 160)
         except ValueError:
             candidate = ''
-        if candidate and is_distinct_product_fact(candidate, payload.name):
+        if candidate and is_distinct_product_fact(candidate, plan_name):
             safe_benefit = candidate
     if safe_benefit and not facts.get('benefit'):
         facts['benefit'] = safe_benefit
@@ -258,7 +275,7 @@ def prepare_video_plan(payload, *, require_renderable=False):
     candidates = [benefit, *(facts.get('feature_details') or []),
                   facts.get('consideration'), facts.get('routine')]
     distinct = {frozenset(re.findall(r'[a-z0-9]+', str(fact).casefold()))
-                for fact in candidates if is_distinct_product_fact(fact, payload.name)}
+                for fact in candidates if is_distinct_product_fact(fact, plan_name)}
     if len(distinct) < 2:
         # Mirror Pin Factory's safe fallback: keep the exact product/photo and
         # intentionally remove incomplete claims so build_sales_plan creates a
@@ -267,7 +284,7 @@ def prepare_video_plan(payload, *, require_renderable=False):
         facts['feature_details'] = []
         facts['consideration'] = ''
         facts['routine'] = ''
-    plan = build_sales_plan(payload.name, benefit, payload.product_url, 120, **facts)
+    plan = build_sales_plan(plan_name, benefit, payload.product_url, 120, **facts)
     return plan, photos
 
 
