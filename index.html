@@ -1619,8 +1619,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // pseudo-benefit. Never prefill it as if it were a seller claim.
         const normalizeSellerText = value => String(value || '').replace(/^\\s*#{1,6}\\s*/, '').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
         const sellerBenefit = winner.seller_benefit_source === winner.url ? (winner.seller_benefit || '') : '';
+        const sellerBenefitHasRetailerFragments =
+            /https?:\/\/|www\.|\.\.\.|…|\||\b(?:read more|see more)\b/i.test(sellerBenefit);
         document.getElementById('freeProductFact').value =
-            normalizeSellerText(sellerBenefit) === normalizeSellerText(winner.name) ? '' : sellerBenefit;
+            !sellerBenefitHasRetailerFragments &&
+            normalizeSellerText(sellerBenefit) !== normalizeSellerText(winner.name)
+                ? sellerBenefit : '';
         document.getElementById('freeBuyerNeed').value = '';
         document.getElementById('freeBuyingDetail').value = '';
         loadFreeVideoHistory();

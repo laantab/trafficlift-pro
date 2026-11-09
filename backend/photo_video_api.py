@@ -8,7 +8,7 @@ from backend.media_exports import EXPORT_LOCK, PLATFORMS, LockedExportResponse, 
 from pydantic import BaseModel, Field, field_validator, SecretStr
 from typing import Literal
 from backend.photo_video import dependencies, render
-from backend.sales_script import build_sales_plan, marketing_readiness_gate, is_distinct_product_fact
+from backend.sales_script import build_sales_plan, marketing_readiness_gate, is_distinct_product_fact, clean
 from backend.product_facts import resolve_video_facts
 from local_video.trafficlift_video_bridge import _download_product_image, _validate_public_https_url
 
@@ -230,14 +230,30 @@ def prepare_video_plan(payload, *, require_renderable=False):
             facts['benefit'] = split[0]
             facts['feature_details'] = [*split[1:], *existing]
     photos = list(facts.pop('product_images', []) or [])
-    # An unverified override cannot erase stronger exact-listing evidence.
-    if payload.benefit and is_distinct_product_fact(payload.benefit, payload.name):
-        if not facts.get('benefit'):
-            facts['benefit'] = payload.benefit
+    # Browser-prefilled seller snippets are still untrusted input. Normalize
+    # them here so an older tab cannot re-introduce retailer fragments after
+    # exact-listing evidence has already been filtered.
+    safe_benefit = ''
+    if payload.benefit:
+        try:
+            candidate = clean(payload.benefit, 160)
+        except ValueError:
+            candidate = ''
+        if candidate and is_distinct_product_fact(candidate, payload.name):
+            safe_benefit = candidate
+    if safe_benefit and not facts.get('benefit'):
+        facts['benefit'] = safe_benefit
+
     if payload.buyer_need:
-        facts['buyer_need'] = payload.buyer_need
+        try:
+            facts['buyer_need'] = clean(payload.buyer_need, 100)
+        except ValueError:
+            facts['buyer_need'] = ''
     if payload.consideration:
-        facts['consideration'] = payload.consideration
+        try:
+            facts['consideration'] = clean(payload.consideration, 120)
+        except ValueError:
+            facts['consideration'] = ''
     benefit = facts.pop('benefit', '')
     candidates = [benefit, *(facts.get('feature_details') or []),
                   facts.get('consideration'), facts.get('routine')]
