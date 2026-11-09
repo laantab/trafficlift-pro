@@ -1,0 +1,24 @@
+name: Fast Video Product Identity Sanitization
+
+on:
+  push:
+    branches:
+      - "test/video-product-identity-fast"
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install targeted dependencies
+        run: pip install pytest requests beautifulsoup4 fastapi pydantic
+      - name: Run saved-product identity and HeyGen regressions
+        run: |
+          python -m pytest backend/tests/test_video_product_identity_sanitization.py backend/tests/test_video_override_sanitization.py backend/tests/test_heygen_video_api.py backend/tests/test_product_facts.py -q
+      - name: Compile touched files
+        run: |
+          python -m py_compile backend/photo_video_api.py backend/heygen_video_api.py backend/product_facts.py
