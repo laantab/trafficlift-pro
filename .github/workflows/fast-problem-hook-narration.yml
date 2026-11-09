@@ -1,0 +1,22 @@
+name: Fast Problem Hook Narration
+
+on:
+  push:
+    branches:
+      - "test/problem-hook-narration-fast"
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install targeted dependencies
+        run: pip install pytest requests fastapi pydantic beautifulsoup4
+      - name: Run narration regression tests
+        run: python -m pytest backend/tests/test_heygen_video_api.py -q
+      - name: Compile narration backend
+        run: python -m py_compile backend/heygen_video_api.py
