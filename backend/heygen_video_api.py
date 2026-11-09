@@ -297,7 +297,7 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
     payload = {
         "model": "heygen-video-1",
         "mode": "image_to_video",
-        "prompt": product_prompt(product.name, plan),
+        "prompt": product_prompt(plan.get("product") or product.name, plan),
         "duration": body.duration,
         "image": {"type": "url", "url": listing_image},
         "resolution": "768p",
