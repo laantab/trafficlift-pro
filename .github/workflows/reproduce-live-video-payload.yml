@@ -1,0 +1,92 @@
+name: Reproduce Live Video Payload
+
+on:
+  push:
+    branches:
+      - "test/reproduce-live-video-payload"
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install diagnostic dependencies
+        run: pip install -r requirements.txt
+      - name: Reproduce exact live winner to video payload without provider call
+        run: |
+          python - <<'PY'
+          import json, traceback, urllib.parse, urllib.request
+          from unittest.mock import patch
+          from backend.photo_video_api import VideoRequest, prepare_video_plan
+
+          share="https://link.amazon/B015cgvTm"
+          endpoint="https://trafficlift-pro.onrender.com/api/v1/analyze-product-url?url="+urllib.parse.quote(share,safe="")
+          with urllib.request.urlopen(endpoint, timeout=90) as r:
+              winner=json.loads(r.read().decode("utf-8"))
+
+          print("WINNER_JSON_BEGIN")
+          print(json.dumps(winner, indent=2)[:30000])
+          print("WINNER_JSON_END")
+
+          seller_benefit = winner.get("seller_benefit","") if winner.get("seller_benefit_source")==winner.get("url") else ""
+          product={
+              "name": str(winner.get("name") or "")[:90],
+              "image_url": str(winner.get("image_url") or ""),
+              "product_url": str(winner.get("url") or "")[:2048],
+              "image_source": str(winner.get("image_source") or ((winner.get("url_resolution") or {}).get("final_url")) or winner.get("url") or "")[:2048],
+              "product_identity_verified": bool(winner.get("product_identity_verified") is True and winner.get("image_status")=="verified"),
+              "benefit": str(seller_benefit or "")[:160],
+              "fact_sources": (
+                  ([{
+                      "title": winner.get("name"),
+                      "url": winner.get("seller_benefit_source"),
+                      "snippet": "\n".join(winner.get("seller_facts") or []),
+                  }] if winner.get("seller_benefit_source") and winner.get("seller_facts") else [])
+                  + list(winner.get("research_sources") or [])
+              )[:4],
+              "buyer_need":"",
+              "consideration":"",
+              "seconds":15,
+              "style":"warm",
+          }
+          print("PRODUCT_PAYLOAD",json.dumps(product,indent=2)[:20000])
+
+          obj=VideoRequest(**product)
+          try:
+              # First isolate browser-provided payload from any fresh seller lookup.
+              with patch("backend.photo_video_api.resolve_video_facts", return_value={}):
+                  plan, photos=prepare_video_plan(obj, require_renderable=True)
+              print("ISOLATED_PREFLIGHT=PASS")
+              print("ISOLATED_PLAN",json.dumps(plan,indent=2,default=str)[:20000])
+          except Exception as exc:
+              print("ISOLATED_PREFLIGHT=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+
+          # Then expose every clean() input from a normal preflight, while preventing
+          # external research fallback. Amazon listing parsing may still run.
+          import backend.sales_script as ss
+          real_clean=ss.clean
+          def traced_clean(value, limit=160):
+              print("CLEAN_INPUT",repr(value),"LIMIT",limit)
+              try:
+                  out=real_clean(value,limit)
+                  print("CLEAN_OUTPUT",repr(out))
+                  return out
+              except Exception as exc:
+                  print("CLEAN_FAIL",repr(value),type(exc).__name__,repr(exc))
+                  raise
+          ss.clean=traced_clean
+          try:
+              import backend.product_facts as pf
+              with patch("backend.live_research._is_tavily_configured", return_value=False):
+                  plan, photos=prepare_video_plan(obj, require_renderable=True)
+              print("NORMAL_PREFLIGHT=PASS")
+              print("NORMAL_PLAN",json.dumps(plan,indent=2,default=str)[:20000])
+          except Exception as exc:
+              print("NORMAL_PREFLIGHT=FAIL",type(exc).__name__,repr(exc))
+              traceback.print_exc()
+          PY
