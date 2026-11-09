@@ -79,6 +79,61 @@ def _spoken_identity(name):
     return base.strip(" ,")
 
 
+def _natural_product_reference(identity):
+    """Make the spoken product reference conversational without losing identity."""
+    value = str(identity or "").strip()
+    value = re.sub(r"^(?:generic)\s+", "", value, flags=re.I)
+    return value or str(identity or "").strip()
+
+
+def _supported_problem_hook(name, identity, plan):
+    """Return a problem/emotion/solution hook only when seller text supports it.
+
+    Evidence is limited to exact-listing facts plus a small whitelist of explicit
+    attributes carried in the verified seller title. We do not infer broad
+    performance promises from a photograph or generic product category.
+    """
+    evidence = " ".join(
+        str(item.get("text") or "")
+        for item in (plan.get("evidence") or [])
+        if isinstance(item, dict)
+    )
+    source = " ".join([str(name or ""), evidence]).casefold()
+    product = _natural_product_reference(identity)
+
+    if (re.search(r"\bnon[ -]?stick\b", source)
+            and re.search(r"\b(?:baking|bake|pastry|dough|silicone|mat|pan|sheet)\b", source)):
+        return (
+            "Tired of scraping your baking pan after every batch?",
+            "Kiss those days goodbye.",
+            f"Take a look at this {product}.",
+        )
+
+    if (re.search(r"\b(?:organizer|storage|divider|drawer)\b", source)
+            and re.search(r"\b(?:adjustable|expandable|removable|storage|divider)\b", source)):
+        return (
+            "Tired of clutter taking over your space?",
+            "Get things back under control.",
+            f"Take a look at this {product}.",
+        )
+
+    if re.search(r"\b(?:wireless|cordless)\b", source):
+        return (
+            "Tired of cords getting in the way?",
+            "Cut the clutter.",
+            f"Take a look at this {product}.",
+        )
+
+    if re.search(r"\b(?:dishwasher safe|easy to clean)\b", source):
+        return (
+            "Tired of cleanup taking longer than the job itself?",
+            "Make cleanup easier.",
+            f"Take a look at this {product}.",
+        )
+
+    return None
+
+
 def _short_seller_facts(text, *, max_words=11):
     """Return intact, source-backed clauses; never chop words off a claim."""
     if not isinstance(text, str):
@@ -102,18 +157,19 @@ def _short_seller_facts(text, *, max_words=11):
 
 
 def compose_heygen_narration(name, plan, max_words=34):
-    """Create one short, fact-grounded ad with one CTA; never cut sentences.
-
-    The marketing gate validates listing evidence before this is called. We
-    choose complete facts from that evidence rather than truncating the older
-    30-60 second multi-scene speech into a broken 15-second voiceover.
-    """
-    from backend.sales_script import clean, is_distinct_product_fact
+    """Create a short, conversational, fact-grounded 15-second product ad."""
+    from backend.sales_script import is_distinct_product_fact
     identity = _spoken_identity(name)
-    opening = "Take a look at " + identity.rstrip(".!?") + "."
-    cta = "Tap the product link to visit the seller's page for current price and details."
     if not identity:
         raise HTTPException(422, "A specific product name is required for the ad.")
+
+    cta = "Tap the product link to learn more."
+    hook = _supported_problem_hook(name, identity, plan)
+    if hook:
+        narration = " ".join([*hook, cta])
+        if len(narration.split()) <= max_words:
+            return narration
+
     facts = []
     seen = []
     for item in plan.get("evidence") or []:
@@ -122,9 +178,6 @@ def compose_heygen_narration(name, plan, max_words=34):
         source_text = item.get("text") or ""
         if not isinstance(source_text, str) or not source_text.strip():
             continue
-        # Split long seller prose first, then validate each intact clause.
-        # A useful short fact must not be discarded just because its surrounding
-        # paragraph also contains generic catalog language.
         for fact in _short_seller_facts(source_text):
             if not is_distinct_product_fact(fact, name):
                 continue
@@ -132,49 +185,23 @@ def compose_heygen_narration(name, plan, max_words=34):
             if tokens and not any(tokens == older for older in seen):
                 seen.append(tokens)
                 facts.append(fact)
+
+    product = _natural_product_reference(identity)
+    opening = f"Looking for a simpler solution? Take a look at this {product}."
     budget = max_words - len((opening + " " + cta).split())
-    if budget < 5:
-        raise HTTPException(422, "Product title is too long for a 15-second narrated ad.")
-    # Avoid back-to-back repetition such as "Desk Organizer. The desk
-    # organizer has three tiers." A title-style fact should come after a
-    # distinctive benefit, where one is available.
-    identity_words = re.findall(r"[a-z0-9]+", identity.casefold())
-    identity_phrases = {
-        " ".join(identity_words[i:i + 2])
-        for i in range(len(identity_words) - 1)
-        if len(identity_words[i]) >= 4 and len(identity_words[i + 1]) >= 4
-    }
-    def repeats_identity(fact):
-        words = re.findall(r"[a-z0-9]+", fact.casefold())
-        fact_phrases = {
-            " ".join(words[i:i + 2])
-            for i in range(len(words) - 1)
-        }
-        return bool(identity_phrases.intersection(fact_phrases))
 
     chosen = []
-    # Favor concise facts that add new product information.
-    for fact in sorted(facts, key=lambda f: (repeats_identity(f), len(f.split()))):
+    for fact in sorted(facts, key=lambda value: len(value.split())):
         n = len(fact.split())
-        if n <= budget and len(chosen) < 2:
+        if n <= budget and len(chosen) < 1:
             chosen.append(fact)
             budget -= n
-    if chosen and repeats_identity(chosen[0]):
-        # Do not repeat the product name in consecutive spoken sentences.
-        opening = "Take a closer look."
-    if not chosen:
-        # Product-overview mode is intentionally claim-safe: exact identity and
-        # verified photo only. Do not block it merely because Amazon exposes no
-        # short seller facts.
-        if plan.get("mode") == "product_overview":
-            chosen = ["Explore the product details."]
-        elif not (plan.get("evidence") or []):
-            raise HTTPException(422, "Verified seller facts are required; no paid video was started.")
-        else:
-            chosen = ["Explore the product details."]
+
+    if not chosen and plan.get("mode") != "product_overview" and not (plan.get("evidence") or []):
+        raise HTTPException(422, "Verified seller facts are required; no paid video was started.")
+
     narration = " ".join([opening, *chosen, cta])
-    words = narration.split()
-    if len(words) > max_words or narration.casefold().count("tap the product link") != 1:
+    if len(narration.split()) > max_words or narration.casefold().count("tap the product link") != 1:
         raise HTTPException(422, "Narration failed the length or call-to-action review.")
     return narration
 
