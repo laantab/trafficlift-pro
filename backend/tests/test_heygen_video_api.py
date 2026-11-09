@@ -297,3 +297,30 @@ def test_heygen_submit_uses_verified_winner_image_when_listing_rediscovery_is_em
         result = heygen_submit(body, Mock())
     assert result["status"] == "submitted"
     assert send.call_args.kwargs["json"]["image"]["url"] == image
+
+
+def test_long_amazon_title_uses_compact_spoken_identity_for_15_second_ad():
+    name = (
+        "Generic Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet, "
+        "Reusable Food Grade Silicone Baking Mat With Non Stick For Bread"
+    )
+    plan = {"mode": "product_overview", "evidence": []}
+    spoken = compose_heygen_narration(name, plan)
+    assert spoken.startswith("Take a look at Generic Silicone Baking Mat.")
+    assert "Food Grade Non Stick Heat Resistant Pastry Sheet" not in spoken
+    assert spoken.endswith(
+        "Tap the product link to visit the seller's page for current price and details."
+    )
+    assert len(spoken.split()) <= 34
+
+
+def test_compact_spoken_identity_preserves_model_identifier_from_later_title_text():
+    from backend.heygen_video_api import _spoken_identity
+    name = (
+        "Acme Adjustable Desk Lamp, Brushed Nickel Home Office Lighting, "
+        "Model DLX9000"
+    )
+    spoken_identity = _spoken_identity(name)
+    assert spoken_identity.startswith("Acme Adjustable Desk Lamp")
+    assert "DLX9000" in spoken_identity
+    assert len(spoken_identity.split()) <= 10
