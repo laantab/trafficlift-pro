@@ -327,3 +327,27 @@ def test_compact_spoken_identity_preserves_model_identifier_from_later_title_tex
     assert spoken_identity.startswith("Acme Adjustable Desk Lamp")
     assert "DLX9000" in spoken_identity
     assert len(spoken_identity.split()) <= 10
+
+
+def test_baking_mat_prompt_prevents_food_clipping_through_flexible_mat():
+    prompt = product_prompt(
+        "Silicone Baking Mat Non Stick Pastry Sheet",
+        {"mode": "product_overview", "evidence": []},
+    )
+    assert "PHYSICAL CONTACT LOCK:" in prompt
+    assert "FLEXIBLE MAT CONTACT LOCK:" in prompt
+    assert "keep the baking mat flat" in prompt
+    assert "Never lift, fold, bend, curl, or pull the mat through food" in prompt
+    assert "melt through" in prompt
+    assert "same mat EMPTY after all food has been removed" in prompt
+    assert "Never show food floating unsupported" in prompt
+
+
+def test_non_mat_product_gets_general_physics_lock_without_mat_specific_direction():
+    prompt = product_prompt(
+        "Smart Desk Organizer",
+        {"evidence": [{"text": "Three adjustable drawers"}]},
+    )
+    assert "PHYSICAL CONTACT LOCK:" in prompt
+    assert "No object may pass through" in prompt
+    assert "FLEXIBLE MAT CONTACT LOCK:" not in prompt
