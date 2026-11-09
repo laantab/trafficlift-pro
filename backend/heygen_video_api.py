@@ -262,13 +262,19 @@ def product_prompt(name, plan):
     if (("mat" in lower_name or "sheet" in lower_name)
             and any(word in lower_name for word in ("silicone", "baking", "pastry"))):
         flexible_mat_rule = (
-            "FLEXIBLE MAT CONTACT LOCK: When food is present, keep the baking mat flat "
-            "and fully underneath the food. Every baked item must remain a solid, separate "
-            "object resting on top of the mat. Never lift, fold, bend, curl, or pull the mat "
-            "through food. No food may clip through, sink into, merge with, melt through, "
-            "teleport through, or disappear behind the mat. If demonstrating flexibility, "
-            "first make a clean cut to the same mat EMPTY after all food has been removed, "
-            "then lift or flex only the empty mat. Never show food floating unsupported. "
+            "BAKING MAT DEMONSTRATION SEQUENCE: Show how the product works, not just before/after states. "
+            "Begin with cooked chicken resting naturally on the flat silicone mat. Keep the mat fully flat "
+            "on the counter or baking tray. In one continuous, clearly visible removal shot, use an appropriate "
+            "food-safe utensil such as a wide spatula or tongs to lift one piece of cooked chicken upward and "
+            "completely clear of the mat. The chicken must stay intact and separate from the mat, and the mat "
+            "must stay flat and stationary during the lift. Show a small visible gap between the chicken and mat "
+            "after release, then move the chicken to a plate or serving area. Do NOT jump directly from food-on-mat "
+            "to an empty mat; the viewer must see the actual removal action. "
+            "FLEXIBLE MAT CONTACT LOCK: Every baked item must remain a solid, separate object resting on top of "
+            "the mat until deliberately lifted away. Never lift, fold, bend, curl, or pull the mat through food. "
+            "No food may clip through, sink into, merge with, melt through, teleport through, or disappear behind "
+            "the mat. Only after the food-removal demonstration is complete may there be a clean cut to the same "
+            "mat EMPTY; then the empty mat may be lifted or flexed. Never show food floating unsupported. "
         )
     return (
         "Vertical product advertisement. Use the supplied exact seller product photo "
