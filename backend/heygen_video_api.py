@@ -257,6 +257,19 @@ def trusted_winner_image(product):
 
 def product_prompt(name, plan):
     narration = compose_heygen_narration(name, plan)
+    lower_name = str(name or "").casefold()
+    flexible_mat_rule = ""
+    if (("mat" in lower_name or "sheet" in lower_name)
+            and any(word in lower_name for word in ("silicone", "baking", "pastry"))):
+        flexible_mat_rule = (
+            "FLEXIBLE MAT CONTACT LOCK: When food is present, keep the baking mat flat "
+            "and fully underneath the food. Every baked item must remain a solid, separate "
+            "object resting on top of the mat. Never lift, fold, bend, curl, or pull the mat "
+            "through food. No food may clip through, sink into, merge with, melt through, "
+            "teleport through, or disappear behind the mat. If demonstrating flexibility, "
+            "first make a clean cut to the same mat EMPTY after all food has been removed, "
+            "then lift or flex only the empty mat. Never show food floating unsupported. "
+        )
     return (
         "Vertical product advertisement. Use the supplied exact seller product photo "
         "as the opening frame; preserve product identity, design, markings and proportions. "
@@ -280,6 +293,11 @@ def product_prompt(name, plan):
         "confined to an authentic product interaction. If an accurate "
         "demonstration cannot be preserved, use the static product hero image "
         "with stable lighting rather than fabricating product mechanics. "
+        "PHYSICAL CONTACT LOCK: Keep every object solid and spatially separate. "
+        "No object may pass through, clip into, merge with, melt into, teleport through, "
+        "or disappear through another object. Maintain continuous believable support, "
+        "gravity, contact, and occlusion from frame to frame. "
+        + flexible_mat_rule +
         "PACKAGING TEXT LOCK: preserve existing printed lettering exactly "
         "as photographed, without re-drawing, translating, inventing, "
         "morphing, blurring, or animating individual letters. "
