@@ -44,11 +44,33 @@ def provider_request(method, url, **kwargs):
 
 
 def _spoken_identity(name):
-    """Remove retailer suffixes and catalog variants without losing model IDs."""
+    """Create a short spoken identity without changing the stored product title.
+
+    Amazon titles often append long keyword strings that cannot fit a 15-second
+    ad. Prefer the first meaningful catalog phrase, but preserve genuine model
+    identifiers wherever they appear in the full title.
+    """
     from backend.sales_script import is_model_identifier
     raw = re.sub(r"\\s+[-–]\\s+(?:[\\w-]+\\.)?(?:com|net|org)\\s*$", "", str(name)).strip()
     parts = [part.strip() for part in raw.split(",") if part.strip()]
-    base = ", ".join(parts[:2]) if len(parts) > 1 else raw
+    if len(parts) > 1:
+        # "Smart+, Desk Drawer Organizer" needs the second phrase, while
+        # "Generic Silicone Baking Mat, Food Grade ..." is already specific.
+        first_words = re.findall(r"[A-Za-z0-9+&'-]+", parts[0])
+        base = parts[0] if len(first_words) >= 3 else ", ".join(parts[:2])
+    else:
+        base = raw
+
+    # Long no-comma catalog titles still need a compact voice identity.
+    words = base.split()
+    if len(words) > 9:
+        words = words[:9]
+        while words and words[-1].casefold().strip(".,;:") in {
+            "a", "an", "the", "and", "or", "for", "to", "of", "in", "on", "with"
+        }:
+            words.pop()
+        base = " ".join(words)
+
     # Keep exact model codes even if the seller title puts them after color/size.
     models = [token for token in re.findall(r"[A-Za-z0-9-]+", raw) if is_model_identifier(token)]
     for model in models:
