@@ -20,16 +20,16 @@ def test_provider_requires_both_settings(monkeypatch):
     assert configured() is True
 
 
-def test_concise_heygen_ad_uses_seller_facts_once_and_ends_with_cta():
+def test_supported_organizer_facts_use_problem_solution_hook_and_cta():
     plan = {"evidence": [
         {"text": "Three adjustable drawers"},
         {"text": "A removable divider keeps small pieces separate"}
     ]}
     spoken = compose_heygen_narration("Smart+, Desk Drawer Organizer, Black - Walmart.com", plan)
-    assert spoken.startswith("Take a look at Smart+, Desk Drawer Organizer.")
-    assert "Three adjustable drawers." in spoken
-    assert "A removable divider keeps small pieces separate." in spoken
-    assert spoken.endswith("Tap the product link to visit the seller's page for current price and details.")
+    assert spoken.startswith("Tired of clutter taking over your space?")
+    assert "Get things back under control." in spoken
+    assert "Take a look at this Smart+, Desk Drawer Organizer." in spoken
+    assert spoken.endswith("Tap the product link to learn more.")
     assert spoken.count("Tap the product link") == 1
     assert len(spoken.split()) <= 34
 
@@ -39,7 +39,7 @@ def test_prompt_has_single_cta_and_stable_framing():
     result = product_prompt("Smart Desk Organizer", plan)
     assert "no strobing or flicker" in result
     assert "Speak exactly the following once" in result
-    assert "Tap the product link to visit the seller's page for current price and details." in result
+    assert "Tap the product link to learn more." in result
     assert "no invented features" in result.lower()
 
 
@@ -62,7 +62,8 @@ def test_product_lock_prompt_requires_full_frame_and_cta_hero_shot():
 def test_long_listing_facts_no_longer_block_generation():
     plan = {"evidence": [{"text": "Durable plastic material is made to handle assorted household objects in a wide variety of setups across many different household rooms"}]}
     narration = compose_heygen_narration("Organizer", plan, max_words=28)
-    assert "Explore the product details." in narration
+    assert narration.startswith("Looking for a simpler solution?")
+    assert narration.endswith("Tap the product link to learn more.")
     assert len(narration.split()) <= 28
     assert "made to handle assorted household" not in narration
 
@@ -178,20 +179,22 @@ def test_spoken_product_category_is_not_repeated_in_consecutive_sentences():
         {"text": "The desk organizer offers expandable storage"},
     ]}
     spoken = compose_heygen_narration("Smart Desk Organizer", plan)
-    assert spoken.startswith("Take a closer look.")
-    assert spoken.count("desk organizer") == 0 or spoken.lower().count("desk organizer") <= 2
-    assert spoken.endswith("Tap the product link to visit the seller's page for current price and details.")
+    assert spoken.startswith("Tired of clutter taking over your space?")
+    assert spoken.lower().count("desk organizer") <= 1
+    assert spoken.endswith("Tap the product link to learn more.")
 
 
-def test_narration_prioritizes_distinct_feature_before_repeated_title():
+def test_problem_hook_replaces_fact_dump_for_supported_organizer():
     plan = {"evidence": [
         {"text": "This desk organizer has three adjustable tiers"},
         {"text": "Includes removable dividers"},
     ]}
     spoken = compose_heygen_narration("Smart Desk Organizer", plan)
-    assert spoken.startswith("Take a look at Smart Desk Organizer.")
-    assert "Includes removable dividers." in spoken
-    assert spoken.index("Includes removable dividers.") < spoken.index("This desk organizer has three adjustable tiers.")
+    assert spoken.startswith("Tired of clutter taking over your space?")
+    assert "Get things back under control." in spoken
+    assert "Take a look at this Smart Desk Organizer." in spoken
+    assert "adjustable tiers" not in spoken.lower()
+    assert "removable dividers" not in spoken.lower()
 
 
 def test_heygen_cta_directs_to_seller_product_page_without_on_video_price():
@@ -201,7 +204,7 @@ def test_heygen_cta_directs_to_seller_product_page_without_on_video_price():
     ]}
     speech = compose_heygen_narration("Smart Drawer Organizer", plan)
     prompt = product_prompt("Smart Drawer Organizer", plan)
-    assert speech.endswith("Tap the product link to visit the seller's page for current price and details.")
+    assert speech.endswith("Tap the product link to learn more.")
     assert speech.count("Tap the product link") == 1
     assert "VISIT PRODUCT LINK" in prompt
     assert "See Price & Details" not in prompt
@@ -217,7 +220,7 @@ def test_long_seller_paragraph_extracts_whole_short_clauses():
     assert "Includes removable dividers." in clauses
     spoken = compose_heygen_narration("Smart Desk Organizer",
                                      {"evidence": [{"text": paragraph}]})
-    assert "Features three adjustable drawers." in spoken or "Includes removable dividers." in spoken
+    assert spoken.startswith("Tired of clutter taking over your space?")
     assert "Tap the product link" in spoken
     assert len(spoken.split()) <= 34
 
@@ -228,16 +231,16 @@ def test_missing_evidence_never_submits_unverified_narration():
     assert exc.value.status_code == 422
 
 
-def test_product_overview_narration_is_claim_safe_and_allowed():
+def test_product_overview_uses_supported_nonstick_problem_hook():
     plan = {"mode": "product_overview", "evidence": []}
     spoken = compose_heygen_narration(
         "Silicone Mats for Baking Food-Grade Non-Stick Leakproof Cooking",
         plan,
     )
-    assert "Explore the product details." in spoken
-    assert spoken.endswith(
-        "Tap the product link to visit the seller's page for current price and details."
-    )
+    assert spoken.startswith("Tired of scraping your baking pan after every batch?")
+    assert "Kiss those days goodbye." in spoken
+    assert "Take a look at this silicone baking mat." in spoken
+    assert spoken.endswith("Tap the product link to learn more.")
     assert len(spoken.split()) <= 34
 
 
@@ -299,18 +302,18 @@ def test_heygen_submit_uses_verified_winner_image_when_listing_rediscovery_is_em
     assert send.call_args.kwargs["json"]["image"]["url"] == image
 
 
-def test_long_amazon_title_uses_compact_spoken_identity_for_15_second_ad():
+def test_long_amazon_title_uses_problem_hook_and_compact_product_reference():
     name = (
         "Generic Silicone Baking Mat, Food Grade Non Stick Heat Resistant Pastry Sheet, "
         "Reusable Food Grade Silicone Baking Mat With Non Stick For Bread"
     )
     plan = {"mode": "product_overview", "evidence": []}
     spoken = compose_heygen_narration(name, plan)
-    assert spoken.startswith("Take a look at Generic Silicone Baking Mat.")
+    assert spoken.startswith("Tired of scraping your baking pan after every batch?")
+    assert "Kiss those days goodbye." in spoken
+    assert "Take a look at this silicone baking mat." in spoken
     assert "Food Grade Non Stick Heat Resistant Pastry Sheet" not in spoken
-    assert spoken.endswith(
-        "Tap the product link to visit the seller's page for current price and details."
-    )
+    assert spoken.endswith("Tap the product link to learn more.")
     assert len(spoken.split()) <= 34
 
 
