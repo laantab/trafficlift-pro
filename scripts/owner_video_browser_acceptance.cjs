@@ -108,6 +108,9 @@ async function runBrowserAcceptance(opts, {setupPage} = {}) {
     // Exercise the real owner browser UI, not just the HTTP API.
     if (opts.mode === '--run') {
       await page.locator('button[onclick="openVideoModal()"]').first().click();
+      // Advanced engine controls are collapsed by default for simpler UX.
+      // Open them explicitly in this acceptance test before choosing Kokoro.
+      await page.locator('#videoEngineAdvanced summary').click();
       // This legacy-renderer acceptance intentionally exercises Kokoro, not paid HeyGen.
       await page.locator('#videoProvider').selectOption('free');
     } else {
