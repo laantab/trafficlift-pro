@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, defaultdict, deque
 from io import BytesIO
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
 import re
 from urllib.parse import parse_qsl, urlencode, urlunsplit
 from pathlib import Path
@@ -55,12 +55,12 @@ def _larger_same_photo_urls(url: str) -> list[str]:
     options = []
     if host in {"m.media-amazon.com", "images-na.ssl-images-amazon.com"}:
         # Amazon: same /images/I/<photo ID>, replace only a known size directive.
-        path = re.sub(r"\\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\\.)",
+        path = re.sub(r"\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\.)",
                       "._AC_SL1500_", parsed.path, flags=re.I)
         if path != parsed.path:
             options.append(urlunsplit(parsed._replace(path=path)))
             # Some amazon sizing modes are better removed entirely.
-            raw = re.sub(r"\\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\\.)",
+            raw = re.sub(r"\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\.)",
                          "", parsed.path, flags=re.I)
             options.append(urlunsplit(parsed._replace(path=raw)))
     elif host == "cdn.shopify.com" or host.endswith(".cdn.shopify.com"):
@@ -88,6 +88,42 @@ def _sharp_enough(data: bytes) -> bool:
             return w >= 1 and h >= 1 and min(924 / w, 1004 / h) <= 1.35
     except (UnidentifiedImageError, OSError, ValueError):
         return False
+
+
+def _enhance_verified_photo(data: bytes) -> bytes | None:
+    """Conservatively improve the SAME photo; never invent product details.
+
+    Tiny or featureless source images must still fail; upscaling alone cannot
+    reconstruct authentic product details.
+    """
+    try:
+        with Image.open(BytesIO(data)) as original:
+            if original.format not in {"JPEG", "PNG", "WEBP"}:
+                return None
+            w, h = original.size
+            if w * h > 24_000_000 or min(w, h) < 480:
+                return None
+            image = ImageOps.exif_transpose(original).convert("RGB")
+        sample = image.copy()
+        sample.thumbnail((384, 384), Image.Resampling.LANCZOS)
+        if ImageStat.Stat(ImageOps.grayscale(sample)).stddev[0] < 5:
+            return None
+        factor = max(1.0, 924 / (1.35 * image.width), 1004 / (1.35 * image.height))
+        if factor > 2:
+            return None
+        if factor > 1:
+            image = image.resize(
+                (int(image.width * factor + .5), int(image.height * factor + .5)),
+                Image.Resampling.LANCZOS,
+            )
+        image = ImageEnhance.Contrast(image).enhance(1.04)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1.1, percent=115, threshold=3))
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=93, optimize=True)
+        result = output.getvalue()
+        return result if len(result) <= 12 * 1024 * 1024 and _sharp_enough(result) else None
+    except (UnidentifiedImageError, OSError, ValueError, OverflowError):
+        return None
 
 
 def _rate_limit(client: str, now: float) -> None:
@@ -123,6 +159,8 @@ def pin_image(url: str, request: Request, quality: str = "standard"):
     _rate_limit(request.client.host if request.client else "unknown", now)
     body = None
     media_type = None
+    best_low_resolution = None
+    best_source_pixels = 0
     try:
         with tempfile.TemporaryDirectory(prefix="trafficlift-pin-") as directory:
             candidates = ([*_larger_same_photo_urls(url), url] if quality == "high" else [url])
@@ -138,6 +176,16 @@ def pin_image(url: str, request: Request, quality: str = "standard"):
                     if not kind or not (1024 <= len(data) <= 12 * 1024 * 1024):
                         continue
                     if quality == "high" and not _sharp_enough(data):
+                        # Every candidate preserves the seller image identifier.
+                        # Retry the best actual photo only after larger URLs fail.
+                        try:
+                            with Image.open(BytesIO(data)) as original:
+                                area = original.width * original.height
+                                if area > best_source_pixels:
+                                    best_source_pixels = area
+                                    best_low_resolution = data
+                        except (UnidentifiedImageError, OSError, ValueError):
+                            pass
                         continue
                     body, media_type = data, kind
                     break
@@ -145,9 +193,13 @@ def pin_image(url: str, request: Request, quality: str = "standard"):
                     continue
     except OSError as exc:
         raise HTTPException(502, "The exact product photo could not be retrieved.") from exc
+    if body is None and quality == "high" and best_low_resolution is not None:
+        enhanced = _enhance_verified_photo(best_low_resolution)
+        if enhanced is not None:
+            body, media_type = enhanced, "image/jpeg"
     if body is None:
         if quality == "high":
-            raise HTTPException(422, "No sharp version of this exact product photo was available. Choose another seller listing with a larger original photo.")
+            raise HTTPException(422, "The exact product photo still does not meet pin quality requirements after checking larger seller images and conservative enhancement. Supply a clearer photo of this same product.")
         raise HTTPException(502, "The exact product photo could not be retrieved. Try generating the pin again.")
     with _LOCK:
         while _CACHE and _CACHE_BYTES + len(body) > _MAX_CACHE_BYTES:

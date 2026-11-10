@@ -8,6 +8,23 @@ on:
       - "fix/**"
 
 jobs:
+  pin-photo-isolated:
+    # Independent check: earlier unrelated UI tests must not hide image regressions.
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime and test dependencies without API credentials
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+      - name: Verify exact-product photo enhancement and existing endpoint behavior
+        run: python -m pytest backend/tests/test_pin_image_api.py -q
+
   hosted-owner-security-preflight:
     # Live read-only check from an external runner; no owner code, render or quota.
     # Complements offline mocks and catches accidental public status/MP4 access.
@@ -45,6 +62,8 @@ jobs:
         run: python -m pytest backend/tests/test_shopify_variant_child_selectors.py backend/tests/test_shopify_collection_history.py backend/tests/test_shopify_locale_unselected_history.py backend/tests/test_ounce_winner_history.py backend/tests/test_pack_count_history.py backend/tests/test_amazon_marketplace_history.py backend/tests/test_etsy_listing_history.py backend/tests/test_unicode_winner_history.py backend/tests/test_merchant_sku_history.py -q
       - name: Verify Product URL Finder V2 before downstream media tests
         run: python -m pytest backend/tests/test_product_url_finder_v2.py -q
+      - name: Verify integrated pin photo enhancement and original image preservation
+        run: python -m pytest backend/tests/test_pin_image_api.py -q
       - name: Verify video render and marketing destination guard separation
         run: python -m pytest backend/tests/test_campaign_destination_guard.py -q
       - name: Verify FFmpeg and FFprobe for owner MP4 decode acceptance

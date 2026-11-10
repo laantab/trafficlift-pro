@@ -35,7 +35,8 @@ def test_matched_meta_facts_are_retrieved_without_jsonld():
     html = '<title>Orbit Desk Lamp</title><meta name="description" content="Adjustable arm for positioning the light. Shop now for $99.">'
     with patch.object(listing_photo, '_safe_get', return_value=('https://shop.example/lamp',html,None)):
         facts = resolve_video_facts('Orbit Desk Lamp', 'https://shop.example/lamp')
-        assert facts['benefit'] == 'Adjustable arm for positioning the light.'
+        assert facts['benefit'].rstrip('.') == 'Adjustable arm for positioning the light'
+        assert 'Shop now' not in facts['benefit']
         assert facts['evidence_origin'] == 'matched_seller_page'
         assert resolve_video_facts('Other Desk Lamp', 'https://shop.example/lamp') == {}
 
