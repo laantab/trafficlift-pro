@@ -9,7 +9,7 @@ def test_dashboard_has_one_html_document_and_no_rendered_js_tail():
     html = INDEX.read_text(encoding="utf-8")
     assert html.count("</html>") == 1
     assert html.rstrip().endswith("</html>")
-    assert len(re.findall(r"<script(?:\\s[^>]*)?>", html)) == len(re.findall(r"</script>", html))
+    assert len(re.findall(r"<script(?: [^>]*)?>", html)) == len(re.findall(r"</script>", html))
 
 
 def test_saved_campaign_budget_update_remains_complete():
