@@ -55,12 +55,12 @@ def _larger_same_photo_urls(url: str) -> list[str]:
     options = []
     if host in {"m.media-amazon.com", "images-na.ssl-images-amazon.com"}:
         # Amazon: same /images/I/<photo ID>, replace only a known size directive.
-        path = re.sub(r"\\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\\.)",
+        path = re.sub(r"\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\.)",
                       "._AC_SL1500_", parsed.path, flags=re.I)
         if path != parsed.path:
             options.append(urlunsplit(parsed._replace(path=path)))
             # Some amazon sizing modes are better removed entirely.
-            raw = re.sub(r"\\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\\.)",
+            raw = re.sub(r"\._(?:AC_)?(?:SL|SX|SY|UL|UX|UY|US|SR|SS)[A-Za-z0-9_,.]*_(?=\.)",
                          "", parsed.path, flags=re.I)
             options.append(urlunsplit(parsed._replace(path=raw)))
     elif host == "cdn.shopify.com" or host.endswith(".cdn.shopify.com"):
