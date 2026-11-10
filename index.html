@@ -1237,6 +1237,7 @@
             selectedGrowthChannels[currentMode] = (data.channels || []).filter(id => CHANNELS[currentMode].some(ch => ch.id === id));
             updateMinimaxVisibility();
             document.getElementById('budgetValue').textContent = '$' + document.getElementById('dailyBudget').value + ' / day';
+            const product = data.scraped_product || {};
             const winner = {...(data.video_facts || {}), id: data.campaign_id || id, name: product.title || data.product_title,
                 image_url: product.primary_image || data.product_image || '', url: data.input_url || '',
                 category: 'Saved product', source: 'saved_campaign', hashtags: [],
