@@ -226,6 +226,13 @@ class CampaignDB:
             )
         return n > 0
 
+    def delete_many(self, campaign_ids: list[str]) -> int:
+        """Delete only the explicitly supplied campaign IDs, never other records."""
+        if not campaign_ids:
+            return 0
+        with self._session() as sess:
+            return sess.query(Campaign).filter(Campaign.id.in_(campaign_ids)).delete(synchronize_session=False)
+
     def clear_all(self) -> int:
         """Delete all campaigns. Returns count of deleted records."""
         with self._session() as sess:
