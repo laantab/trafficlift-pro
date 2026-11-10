@@ -2,7 +2,7 @@ const fs=require('fs'), vm=require('vm'), assert=require('assert');
 const html=fs.readFileSync('index.html','utf8');
 function browser(response, {blockedStorage=false}={}) {
  const nodes=new Map(), requests=[], events=new Map(), saved=new Map();
- const node=id=>{if(!nodes.has(id)) nodes.set(id,{innerHTML:'',textContent:'',style:{},value:'',classList:{add(){},remove(){}},querySelector(){return node(id+'span')},addEventListener(type,fn){events.set(id+type,fn)},appendChild(){}});return nodes.get(id)};
+ const node=id=>{if(!nodes.has(id)) nodes.set(id,{innerHTML:'',textContent:'',style:{},value:'',classList:{add(){},remove(){},toggle(){}},querySelector(){return node(id+'span')},addEventListener(type,fn){events.set(id+type,fn)},appendChild(){}});return nodes.get(id)};
  const location={hostname:'127.0.0.1',pathname:'/studio',origin:'http://127.0.0.1:8000',href:'http://127.0.0.1:8000/studio',search:''};
  const context={console:{log(){},warn(){},error(){}},window:{location,lucide:{createIcons(){}}},
  document:{getElementById:node,querySelector(){return {content:''}},querySelectorAll(){return []},addEventListener(){},createElement(){return node('new')}},
