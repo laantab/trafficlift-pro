@@ -473,6 +473,7 @@
     let historyCampaigns = [];
     let historyTotal = 0;
     let historyKeepIds = new Set();
+    let historyCleanupNeedsInitialKeep = false;
 
     const WINNER_SESSION_KEY = 'tlp_current_winner';
 
@@ -1126,7 +1127,10 @@
             historyTotal = d.total || 0;
             if (historyCleanupMode) {
                 const available = new Set(historyCampaigns.map(c => c.id));
-                historyKeepIds = new Set([...historyKeepIds].filter(id => available.has(id)));
+                historyKeepIds = historyCleanupNeedsInitialKeep
+                    ? new Set(available)
+                    : new Set([...historyKeepIds].filter(id => available.has(id)));
+                historyCleanupNeedsInitialKeep = false;
             }
             renderHistoryList(historyCampaigns);
             updateHistoryCleanupCount();
@@ -1255,6 +1259,7 @@
         // Enter with every current campaign protected. Users can uncheck
         // individual records or use Uncheck all before selecting keeps.
         historyKeepIds = new Set(historyCleanupMode ? historyCampaigns.map(c => c.id) : []);
+        historyCleanupNeedsInitialKeep = historyCleanupMode && historyCampaigns.length === 0;
         document.getElementById('historyCleanupPanel').classList.toggle('hidden', !historyCleanupMode);
         renderHistoryList(historyCampaigns);
         updateHistoryCleanupCount();
