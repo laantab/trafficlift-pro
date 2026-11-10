@@ -8,6 +8,23 @@ on:
       - "fix/**"
 
 jobs:
+  pin-photo-isolated:
+    # Independent check: earlier unrelated UI tests must not hide image regressions.
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime and test dependencies without API credentials
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+      - name: Verify exact-product photo enhancement and existing endpoint behavior
+        run: python -m pytest backend/tests/test_pin_image_api.py -q
+
   hosted-owner-security-preflight:
     # Live read-only check from an external runner; no owner code, render or quota.
     # Complements offline mocks and catches accidental public status/MP4 access.
