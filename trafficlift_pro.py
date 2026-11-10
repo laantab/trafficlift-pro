@@ -770,6 +770,22 @@ async def delete_campaign(campaign_id: str) -> JSONResponse:
     return JSONResponse({"success": True, "deleted": campaign_id})
 
 
+class BatchDeleteCampaignsRequest(BaseModel):
+    campaign_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+@app.post("/api/v1/campaigns/delete-selected")
+async def delete_selected_campaigns(request: BatchDeleteCampaignsRequest) -> JSONResponse:
+    """Delete only checked cleanup candidates; all other campaigns are retained."""
+    ids = request.campaign_ids
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=422, detail="Duplicate campaign IDs are not allowed.")
+    if not all(len(i) == 36 and i.count("-") == 4 for i in ids):
+        raise HTTPException(status_code=422, detail="Invalid campaign ID.")
+    deleted = db.delete_many(ids)
+    return JSONResponse({"success": True, "deleted": deleted, "requested": len(ids)})
+
+
 @app.delete("/api/v1/campaigns/clear")
 async def clear_all_campaigns() -> JSONResponse:
     """Delete ALL saved campaigns. Use with caution."""
