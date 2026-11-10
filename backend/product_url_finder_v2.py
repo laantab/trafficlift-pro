@@ -541,6 +541,46 @@ def _resolved_product_from_rendered_page(snapshot: FetchSnapshot) -> Optional[di
     }
 
 
+def _render_exact_amazon_product(url: str, expected_asin: str) -> Optional[dict]:
+    """Retry an exact /dp/ product in a rendered browser, without substitutes.
+
+    The rendered destination, on-page ASIN when present, and the expected ASIN
+    must agree. A generic Amazon shopping page can never pass this gate.
+    """
+    try:
+        snapshot = _javascript_get(url)
+        if snapshot.status_code >= 400:
+            return None
+        actual_asin = _asin_from_url(snapshot.final_url)
+        if actual_asin != expected_asin:
+            return None
+        soup = BeautifulSoup(snapshot.html or "", "html.parser")
+        identity = soup.select_one('input#ASIN, input[name="ASIN"]')
+        if identity:
+            on_page_asin = str(identity.get("value") or "").strip().upper()
+            if on_page_asin != expected_asin:
+                return None
+        data = _extract_metadata(snapshot.html, snapshot.final_url)
+        title = _clean_product_title(data.get("name") or "")
+        image = data.get("image_url") or ""
+        # Require the real product heading, not just shopping-page OpenGraph.
+        if not soup.select_one("#productTitle"):
+            return None
+        if not _looks_specific_title(title) or not _looks_product_image(image):
+            return None
+        return {
+            "name": title,
+            "image_url": _upgrade_amazon_image(image),
+            "asin": expected_asin,
+            "description": data.get("description", ""),
+            "category": _infer_product_category(title),
+            "final_url": f"https://www.amazon.com/dp/{expected_asin}",
+            "source": "amazon_js_exact_retry",
+        }
+    except Exception:
+        return None
+
+
 def _pin_factory_fallback(url: str) -> Optional[dict]:
     import requests
 
@@ -585,6 +625,13 @@ def resolve_product_identity(url: str) -> dict:
         raise ValueError("Product URL Finder V2 currently handles Amazon product links.")
 
     snapshot = _browser_get(clean)
+    # Ordinary server fetches are often blocked by Amazon even for a valid
+    # /dp/ASIN URL. Try a bounded rendered read of that same ASIN, never search.
+    requested_asin = _asin_from_url(clean) if not _is_short_link(clean) else None
+    if requested_asin and (snapshot.status_code >= 400 or not snapshot.html):
+        exact = _render_exact_amazon_product(clean, requested_asin)
+        if exact:
+            return exact
     if snapshot.status_code >= 500 or not snapshot.html:
         if _is_short_link(clean):
             try:
@@ -632,6 +679,12 @@ def resolve_product_identity(url: str) -> dict:
                 return canonical_meta
         except Exception:
             pass
+        # Even when the original fetch reached a generic Amazon shell, the
+        # rendered canonical page may contain the required product identity.
+        # Never use a redirected or mismatched product.
+        exact = _render_exact_amazon_product(canonical, asin)
+        if exact:
+            return exact
 
     # Amazon share/mission pages sometimes hide the ASIN but still return
     # product-specific OpenGraph/JSON-LD metadata for the exact submitted link.
