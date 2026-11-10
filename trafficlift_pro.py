@@ -202,6 +202,17 @@ class GenerateRequest(BaseModel):
             raise ValueError(
                 "Provide either input_url or product_payload."
             )
+        allowed = {
+            "organic": {"pinterest", "tiktok_organic", "youtube_shorts", "twitter_threads"},
+            "paid": {"meta_ads", "tiktok_ads"},
+        }[self.mode]
+        invalid = sorted(set(self.target_channels) - allowed)
+        if invalid:
+            raise ValueError(
+                f"Channels {invalid} do not belong to {self.mode} Growth Strategy mode."
+            )
+        if len(self.target_channels) != len(set(self.target_channels)):
+            raise ValueError("Duplicate target channels are not allowed.")
         return self
 
 
