@@ -413,13 +413,26 @@
                     <button onclick="reloadHistory()" class="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Refresh">
                         <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                     </button>
-                    <button onclick="clearAllHistory()" class="p-2 rounded-lg hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition" title="Clear all">
+                    <button onclick="toggleHistoryCleanup()" class="p-2 rounded-lg hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition" title="Select what to keep; review before deleting">
                         <i data-lucide="trash-2" class="w-4 h-4"></i>
                     </button>
                     <button onclick="toggleHistory()" class="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
                         <i data-lucide="x" class="w-4 h-4"></i>
                     </button>
                 </div>
+            </div>
+            <!-- Safe campaign cleanup: nothing is deleted until final confirmation. -->
+            <div id="historyCleanupPanel" class="hidden border-b border-slate-800 px-4 py-3 space-y-2 bg-slate-950">
+                <p class="text-sm text-slate-200 font-semibold">Choose what to KEEP</p>
+                <p class="text-xs text-slate-400">Checked = keep. Unchecked = delete. All items start protected. HeyGen videos are not affected.</p>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="setAllHistoryKeep(true)" class="rounded bg-slate-800 px-3 py-1.5 text-xs text-white">Keep all</button>
+                    <button onclick="setAllHistoryKeep(false)" class="rounded bg-slate-800 px-3 py-1.5 text-xs text-white">Uncheck all</button>
+                    <button onclick="toggleHistoryCleanup()" class="rounded bg-slate-800 px-3 py-1.5 text-xs text-white">Cancel</button>
+                </div>
+                <p id="historyCleanupCount" class="text-xs text-slate-300" aria-live="polite">Loading campaigns...</p>
+                <button id="historyDeleteUncheckedBtn" onclick="deleteUncheckedHistory()" disabled
+                    class="w-full bg-red-700 disabled:bg-slate-700 disabled:text-slate-400 hover:bg-red-600 text-white text-sm font-semibold rounded p-2">Delete unchecked campaigns</button>
             </div>
             <!-- History List -->
             <div id="historyList" class="flex-1 overflow-y-auto p-4 space-y-2">
@@ -456,6 +469,10 @@
     let currentMode = 'organic';
     let currentResults = null;
     let historyOpen = false;
+    let historyCleanupMode = false;
+    let historyCampaigns = [];
+    let historyTotal = 0;
+    let historyKeepIds = new Set();
 
     const WINNER_SESSION_KEY = 'tlp_current_winner';
 
@@ -1092,16 +1109,27 @@
         historyOpen = !historyOpen;
         const drawer = document.getElementById('historyDrawer');
         drawer.classList.toggle('hidden', !historyOpen);
+        if (!historyOpen) {
+            historyCleanupMode = false;
+            document.getElementById('historyCleanupPanel').classList.add('hidden');
+        }
         if (historyOpen) loadHistory();
         lucide.createIcons();
     }
 
     async function loadHistory() {
         try {
-            const r = await fetch(apiUrl('/api/v1/campaigns/history?limit=100'));
+            const r = await fetch(apiUrl('/api/v1/campaigns/history?limit=200'));
             if (!r.ok) return;
             const d = await r.json();
-            renderHistoryList(d.campaigns || []);
+            historyCampaigns = d.campaigns || [];
+            historyTotal = d.total || 0;
+            if (historyCleanupMode) {
+                const available = new Set(historyCampaigns.map(c => c.id));
+                historyKeepIds = new Set([...historyKeepIds].filter(id => available.has(id)));
+            }
+            renderHistoryList(historyCampaigns);
+            updateHistoryCleanupCount();
             document.getElementById('historyCount').textContent = d.total || 0;
             document.getElementById('drawerHistoryCount').textContent = d.total || 0;
         } catch (e) { /* ignore */ }
@@ -1120,9 +1148,14 @@
         }
 
         list.innerHTML = campaigns.map(c => `
-            <div class="history-item rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2 cursor-pointer"
-                 onclick="loadCampaign('${c.id}')">
+            <div class="history-item rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2 ${historyCleanupMode ? '' : 'cursor-pointer'}"
+                 ${historyCleanupMode ? '' : `onclick="loadCampaign('${c.id}')"`}>
                 <div class="flex items-start gap-3">
+                    ${historyCleanupMode ? `<label class="flex flex-col items-center gap-1 shrink-0 text-xs text-emerald-300" onclick="event.stopPropagation()">
+                        <input type="checkbox" aria-label="Keep campaign ${escapeHtml(c.product_title || c.input_url)}" ${historyKeepIds.has(c.id) ? 'checked' : ''}
+                            onchange="setHistoryKeep('${c.id}', this.checked)" class="w-5 h-5 accent-emerald-500">
+                        Keep
+                    </label>` : ''}
                     <img src="${c.product_image || 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80=80'}"
                          alt="" class="w-10 h-10 rounded-lg object-cover bg-slate-800 flex-shrink-0"
                          onerror="this.style.display='none'">
@@ -1137,13 +1170,13 @@
                         ${(c.channels || []).map(ch => `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${chLabel(ch)}</span>`).join('')}
                     </div>
                     <div class="flex items-center gap-1">
-                        <button onclick="event.stopPropagation(); loadCampaign('${c.id}')"
+                        <button onclick="event.stopPropagation(); loadCampaign('${c.id}')" ${historyCleanupMode ? 'disabled' : ''}
                                 class="px-2 py-1 rounded bg-brand-500/15 text-brand-400 text-xs" title="Reopen saved assets without generating again">Open &amp; Reuse</button>
-                        <button onclick="event.stopPropagation(); deleteCampaign('${c.id}')"
+                        <button onclick="event.stopPropagation(); deleteCampaign('${c.id}')" ${historyCleanupMode ? 'disabled' : ''}
                                 class="p-1 rounded hover:bg-red-500/10 text-slate-600 hover:text-red-400 transition" title="Delete">
                             <i data-lucide="trash-2" class="w-3 h-3"></i>
                         </button>
-                        <button onclick="event.stopPropagation(); copyCampaign('${c.id}')"
+                        <button onclick="event.stopPropagation(); copyCampaign('${c.id}')" ${historyCleanupMode ? 'disabled' : ''}
                                 class="p-1 rounded hover:bg-slate-800 text-slate-600 hover:text-white transition" title="Copy">
                             <i data-lucide="copy" class="w-3 h-3"></i>
                         </button>
@@ -1217,14 +1250,70 @@
         }
     }
 
-    async function clearAllHistory() {
-        if (!confirm('Delete ALL campaigns? This cannot be undone.')) return;
+    function toggleHistoryCleanup() {
+        historyCleanupMode = !historyCleanupMode;
+        // Enter with every current campaign protected. Users can uncheck
+        // individual records or use Uncheck all before selecting keeps.
+        historyKeepIds = new Set(historyCleanupMode ? historyCampaigns.map(c => c.id) : []);
+        document.getElementById('historyCleanupPanel').classList.toggle('hidden', !historyCleanupMode);
+        renderHistoryList(historyCampaigns);
+        updateHistoryCleanupCount();
+    }
+
+    function setHistoryKeep(id, keep) {
+        if (keep) historyKeepIds.add(id);
+        else historyKeepIds.delete(id);
+        updateHistoryCleanupCount();
+    }
+
+    function setAllHistoryKeep(keep) {
+        historyKeepIds = new Set(keep ? historyCampaigns.map(c => c.id) : []);
+        renderHistoryList(historyCampaigns);
+        updateHistoryCleanupCount();
+    }
+
+    function updateHistoryCleanupCount() {
+        const allLoaded = historyTotal === historyCampaigns.length;
+        const keepCount = historyCampaigns.filter(c => historyKeepIds.has(c.id)).length;
+        const deleteCount = historyCampaigns.length - keepCount;
+        const message = document.getElementById('historyCleanupCount');
+        const button = document.getElementById('historyDeleteUncheckedBtn');
+        if (message) message.textContent = !allLoaded
+            ? 'Not all campaigns loaded. Deletion disabled; refresh the history.'
+            : keepCount + ' kept · ' + deleteCount + ' marked to delete';
+        if (button) {
+            button.disabled = !historyCleanupMode || !allLoaded || deleteCount === 0;
+            button.textContent = 'Delete ' + deleteCount + ' unchecked campaign' + (deleteCount === 1 ? '' : 's');
+        }
+    }
+
+    async function deleteUncheckedHistory() {
+        if (!historyCleanupMode || historyTotal !== historyCampaigns.length) return;
+        const ids = historyCampaigns.filter(c => !historyKeepIds.has(c.id)).map(c => c.id);
+        if (!ids.length) return;
+        const keepCount = historyCampaigns.length - ids.length;
+        if (!confirm('Permanently delete ' + ids.length + ' campaign records and their saved assets? ' +
+                     keepCount + ' checked campaigns will be kept. HeyGen videos are unaffected. This cannot be undone.')) return;
+        const button = document.getElementById('historyDeleteUncheckedBtn');
+        button.disabled = true;
         try {
-            await fetch(apiUrl('/api/v1/campaigns/clear'), { method: 'DELETE' });
-            loadHistory();
-            showToast('Cleared', 'All campaigns deleted', 'success');
+            const response = await fetch(apiUrl('/api/v1/campaigns/delete-selected'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({campaign_ids: ids}),
+            });
+            if (!response.ok) throw new Error('Cleanup request failed: HTTP ' + response.status);
+            const outcome = await response.json();
+            if (outcome.deleted !== ids.length) throw new Error('Only ' + outcome.deleted + ' of ' + ids.length + ' records found; refresh to reconcile.');
+            historyCleanupMode = false;
+            document.getElementById('historyCleanupPanel').classList.add('hidden');
+            await loadHistory();
+            showToast('History cleaned', outcome.deleted + ' campaigns deleted; kept campaigns preserved.', 'success');
         } catch (e) {
-            showToast('Clear failed', e.message, 'error');
+            await loadHistory();
+            showToast('Review cleanup result', e.message, 'error');
+        } finally {
+            updateHistoryCleanupCount();
         }
     }
 
