@@ -370,3 +370,74 @@ def test_short_link_can_resolve_direct_rendered_product_page():
         "https://m.media-amazon.com/images/I/61SS+778qxL._AC_SL1500_.jpg"
     )
     assert result["source"] == "amazon_js_exact"
+
+
+def test_blocked_direct_asin_uses_matching_rendered_product_only():
+    url = "https://www.amazon.com/dp/B012345678"
+    blocked = FetchSnapshot(url, "<title>Robot check</title>", 503, [])
+    rendered = FetchSnapshot(
+        url,
+        '<span id="productTitle">Silicone Baking Mat</span>'
+        '<input id="ASIN" value="B012345678">'
+        '<img id="landingImage" src="https://m.media-amazon.com/images/I/product.jpg">',
+        200, [],
+    )
+    with patch("backend.product_url_finder_v2._browser_get", return_value=blocked), patch(
+        "backend.product_url_finder_v2._javascript_get", return_value=rendered
+    ):
+        result = resolve_product_identity(url)
+    assert result["asin"] == "B012345678"
+    assert result["name"] == "Silicone Baking Mat"
+    assert result["source"] == "amazon_js_exact_retry"
+
+
+def test_rendered_retry_rejects_different_asin_product():
+    from backend.product_url_finder_v2 import _render_exact_amazon_product
+    intended = "https://www.amazon.com/dp/B012345678"
+    redirected = FetchSnapshot(
+        "https://www.amazon.com/dp/B099999999",
+        '<span id="productTitle">Unrelated Product</span>'
+        '<img id="landingImage" src="https://m.media-amazon.com/images/I/unrelated.jpg">',
+        200, [],
+    )
+    with patch("backend.product_url_finder_v2._javascript_get", return_value=redirected):
+        assert _render_exact_amazon_product(intended, "B012345678") is None
+
+
+def test_rendered_retry_rejects_generic_or_mismatched_page():
+    from backend.product_url_finder_v2 import _render_exact_amazon_product
+    intended = "https://www.amazon.com/dp/B012345678"
+    generic = FetchSnapshot(
+        intended,
+        '<meta property="og:title" content="Generic shopping selection">'
+        '<meta property="og:image" content="https://m.media-amazon.com/images/I/random.jpg">',
+        200, [],
+    )
+    mismatch = FetchSnapshot(
+        intended,
+        '<span id="productTitle">Unrelated Product</span>'
+        '<input id="ASIN" value="B099999999">'
+        '<img id="landingImage" src="https://m.media-amazon.com/images/I/unrelated.jpg">',
+        200, [],
+    )
+    with patch("backend.product_url_finder_v2._javascript_get", side_effect=[generic, mismatch]):
+        assert _render_exact_amazon_product(intended, "B012345678") is None
+        assert _render_exact_amazon_product(intended, "B012345678") is None
+
+
+def test_direct_asin_generic_shell_can_use_matching_canonical_render():
+    url = "https://www.amazon.com/dp/B012345678"
+    generic = FetchSnapshot(url, "<title>Amazon Shopping</title>", 200, [])
+    rendered = FetchSnapshot(
+        url,
+        '<span id="productTitle">Silicone Baking Mat</span>'
+        '<input id="ASIN" value="B012345678">'
+        '<img id="landingImage" src="https://m.media-amazon.com/images/I/product.jpg">',
+        200, [],
+    )
+    with patch("backend.product_url_finder_v2._browser_get", return_value=generic), patch(
+        "backend.product_url_finder_v2._javascript_get", return_value=rendered
+    ):
+        result = resolve_product_identity(url)
+    assert result["asin"] == "B012345678"
+    assert result["source"] == "amazon_js_exact_retry"
