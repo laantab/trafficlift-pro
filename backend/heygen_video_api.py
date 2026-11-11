@@ -242,9 +242,16 @@ def trusted_winner_image(product):
     if not source or not destination or not image:
         return None
     from backend.product_facts import canonical
+    from backend.product_url_finder_v2 import _asin_from_url
     try:
         if canonical(source) != canonical(destination):
-            return None
+            # Product-title URLs and canonical /dp/ URLs can describe the
+            # exact same Amazon ASIN. Preserve identity only if BOTH URLs
+            # individually carry that ASIN; no redirect/search inference.
+            source_asin = _asin_from_url(source)
+            destination_asin = _asin_from_url(destination)
+            if not source_asin or source_asin != destination_asin:
+                return None
     except Exception:
         return None
     from local_video.trafficlift_video_bridge import _validate_public_https_url
