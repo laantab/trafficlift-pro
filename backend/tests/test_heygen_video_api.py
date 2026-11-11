@@ -430,7 +430,7 @@ def test_exact_asin_photo_recovery_does_not_guess_short_links_or_retailer_pages(
     with patch("backend.product_url_finder_v2.resolve_product_identity") as resolve:
         for url in ("https://link.amazon/B03bHi8EM", "https://www.amazon.com/s?k=baking+mat",
                     "https://seller.example/product"):
-            product = VideoRequest(name="Silicone Mat", product_url=url, image_url="https://example.com/image.jpg")
+            product = VideoRequest.model_construct(name="Silicone Mat", product_url=url, image_url="https://example.com/image.jpg")
             assert exact_seller_photo_fallback(product) is None
         resolve.assert_not_called()
 
