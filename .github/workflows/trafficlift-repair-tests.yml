@@ -116,7 +116,7 @@ jobs:
       - name: Install Chromium browser for release acceptance
         run: |
           npm install --no-save --no-package-lock playwright@1.56.1 jsdom@24 @napi-rs/canvas@0.1.96
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
       - name: Verify mobile dashboard and Video Studio preserve desktop design
         run: node backend/tests/mobile_responsive_chromium.cjs
       - name: Verify lamp pin in real Chromium
@@ -247,7 +247,7 @@ jobs:
           # The owned drawing is the same Desk Organizer fixture used by the
           # real Kokoro compositor. No seller photo, owner secret or paid call.
           npm install --no-save --no-package-lock playwright@1.56.1 @napi-rs/canvas@0.1.96
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           node backend/tests/integrated_owned_pin.cjs
           node backend/tests/hosted_owner_browser_recovery.cjs
           pip install fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1 requests==2.32.3
