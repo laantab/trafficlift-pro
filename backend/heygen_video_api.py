@@ -262,6 +262,32 @@ def trusted_winner_image(product):
     return image
 
 
+def exact_seller_photo_fallback(product):
+    """One bounded, unpaid re-read of the user's exact Amazon ASIN listing.
+
+    Discovery photos can be reachable without being proven to belong to the
+    seller listing. Never approve those on image-host checks alone. An Amazon
+    ASIN embedded in the destination anchors the single listing to inspect.
+    """
+    from backend.product_url_finder_v2 import _asin_from_url, resolve_product_identity
+    from local_video.trafficlift_video_bridge import _validate_public_https_url
+    destination = str(getattr(product, "product_url", "") or "")
+    expected_asin = _asin_from_url(destination)
+    if not expected_asin:
+        return None
+    try:
+        record = resolve_product_identity(destination)
+        if record.get("asin") != expected_asin:
+            return None
+        image = str(record.get("image_url") or "")
+        if not image:
+            return None
+        _validate_public_https_url(image)
+        return image
+    except (ValueError, TypeError, OSError, TimeoutError):
+        return None
+
+
 def product_prompt(name, plan):
     narration = compose_heygen_narration(name, plan)
     lower_name = str(name or "").casefold()
@@ -367,9 +393,15 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
     try:
         plan, listing_photos = prepare_video_plan(product, require_renderable=True)
         marketing_readiness_gate(plan)
+        # Unverified discovery thumbnails are not accepted for paid video.
+        # If the seller listing is an exact Amazon /dp/ASIN page, perform
+        # one free, identity-locked image recovery before rejecting the video.
+        trusted_photo = trusted_winner_image(product)
+        if not listing_photos and not trusted_photo:
+            trusted_photo = exact_seller_photo_fallback(product)
         listing_image = verified_listing_image(
             listing_photos,
-            trusted_image=trusted_winner_image(product),
+            trusted_image=trusted_photo,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
