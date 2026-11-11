@@ -356,3 +356,36 @@ def test_non_mat_product_gets_general_physics_lock_without_mat_specific_directio
     assert "PHYSICAL CONTACT LOCK:" in prompt
     assert "No object may pass through" in prompt
     assert "FLEXIBLE MAT CONTACT LOCK:" not in prompt
+
+
+def test_verified_amazon_image_accepts_same_asin_in_titled_and_dp_urls():
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(
+        name="Silicone Baking Mat",
+        image_url="https://m.media-amazon.com/images/I/mat.jpg",
+        product_url="https://www.amazon.com/Silicone-Mat/dp/B0HJ8LLXVL",
+        image_source="https://www.amazon.com/dp/B0HJ8LLXVL?th=1",
+        product_identity_verified=True,
+    )
+    assert trusted_winner_image(product) == product.image_url
+
+
+def test_verified_amazon_image_rejects_lookalike_and_missing_identity():
+    from backend.photo_video_api import VideoRequest
+    baseline = dict(
+        name="Silicone Baking Mat",
+        image_url="https://m.media-amazon.com/images/I/mat.jpg",
+        product_url="https://www.amazon.com/Silicone-Mat/dp/B0HJ8LLXVL",
+        image_source="https://www.amazon.com/dp/B012345678",
+        product_identity_verified=True,
+    )
+    assert trusted_winner_image(VideoRequest(**baseline)) is None
+    assert trusted_winner_image(VideoRequest(**{**baseline, "image_source": "https://www.amazon.com/Silicone-Mat"})) is None
+    assert trusted_winner_image(VideoRequest(**{**baseline, "image_source": baseline["product_url"], "product_identity_verified": False})) is None
+
+
+def test_heygen_image_handoff_does_not_depend_on_optional_image_status_label():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[2] / "index.html").read_text(encoding="utf-8")
+    assert "product_identity_verified: winner.product_identity_verified === true," in html
+    assert "winner.product_identity_verified === true && winner.image_status === 'verified'" not in html
