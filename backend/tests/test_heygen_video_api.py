@@ -389,3 +389,86 @@ def test_heygen_image_handoff_does_not_depend_on_optional_image_status_label():
     html = (Path(__file__).resolve().parents[2] / "index.html").read_text(encoding="utf-8")
     assert "product_identity_verified: winner.product_identity_verified === true," in html
     assert "winner.product_identity_verified === true && winner.image_status === 'verified'" not in html
+
+
+def test_exact_asin_photo_recovery_allows_unverified_discovery_image_to_be_replaced():
+    from backend.heygen_video_api import exact_seller_photo_fallback
+    from backend.photo_video_api import VideoRequest
+    seller = "https://www.amazon.com/Silicone-Baking-Mat/dp/B0HJ8LLXVL"
+    correct = "https://m.media-amazon.com/images/I/true-exact-mat.jpg"
+    product = VideoRequest(
+        name="Silicone Baking Mat",
+        product_url=seller,
+        image_url="https://m.media-amazon.com/images/I/unproven-thumbnail.jpg",
+        product_identity_verified=False,
+    )
+    record = {"asin": "B0HJ8LLXVL", "image_url": correct,
+              "name": "Silicone Baking Mat", "final_url": "https://www.amazon.com/dp/B0HJ8LLXVL"}
+    with patch("backend.product_url_finder_v2.resolve_product_identity", return_value=record) as resolve, \
+         patch("local_video.trafficlift_video_bridge._validate_public_https_url"):
+        assert exact_seller_photo_fallback(product) == correct
+    resolve.assert_called_once_with(seller)
+
+
+def test_exact_asin_photo_recovery_rejects_mismatched_asin():
+    from backend.heygen_video_api import exact_seller_photo_fallback
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(
+        name="Silicone Baking Mat",
+        product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+        image_url="https://m.media-amazon.com/images/I/unproven-thumbnail.jpg",
+    )
+    record = {"asin": "B012345678",
+              "image_url": "https://m.media-amazon.com/images/I/wrong-product.jpg"}
+    with patch("backend.product_url_finder_v2.resolve_product_identity", return_value=record):
+        assert exact_seller_photo_fallback(product) is None
+
+
+def test_exact_asin_photo_recovery_does_not_guess_short_links_or_retailer_pages():
+    from backend.heygen_video_api import exact_seller_photo_fallback
+    from backend.photo_video_api import VideoRequest
+    with patch("backend.product_url_finder_v2.resolve_product_identity") as resolve:
+        for url in ("https://link.amazon/B03bHi8EM", "https://www.amazon.com/s?k=baking+mat",
+                    "https://seller.example/product"):
+            product = VideoRequest.model_construct(name="Silicone Mat", product_url=url, image_url="https://example.com/image.jpg")
+            assert exact_seller_photo_fallback(product) is None
+        resolve.assert_not_called()
+
+
+def test_heygen_submit_uses_exact_seller_fallback_without_paying_for_other_product():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(name="Silicone Baking Mat",
+                           product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+                           image_url="https://m.media-amazon.com/images/I/unproven-thumbnail.jpg",
+                           product_identity_verified=False)
+    plan = {"mode": "product_overview", "evidence": []}
+    correct = "https://m.media-amazon.com/images/I/verified-seller-photo.jpg"
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=(plan, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.exact_seller_photo_fallback", return_value=correct) as fallback, \
+         patch("backend.heygen_video_api.provider_request", return_value={"video_id": "sample_valid_job_987"}) as send:
+        result = heygen_submit(HeyGenSubmit(product=product, approve_paid_generation=True), Mock())
+    assert result["status"] == "submitted"
+    fallback.assert_called_once()
+    assert send.call_args.kwargs["json"]["image"]["url"] == correct
+
+
+def test_heygen_recovery_failure_does_not_start_paid_request():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(name="Silicone Baking Mat",
+                           product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+                           image_url="https://m.media-amazon.com/images/I/unproven-thumbnail.jpg")
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=({"mode": "product_overview"}, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.exact_seller_photo_fallback", return_value=None), \
+         patch("backend.heygen_video_api.provider_request") as paid:
+        with pytest.raises(HTTPException) as err:
+            heygen_submit(HeyGenSubmit(product=product, approve_paid_generation=True), Mock())
+    assert err.value.status_code == 422
+    paid.assert_not_called()
