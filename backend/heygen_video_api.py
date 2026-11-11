@@ -284,7 +284,8 @@ def exact_seller_photo_fallback(product):
             return None
         _validate_public_https_url(image)
         return image
-    except (ValueError, TypeError, OSError, TimeoutError):
+    except Exception:
+        # A failed seller lookup must never start a paid generation.
         return None
 
 
