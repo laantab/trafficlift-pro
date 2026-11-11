@@ -2378,7 +2378,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             image_url: winner.image_url,
             product_url: (winner.url || document.getElementById('freeProductUrl').value.trim()).slice(0,2048),
             image_source: (winner.image_source || winner.url_resolution?.final_url || winner.url || '').slice(0,2048),
-            product_identity_verified: winner.product_identity_verified === true && winner.image_status === 'verified',
+            product_identity_verified: winner.product_identity_verified === true,
             benefit: document.getElementById('freeProductFact').value.trim().slice(0,160),
             fact_sources: [...(winner.seller_benefit_source && winner.seller_facts?.length ? [{title:winner.name,url:winner.seller_benefit_source,snippet:winner.seller_facts.join('\\n')}] : []), ...(winner.research_sources || [])].slice(0,4),
             buyer_need: document.getElementById('freeBuyerNeed').value.trim().slice(0,100),
