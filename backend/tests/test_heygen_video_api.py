@@ -472,3 +472,89 @@ def test_heygen_recovery_failure_does_not_start_paid_request():
             heygen_submit(HeyGenSubmit(product=product, approve_paid_generation=True), Mock())
     assert err.value.status_code == 422
     paid.assert_not_called()
+
+
+def test_video_studio_owner_photo_is_independent_of_pinterest_and_listing_rediscovery():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    pin_photo = "https://m.media-amazon.com/images/I/pin-version.jpg"
+    video_photo = "https://cdn.shopify.com/s/files/1/12345/video-original.jpg"
+    product = VideoRequest(
+        name="Silicone Baking Mat", image_url=pin_photo,
+        product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+        product_identity_verified=False,
+    )
+    body = HeyGenSubmit(
+        product=product, video_photo_url=video_photo, confirm_video_photo=True,
+        approve_paid_generation=True,
+    )
+    plan = {"mode": "product_overview", "evidence": []}
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=(plan, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.exact_seller_photo_fallback") as seller_lookup, \
+         patch("backend.heygen_video_api.verified_listing_image") as shared_gate, \
+         patch("local_video.trafficlift_video_bridge._validate_public_https_url"), \
+         patch("backend.heygen_video_api.provider_request", return_value={"video_id": "video_private_photo_123"}) as send:
+        result = heygen_submit(body, Mock())
+    assert result["status"] == "submitted"
+    assert send.call_args.kwargs["json"]["image"]["url"] == video_photo
+    assert product.image_url == pin_photo
+    seller_lookup.assert_not_called()
+    shared_gate.assert_not_called()
+
+
+def test_video_studio_photo_requires_explicit_owner_confirmation_before_paid_call():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(
+        name="Silicone Baking Mat",
+        image_url="https://m.media-amazon.com/images/I/pin-version.jpg",
+        product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+    )
+    body = HeyGenSubmit(product=product,
+                        video_photo_url="https://cdn.shopify.com/s/files/video-photo.jpg",
+                        confirm_video_photo=False, approve_paid_generation=True)
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=({"mode":"product_overview"}, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.provider_request") as paid:
+        with pytest.raises(HTTPException) as err:
+            heygen_submit(body, Mock())
+    assert err.value.status_code == 422
+    paid.assert_not_called()
+
+
+def test_video_studio_rejects_unsafe_owner_photo_without_paid_call():
+    from backend.heygen_video_api import heygen_submit, HeyGenSubmit
+    from backend.photo_video_api import VideoRequest
+    product = VideoRequest(
+        name="Silicone Baking Mat",
+        image_url="https://m.media-amazon.com/images/I/pin-version.jpg",
+        product_url="https://www.amazon.com/dp/B0HJ8LLXVL",
+    )
+    body = HeyGenSubmit(product=product, video_photo_url="http://127.0.0.1/private.jpg",
+                        confirm_video_photo=True, approve_paid_generation=True)
+    with patch("backend.heygen_video_api.video_guard"), \
+         patch("backend.heygen_video_api.configured", return_value=True), \
+         patch("backend.heygen_video_api.prepare_video_plan", return_value=({"mode":"product_overview"}, [])), \
+         patch("backend.heygen_video_api.marketing_readiness_gate"), \
+         patch("backend.heygen_video_api.provider_request") as paid:
+        with pytest.raises(HTTPException) as err:
+            heygen_submit(body, Mock())
+    assert err.value.status_code == 422
+    paid.assert_not_called()
+
+
+def test_video_studio_photo_controls_do_not_modify_pinterest_image_path():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[2] / "index.html").read_text(encoding="utf-8")
+    assert 'id="videoPhotoUrl"' in html
+    assert 'id="videoPhotoConfirmed"' in html
+    assert "function videoPhotoStorageKey(winner)" in html
+    assert "image_url: videoPhotoUrl" in html
+    assert "video_photo_url:videoPhotoUrl,confirm_video_photo:videoPhotoConfirmed" in html
+    assert "const videoPhoto = readVideoPhotoChoice(winner);" in html
+    assert "const base = window.location.pathname === '/studio' ? '/api/v1/product-image?' : '/api/v1/pin-image?';" in html

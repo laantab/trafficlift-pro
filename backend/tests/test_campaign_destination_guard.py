@@ -68,7 +68,8 @@ def test_video_render_does_not_require_marketing_destination_approval():
     section = page.split("async function submitHeyGenVideo(statusEl, resultEl)", 1)[1]
     section = section.split("async function pollHeyGenVideo", 1)[0]
     assert "requireCampaignDestination(winner);" not in section
-    assert "Choose a product with a verified seller image first." in section
+    assert "Confirm the exact product shown in the Video Studio photo" in section
+    assert "video_photo_url:videoPhotoUrl" in section
     assert "approve_paid_generation:true" in section
     # Publication/copy guards remain present elsewhere.
     assert page.count("requireCampaignDestination(") >= 4
