@@ -881,14 +881,21 @@ def test_video_query_legacy_fallback_resolves_file_id(monkeypatch):
     assert any("/v1/files/retrieve" in url for url, _ in calls)
 
 
-def test_video_frontend_uses_current_winner_and_valid_h3_models():
+def test_video_frontend_uses_current_winner_and_heygen_without_minimax():
+    """Retired MiniMax UI must not block the independent HeyGen photo flow."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     assert "function buildWinnerVideoPrompt" in src
     assert "window.__currentWinner" in src
-    assert "reference_image_url" in src
-    assert "MiniMax-H3-Max" in src
-    assert "MiniMax-Hailuo-2.3" not in src
-    assert "syncVideoModelOptions" in src
+    assert 'document.getElementById(\'videoProvider\').value = \'heygen\'' in src
+    assert '<option value="heygen" selected>' in src
+    assert '<option value="minimax">' not in src
+    assert 'id="minimaxContainer"' not in src
+    assert "await submitHeyGenVideo(statusEl, resultEl)" in src
+    assert "/api/v1/heygen-video/submit" in src
+    assert "videoPhotoConfirmed" in src
+    assert "Pinterest's image selection is never changed" in src
+    assert "approve_paid_generation:true" in src
+    assert "Submitting to MiniMax" not in src
 
 
 
