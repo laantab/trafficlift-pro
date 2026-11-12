@@ -362,6 +362,9 @@ class HeyGenSubmit(BaseModel):
     duration: int = Field(default=15, ge=5, le=15)
     # Explicit opt-in per call; caller cannot accidentally incur provider charges.
     approve_paid_generation: bool = False
+    # Video Studio owns this image. Pinterest still uses winner.image_url.
+    video_photo_url: str = Field(default="", max_length=2048)
+    confirm_video_photo: bool = False
 
 
 @router.get("/api/v1/heygen-video/readiness")
@@ -394,16 +397,29 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
     try:
         plan, listing_photos = prepare_video_plan(product, require_renderable=True)
         marketing_readiness_gate(plan)
-        # Unverified discovery thumbnails are not accepted for paid video.
-        # If the seller listing is an exact Amazon /dp/ASIN page, perform
-        # one free, identity-locked image recovery before rejecting the video.
-        trusted_photo = trusted_winner_image(product)
-        if not listing_photos and not trusted_photo:
-            trusted_photo = exact_seller_photo_fallback(product)
-        listing_image = verified_listing_image(
-            listing_photos,
-            trusted_image=trusted_photo,
-        )
+        # Video Studio is deliberately independent from Pinterest's image.
+        # The authenticated owner must explicitly confirm any manually
+        # selected video photograph as depicting this exact product.
+        # No seller-listing claim is made for owner-confirmed photos.
+        if body.video_photo_url:
+            if not body.confirm_video_photo:
+                raise HTTPException(422, "Confirm that the Video Studio photo shows this exact product; no paid video was started.")
+            from local_video.trafficlift_video_bridge import _validate_public_https_url
+            try:
+                _validate_public_https_url(body.video_photo_url)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(422, "The independent video photo must be an accessible public HTTPS image URL; no paid video was started.") from exc
+            listing_image = body.video_photo_url
+        else:
+            # Legacy requests retain the strict exact-listing gate and its
+            # safe zero-paid-call failure behavior.
+            trusted_photo = trusted_winner_image(product)
+            if not listing_photos and not trusted_photo:
+                trusted_photo = exact_seller_photo_fallback(product)
+            listing_image = verified_listing_image(
+                listing_photos,
+                trusted_image=trusted_photo,
+            )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Image-to-video inherits the input image aspect ratio; vertical output requires
