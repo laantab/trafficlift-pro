@@ -329,17 +329,18 @@ def test_compact_spoken_identity_preserves_model_identifier_from_later_title_tex
     assert len(spoken_identity.split()) <= 10
 
 
-def test_baking_mat_prompt_shows_actual_chicken_removal_without_clipping():
+def test_baking_mat_prompt_keeps_exact_source_design_and_physical_removal():
     prompt = product_prompt(
         "Silicone Baking Mat Non Stick Pastry Sheet",
         {"mode": "product_overview", "evidence": []},
     )
     assert "PHYSICAL CONTACT LOCK:" in prompt
     assert "BAKING MAT DEMONSTRATION SEQUENCE:" in prompt
-    assert "cooked chicken resting naturally on the flat silicone mat" in prompt
-    assert "one continuous, clearly visible removal shot" in prompt
-    assert "lift one piece of cooked chicken upward and completely clear of the mat" in prompt
-    assert "small visible gap between the chicken and mat after release" in prompt
+    assert "The EXACT supplied product photograph" in prompt
+    assert "do not add or remove handles" in prompt
+    assert "Never infer product shape from the generic product title" in prompt
+    assert "use an accurate, steady product close-up instead" in prompt
+    assert "one continuous visible removal shot" in prompt
     assert "Do NOT jump directly from food-on-mat to an empty mat" in prompt
     assert "FLEXIBLE MAT CONTACT LOCK:" in prompt
     assert "Never lift, fold, bend, curl, or pull the mat through food" in prompt

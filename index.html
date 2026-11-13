@@ -2456,11 +2456,42 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 exportsButton.type = 'button';
                 exportsButton.className = 'block mt-3 rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white font-semibold';
                 exportsButton.textContent = 'Download 3 social formats (no new video credits)';
+                // Fail closed: never package a video until the owner reviews every scene
+                // against the exact Video Studio source photo. This is a manual QA gate,
+                // not an automated computer-vision certification.
+                exportsButton.disabled = true;
+                const identityCheck = document.createElement('input');
+                identityCheck.type = 'checkbox';
+                identityCheck.id = 'heygenIdentityApproved';
+                const identityLabel = document.createElement('label');
+                identityLabel.className = 'flex gap-2 items-start mt-3 text-sm text-amber-200';
+                identityLabel.appendChild(identityCheck);
+                identityLabel.appendChild(document.createTextNode('I watched the entire video and confirmed the same exact product (shape, color, handles and borders) in every scene.'));
+                const rejectButton = document.createElement('button');
+                rejectButton.type = 'button';
+                rejectButton.className = 'block mt-3 rounded-lg border border-rose-500 px-3 py-2 text-sm text-rose-200';
+                rejectButton.textContent = 'Reject — product changes in video';
+                rejectButton.addEventListener('click', () => {
+                    identityCheck.checked = false;
+                    exportsButton.disabled = true;
+                    exportStatus.textContent = 'Rejected for product mismatch. Do not publish or export this video. Keep the original for review; no new paid render started.';
+                    statusEl.textContent = 'PRODUCT IDENTITY FAILED — this video is not approved for advertising.';
+                });
+                identityCheck.addEventListener('change', () => {
+                    exportsButton.disabled = !identityCheck.checked;
+                    exportStatus.textContent = identityCheck.checked
+                        ? 'Identity reviewed. You may export; also verify narration and claims before publishing.'
+                        : 'Review every scene against the exact product photo before export.';
+                });
                 const exportStatus = document.createElement('p');
                 exportStatus.className = 'mt-2 text-xs text-slate-300';
                 exportStatus.setAttribute('role', 'status');
-                exportStatus.textContent = '9:16 TikTok / Reels / Shorts · 4:5 feed · 1:1 square. Full product kept in frame.';
+                exportStatus.textContent = 'NOT APPROVED: watch every scene and compare the mat to the confirmed product photo before exporting. A generated video is not automatically product-verified.';
                 exportsButton.addEventListener('click', async () => {
+                    if (!identityCheck.checked) {
+                        exportStatus.textContent = 'Export blocked: confirm the exact product appears in every scene.';
+                        return;
+                    }
                     exportsButton.disabled = true;
                     exportsButton.textContent = 'Preparing 3 formats…';
                     exportStatus.textContent = 'Converting the approved video on the server. No paid generation is started.';
@@ -2485,11 +2516,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     } catch (error) {
                         exportStatus.textContent = 'Export could not finish: ' + (error.message || String(error)) + '. The original finished video is safe.';
                     } finally {
-                        exportsButton.disabled = false;
+                        exportsButton.disabled = !identityCheck.checked;
                         exportsButton.textContent = 'Download 3 social formats (no new video credits)';
                     }
                 });
-                resultEl.append(video,link,exportsButton,exportStatus);
+                resultEl.append(video,link,identityLabel,rejectButton,exportsButton,exportStatus);
                 heygenPendingVideoId = null;
                 return;
             }
