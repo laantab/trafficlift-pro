@@ -11,7 +11,6 @@ import socket
 import subprocess
 import tempfile
 import zipfile
-import json
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 from pathlib import Path
@@ -167,7 +166,7 @@ def _convert(source, destination, width, height, card=None, duration=15):
     inputs = ["-i", str(source)]
     if card is not None:
         inputs += ["-loop", "1", "-i", str(card)]
-        start = max(0.0, duration - 3.0)
+        start = max(0.0, duration - 6.0)
         filter_graph += (
             f";[composed][1:v]overlay=0:0:enable='gte(t,{start:.2f})',"
             "format=yuv420p[v]"
