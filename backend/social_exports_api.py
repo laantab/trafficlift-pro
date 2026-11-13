@@ -11,6 +11,9 @@ import socket
 import subprocess
 import tempfile
 import zipfile
+import json
+from PIL import Image, ImageDraw, ImageFont
+from pydantic import BaseModel, Field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -88,17 +91,91 @@ def _ffmpeg():
     return binary
 
 
-def _convert(source, destination, width, height):
+class ExportOptions(BaseModel):
+    # This is the explicitly approved destination from the chosen product card.
+    marketing_url: str = Field(min_length=12, max_length=2048)
+
+
+def _marketing_url(value):
+    """Never invent or fetch this URL; it is display and caption text only."""
+    parsed = urlsplit(value.strip())
+    if (parsed.scheme != "https" or not parsed.hostname or
+            parsed.username or parsed.password or
+            parsed.hostname.lower() in ("localhost",) or
+            "." not in parsed.hostname):
+        raise HTTPException(422, "Approve an HTTPS marketing link for this exact product first.")
+    return value.strip()
+
+
+def _video_duration(source):
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        try:
+            import static_ffmpeg
+            static_ffmpeg.add_paths()
+            ffprobe = shutil.which("ffprobe")
+        except Exception:
+            pass
+    if not ffprobe:
+        raise HTTPException(503, "Video duration probe is unavailable.")
+    result = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(source)],
+        capture_output=True, text=True, timeout=15, check=True,
+    )
+    return max(0, min(45, float(result.stdout.strip())))
+
+
+def _link_card(target, width, height, marketing_url):
+    """Add correctly spelled, non-generated text; never misrepresent long URLs."""
+    from textwrap import wrap
+    card = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(card)
+    band_height = max(130, int(height * 0.17))
+    y = height - band_height
+    draw.rectangle((0, y, width, height), fill=(5, 13, 21, 238))
+    base_size = max(17, int(width * 0.039))
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", base_size)
+        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", base_size + 7)
+    except OSError:
+        font = ImageFont.load_default()
+        title_font = font
+    pad = max(16, width // 24)
+    title = "PRODUCT LINK"
+    draw.text((pad, y + 14), title, font=title_font, fill="white")
+    # A lengthy tracking URL cannot be shown legibly in video: display its
+    # host only and put the full, exact clickable URL in the caption file.
+    text = marketing_url if len(marketing_url) <= 100 else (
+        urlsplit(marketing_url).hostname + "  •  Full link in caption"
+    )
+    lines = wrap(text, width=max(12, (width - pad * 2) // max(10, int(base_size * 0.57))), break_long_words=True)
+    for i, line in enumerate(lines[:3]):
+        draw.text((pad, y + 54 + i * (base_size + 5)), line, font=font, fill=(255, 241, 180))
+    card.save(target)
+
+
+def _convert(source, destination, width, height, card=None, duration=15):
     # Blurred, full-bleed background + whole uncropped foreground.
     filter_graph = (
         f"[0:v]split=2[base][front];"
         f"[base]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},boxblur=16:1[bg];"
         f"[front]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
-        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[composed]"
     )
+    inputs = ["-i", str(source)]
+    if card is not None:
+        inputs += ["-loop", "1", "-i", str(card)]
+        start = max(0.0, duration - 3.0)
+        filter_graph += (
+            f";[composed][1:v]overlay=0:0:enable='gte(t,{start:.2f})',"
+            "format=yuv420p[v]"
+        )
+    else:
+        filter_graph += ";[composed]format=yuv420p[v]"
     command = [_ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin",
-               "-y", "-i", str(source), "-filter_complex", filter_graph,
+               "-y", *inputs, "-filter_complex", filter_graph,
                "-map", "[v]", "-map", "0:a?", "-c:v", "libx264",
                "-preset", "veryfast", "-crf", "20", "-r", "30",
                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
@@ -112,8 +189,9 @@ def _convert(source, destination, width, height):
 
 
 @router.post("/api/v1/heygen-video/social-exports/{video_id}")
-def social_exports(video_id: str, request: Request):
+def social_exports(video_id: str, request: Request, options: ExportOptions):
     video_guard(request)
+    approved_url = _marketing_url(options.marketing_url)
     if not _ID.fullmatch(video_id):
         raise HTTPException(404, "Unknown completed video.")
     if not configured():
@@ -129,11 +207,20 @@ def social_exports(video_id: str, request: Request):
     try:
         source = work / "source.mp4"
         _download(url, source)
+        duration = _video_duration(source)
         destination = work / "TrafficLift-Social-Formats.zip"
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_STORED) as bundle:
+            bundle.writestr(
+                "POST_CAPTION_AND_LINK.txt",
+                "#ad\nProduct link: " + approved_url + "\n"
+                "Include this exact URL in your post caption, bio-link page, "
+                "or platform link field. The printed URL in an MP4 is not clickable.\n",
+            )
             for filename, width, height in _FORMATS:
                 rendered = work / filename
-                _convert(source, rendered, width, height)
+                card = work / (filename + ".png")
+                _link_card(card, width, height, approved_url)
+                _convert(source, rendered, width, height, card=card, duration=duration)
                 bundle.write(rendered, arcname=filename)
         return FileResponse(destination, media_type="application/zip",
                             filename="TrafficLift-Social-Formats.zip",
