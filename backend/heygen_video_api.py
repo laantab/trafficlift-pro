@@ -166,7 +166,7 @@ def compose_heygen_narration(name, plan, max_words=34):
     if not identity:
         raise HTTPException(422, "A specific product name is required for the ad.")
 
-    cta = "Tap the product link to learn more."
+    cta = "Find the exact product link in the post caption."
     hook = _supported_problem_hook(name, identity, plan)
     if hook:
         narration = " ".join([*hook, cta])
@@ -204,7 +204,7 @@ def compose_heygen_narration(name, plan, max_words=34):
         raise HTTPException(422, "Verified seller facts are required; no paid video was started.")
 
     narration = " ".join([opening, *chosen, cta])
-    if len(narration.split()) > max_words or narration.casefold().count("tap the product link") != 1:
+    if len(narration.split()) > max_words or narration.casefold().count("find the exact product link") != 1:
         raise HTTPException(422, "Narration failed the length or call-to-action review.")
     return narration
 
@@ -358,9 +358,12 @@ def product_prompt(name, plan):
         "For the final call to action, continue a clean full-frame view of "
         "the demonstrated product; do not bring back the large retail package "
         "or obscure the product with a still-photo overlay. "
-        "At the end show one crisp, high-contrast, readable call to action: "
-        "\'VISIT PRODUCT LINK\'. Keep it away from the product silhouette; "
-        "no other new text; no invented features, labels, brands, or badges. "
+        "END-CARD TEXT POLICY: Do not generate any on-screen call-to-action, fake "
+        "URL, website address, link button, QR code, or placeholder such as "
+        "'VISIT PRODUCT LINK'. Do not invent a destination. The verified "
+        "marketing URL is added separately by TrafficLift at export, using "
+        "exact typography and the owner's approved link. "
+        "No other new text, invented features, labels, brands, or badges. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
         "Speak exactly the following once, including the final call to action: " + narration
