@@ -27,15 +27,39 @@ def headers():
 
 
 def provider_request(method, url, **kwargs):
+    """Call HeyGen without leaking response bodies, API keys or product data.
+
+    Distinct HTTP statuses are important here: a denied key, low API balance,
+    invalid payload, and transient outage require completely different fixes.
+    Never retry POST automatically; a timeout may follow an accepted paid job.
+    """
     try:
         request_headers = headers()
         request_headers.update(kwargs.pop("extra_headers", {}))
         response = requests.request(method, url, headers=request_headers, timeout=(8, 35), **kwargs)
         response.raise_for_status()
         data = response.json()
+    except requests.HTTPError as exc:
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        # This whitelist prevents arbitrary provider error bodies from leaking
+        # tokens, profile data, seller details, or secrets to the UI.
+        messages = {
+            400: (422, "HeyGen rejected the video request (HTTP 400). Check the selected model, image and video options; no automatic retry."),
+            401: (503, "HeyGen API authentication failed (HTTP 401). Verify the TrafficLift server API key; ChatGPT sign-in is separate."),
+            402: (402, "HeyGen API balance or billing blocked the request (HTTP 402). Check API pay-as-you-go credits before trying again."),
+            403: (403, "HeyGen denied permission (HTTP 403). The API key may lack the video-generation scope or the account may be restricted."),
+            404: (502, "HeyGen API endpoint or video ID was not found (HTTP 404). Check endpoint compatibility."),
+            413: (422, "HeyGen rejected the uploaded media size (HTTP 413)."),
+            415: (422, "HeyGen rejected the supplied media type (HTTP 415)."),
+            422: (422, "HeyGen rejected the video image, prompt or parameters (HTTP 422). Check the source image and request settings."),
+            429: (429, "HeyGen rate or concurrency limit reached (HTTP 429). Check existing jobs before retrying; do not submit a duplicate."),
+        }
+        status, message = messages.get(code, (502, "HeyGen service rejected the request (HTTP %s). Inspect provider status and the existing job before retrying." % (code if code is not None else "unknown")))
+        raise HTTPException(status, message) from exc
+    except requests.Timeout as exc:
+        raise HTTPException(504, "HeyGen request timed out. A paid generation might have started; check existing HeyGen jobs before resubmitting.") from exc
     except requests.RequestException as exc:
-        # Avoid leaking provider response bodies, tokens or seller/customer data.
-        raise HTTPException(502, "HeyGen provider request failed. Check API access and credits.") from exc
+        raise HTTPException(502, "Could not connect to the HeyGen API. Check service availability; do not start duplicate paid jobs.") from exc
     except ValueError as exc:
         raise HTTPException(502, "HeyGen returned an unreadable response.") from exc
     if not isinstance(data, dict):
