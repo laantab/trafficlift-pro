@@ -21,6 +21,13 @@ def test_mat_prompt_requires_original_reference_shape():
         "No food may clip through",
         "Only after the food-removal demonstration is complete",
         "Never show food floating unsupported",
+        "ONE-CHICKEN CONTINUITY LOCK",
+        "exactly ONE whole chicken",
+        "Never show two whole chickens in the same frame",
+        "once removed, it must stay off the mat",
+        "final product shot must show the original mat empty",
+        "omit the lift and show the accurate mat",
+
         "Speak exactly the following once",
     ]
     for phrase in required:
