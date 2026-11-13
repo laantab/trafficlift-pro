@@ -6,6 +6,45 @@ from fastapi import HTTPException
 from backend.heygen_video_api import configured, product_prompt, provider_request, compose_heygen_narration, verified_listing_image, trusted_winner_image
 
 
+@pytest.mark.parametrize("status,expected_code,expected_text", [
+    (400, 422, "video request"),
+    (401, 503, "authentication"),
+    (402, 402, "billing"),
+    (403, 403, "permission"),
+    (422, 422, "parameters"),
+    (429, 429, "concurrency"),
+    (500, 502, "HTTP 500"),
+])
+def test_heygen_http_errors_are_actionable_and_do_not_leak_private_body(
+        monkeypatch, status, expected_code, expected_text):
+    import requests
+    monkeypatch.setenv("HEYGEN_API_KEY", "super-secret-test-key")
+    response = requests.Response()
+    response.status_code = status
+    response._content = b'{"error":"private customer details super-secret-test-key"}'
+    response.url = "https://api.heygen.com/v3/models/videos"
+    with patch("backend.heygen_video_api.requests.request", return_value=response):
+        with pytest.raises(HTTPException) as err:
+            provider_request("POST", response.url, json={"image": {"url": "https://example.com/product.jpg"}})
+    assert err.value.status_code == expected_code
+    assert expected_text.lower() in err.value.detail.lower()
+    assert "super-secret-test-key" not in err.value.detail
+    assert "private customer" not in err.value.detail
+
+
+def test_heygen_timeout_warns_without_duplicate_paid_retry(monkeypatch):
+    import requests
+    monkeypatch.setenv("HEYGEN_API_KEY", "test-key")
+    with patch("backend.heygen_video_api.requests.request",
+               side_effect=requests.Timeout("secret token")) as send:
+        with pytest.raises(HTTPException) as err:
+            provider_request("POST", "https://api.heygen.com/v3/models/videos", json={})
+    assert err.value.status_code == 504
+    assert "check existing HeyGen jobs" in err.value.detail
+    assert "secret token" not in err.value.detail
+    send.assert_called_once()
+
+
 def test_provider_defaults_off(monkeypatch):
     monkeypatch.delenv("TRAFFICLIFT_HEYGEN_VIDEO_ENABLED", raising=False)
     monkeypatch.delenv("HEYGEN_API_KEY", raising=False)
