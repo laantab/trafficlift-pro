@@ -29,8 +29,8 @@ def test_supported_organizer_facts_use_problem_solution_hook_and_cta():
     assert spoken.startswith("Tired of clutter taking over your space?")
     assert "Get things back under control." in spoken
     assert "Take a look at this Smart+, Desk Drawer Organizer." in spoken
-    assert spoken.endswith("Tap the product link to learn more.")
-    assert spoken.count("Tap the product link") == 1
+    assert spoken.endswith("Find the exact product link in the post caption.")
+    assert spoken.count("Find the exact product link") == 1
     assert len(spoken.split()) <= 34
 
 
@@ -39,7 +39,7 @@ def test_prompt_has_single_cta_and_stable_framing():
     result = product_prompt("Smart Desk Organizer", plan)
     assert "no strobing or flicker" in result
     assert "Speak exactly the following once" in result
-    assert "Tap the product link to learn more." in result
+    assert "Find the exact product link in the post caption." in result
     assert "no invented features" in result.lower()
 
 
@@ -63,7 +63,7 @@ def test_long_listing_facts_no_longer_block_generation():
     plan = {"evidence": [{"text": "Durable plastic material is made to handle assorted household objects in a wide variety of setups across many different household rooms"}]}
     narration = compose_heygen_narration("Organizer", plan, max_words=28)
     assert narration.startswith("Looking for a simpler solution?")
-    assert narration.endswith("Tap the product link to learn more.")
+    assert narration.endswith("Find the exact product link in the post caption.")
     assert len(narration.split()) <= 28
     assert "made to handle assorted household" not in narration
 
@@ -98,8 +98,9 @@ def test_paid_heygen_requires_verified_seller_photo():
 def test_heygen_ad_prompt_has_readable_cta_and_no_fabricated_demo():
     plan = {"evidence": [{"text": "Includes a six-foot cord"}, {"text": "Adjustable neck for positioning"}]}
     prompt = product_prompt("Desk Light", plan)
-    assert "VISIT PRODUCT LINK" in prompt
-    assert "high-contrast, readable call to action" in prompt
+    assert "Do not generate any on-screen call-to-action" in prompt
+    assert "Do not invent a destination" in prompt
+    assert "END-CARD TEXT POLICY" in prompt
     assert "never invent" in prompt
     assert "clean full-frame view" in prompt
 
@@ -181,7 +182,7 @@ def test_spoken_product_category_is_not_repeated_in_consecutive_sentences():
     spoken = compose_heygen_narration("Smart Desk Organizer", plan)
     assert spoken.startswith("Tired of clutter taking over your space?")
     assert spoken.lower().count("desk organizer") <= 1
-    assert spoken.endswith("Tap the product link to learn more.")
+    assert spoken.endswith("Find the exact product link in the post caption.")
 
 
 def test_problem_hook_replaces_fact_dump_for_supported_organizer():
@@ -204,9 +205,10 @@ def test_heygen_cta_directs_to_seller_product_page_without_on_video_price():
     ]}
     speech = compose_heygen_narration("Smart Drawer Organizer", plan)
     prompt = product_prompt("Smart Drawer Organizer", plan)
-    assert speech.endswith("Tap the product link to learn more.")
-    assert speech.count("Tap the product link") == 1
-    assert "VISIT PRODUCT LINK" in prompt
+    assert speech.endswith("Find the exact product link in the post caption.")
+    assert speech.count("Find the exact product link") == 1
+    assert "Do not generate any on-screen call-to-action" in prompt
+    assert "Do not invent a destination" in prompt
     assert "See Price & Details" not in prompt
 
 
@@ -221,7 +223,7 @@ def test_long_seller_paragraph_extracts_whole_short_clauses():
     spoken = compose_heygen_narration("Smart Desk Organizer",
                                      {"evidence": [{"text": paragraph}]})
     assert spoken.startswith("Tired of clutter taking over your space?")
-    assert "Tap the product link" in spoken
+    assert "Find the exact product link" in spoken
     assert len(spoken.split()) <= 34
 
 
@@ -240,7 +242,7 @@ def test_product_overview_uses_supported_nonstick_problem_hook():
     assert spoken.startswith("Tired of scraping your baking pan after every batch?")
     assert "Kiss those days goodbye." in spoken
     assert "Take a look at this silicone baking mat." in spoken
-    assert spoken.endswith("Tap the product link to learn more.")
+    assert spoken.endswith("Find the exact product link in the post caption.")
     assert len(spoken.split()) <= 34
 
 
@@ -313,7 +315,7 @@ def test_long_amazon_title_uses_problem_hook_and_compact_product_reference():
     assert "Kiss those days goodbye." in spoken
     assert "Take a look at this silicone baking mat." in spoken
     assert "Food Grade Non Stick Heat Resistant Pastry Sheet" not in spoken
-    assert spoken.endswith("Tap the product link to learn more.")
+    assert spoken.endswith("Find the exact product link in the post caption.")
     assert len(spoken.split()) <= 34
 
 
