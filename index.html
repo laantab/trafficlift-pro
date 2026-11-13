@@ -2486,7 +2486,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const exportStatus = document.createElement('p');
                 exportStatus.className = 'mt-2 text-xs text-slate-300';
                 exportStatus.setAttribute('role', 'status');
-                exportStatus.textContent = 'NOT APPROVED: watch every scene and compare the mat to the confirmed product photo before exporting. A generated video is not automatically product-verified.';
+                exportStatus.textContent = 'NOT APPROVED: compare every scene with the exact product photo. After approval, exports will add your saved marketing link to the video and include a caption file. An MP4 link is not clickable.';
                 exportsButton.addEventListener('click', async () => {
                     if (!identityCheck.checked) {
                         exportStatus.textContent = 'Export blocked: confirm the exact product appears in every scene.';
@@ -2496,8 +2496,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     exportsButton.textContent = 'Preparing 3 formats…';
                     exportStatus.textContent = 'Converting the approved video on the server. No paid generation is started.';
                     try {
+                        // Never substitute the seller research URL: require the
+                        // owner's explicit marketing-link approval for this winner.
+                        const marketingUrl = requireCampaignDestination(restoreCurrentWinner());
                         const response = await fetch(location.origin + '/api/v1/heygen-video/social-exports/' + encodeURIComponent(id), {
-                            method: 'POST', credentials: 'same-origin', cache: 'no-store'
+                            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({marketing_url: marketingUrl})
                         });
                         if (!response.ok) {
                             const error = await response.json().catch(() => ({}));
