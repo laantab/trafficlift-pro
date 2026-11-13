@@ -98,8 +98,9 @@ def test_paid_heygen_requires_verified_seller_photo():
 def test_heygen_ad_prompt_has_readable_cta_and_no_fabricated_demo():
     plan = {"evidence": [{"text": "Includes a six-foot cord"}, {"text": "Adjustable neck for positioning"}]}
     prompt = product_prompt("Desk Light", plan)
-    assert "Do not generate any on-screen call-to-action" in prompt\n    assert "Do not invent a destination" in prompt
-    assert "high-contrast, readable call to action" in prompt
+    assert "Do not generate any on-screen call-to-action" in prompt
+    assert "Do not invent a destination" in prompt
+    assert "END-CARD TEXT POLICY" in prompt
     assert "never invent" in prompt
     assert "clean full-frame view" in prompt
 
@@ -206,7 +207,8 @@ def test_heygen_cta_directs_to_seller_product_page_without_on_video_price():
     prompt = product_prompt("Smart Drawer Organizer", plan)
     assert speech.endswith("Find the exact product link in the post caption.")
     assert speech.count("Find the exact product link") == 1
-    assert "Do not generate any on-screen call-to-action" in prompt\n    assert "Do not invent a destination" in prompt
+    assert "Do not generate any on-screen call-to-action" in prompt
+    assert "Do not invent a destination" in prompt
     assert "See Price & Details" not in prompt
 
 
