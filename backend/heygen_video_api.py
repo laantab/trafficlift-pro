@@ -363,7 +363,7 @@ def product_prompt(name, plan):
         "'VISIT PRODUCT LINK'. Do not invent a destination. The verified "
         "marketing URL is added separately by TrafficLift at export, using "
         "exact typography and the owner's approved link. "
-        "No other new text, invented features, labels, brands, or badges. "
+        "No other new text; no invented features, labels, brands, or badges. "
         "Natural US English narration, warm professional delivery with a short pause "
         "between sentences, moderate pace, no repeated words or background music. "
         "Speak exactly the following once, including the final call to action: " + narration
