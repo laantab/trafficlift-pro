@@ -1913,7 +1913,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         document.getElementById('videoOwnerAccessStatus').textContent = 'Video Studio is unlocked.';
         videoOwnerSessionReady = true;
-        setVideoOwnerQuickStatus(true);
+        if (typeof setVideoOwnerQuickStatus === 'function') setVideoOwnerQuickStatus(true);
         document.getElementById('videoOwnerAccessDetails').open = false;
         document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
         await loadFreeVideoHistory();
