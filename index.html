@@ -1746,6 +1746,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         saveVideoPhotoChoice();
     }
 
+    let videoOwnerSessionReady = false;
     function openVideoModal() {
         const winner = restoreCurrentWinner();
         if (!winner || !winner.name) {
@@ -1761,7 +1762,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('videoProvider').value = 'krea';
         document.getElementById('videoEngineAdvanced').open = false;
         document.getElementById('videoOwnerAccessDetails').open = false;
-        setVideoOwnerQuickStatus(false);
+        setVideoOwnerQuickStatus(videoOwnerSessionReady);
         document.getElementById('premiumDemoFile').value = '';
         const videoPhoto = readVideoPhotoChoice(winner);
         document.getElementById('videoPhotoUrl').value = videoPhoto.url || '';
@@ -1911,6 +1912,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             return;
         }
         document.getElementById('videoOwnerAccessStatus').textContent = 'Video Studio is unlocked.';
+        videoOwnerSessionReady = true;
         setVideoOwnerQuickStatus(true);
         document.getElementById('videoOwnerAccessDetails').open = false;
         document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
@@ -1943,6 +1945,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 body:JSON.stringify({access_code:code})
             });
             note.textContent = 'Video Studio unlocked successfully.';
+            videoOwnerSessionReady = true;
             setVideoOwnerQuickStatus(true);
             if (document.getElementById('videoProvider')?.value === 'krea') void checkKreaActivation();
             document.getElementById('videoOwnerAccessDetails').open = false;
@@ -1965,6 +1968,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
         } catch (error) {
             note.textContent = 'That TrafficLift owner code was not accepted. Check the code you previously used, then try again.';
+            videoOwnerSessionReady = false;
             setVideoOwnerQuickStatus(false);
         }
     }
@@ -2441,7 +2445,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
             if (!response.ok) throw new Error(apiErrorText(data, 'Krea setup check failed.'));
             setVideoOwnerQuickStatus(true);
-            label.textContent = data.enabled ? 'Connected to TrafficLift' : 'Not ready';
+            label.textContent = data.enabled ? 'Setup detected' : 'Not ready';
             note.textContent = data.enabled
                 ? 'TrafficLift detects the Krea configuration. Your API account and image must still be accepted by Krea before a video can start.'
                 : 'Krea has not been enabled on the server. No video was started.';
