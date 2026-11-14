@@ -1421,16 +1421,20 @@
                 </button>
             </div>
             <div class="p-5 space-y-4">
-                <p class="text-xs text-slate-400 leading-relaxed">
-                    Create a professional product video from the verified seller photo. No presenter clip upload. Paid generation requires your approval.
-                </p>
+                <div id="kreaVideoStartGuide" class="rounded-xl border border-indigo-500/50 bg-indigo-950/30 p-4 space-y-2">
+                    <p class="text-sm font-semibold text-slate-100">Create your product video in 3 steps</p>
+                    <p id="videoOwnerQuickStatus" role="status" class="text-sm text-amber-200">1. Unlock Video Studio to continue.</p>
+                    <button id="videoOwnerQuickButton" type="button" onclick="showVideoOwnerUnlock()" class="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-semibold">Unlock Video Studio</button>
+                    <p class="text-sm text-slate-300">2. Check the product photo below. 3. Create and review your Krea video.</p>
+                    <p class="text-xs text-slate-400">Krea API video charges are separate from your Krea Basic subscription. Nothing is charged without your approval.</p>
+                </div>
                 <details id="videoEngineAdvanced" class="rounded-lg border border-slate-700 p-3">
-                    <summary class="text-sm cursor-pointer text-slate-300">Other video engines and advanced options</summary>
+                    <summary class="text-sm cursor-pointer text-slate-300">Video engine: Krea (tap to change)</summary>
                     <label class="block mt-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                         <option value="free">Free narrated photo video (legacy)</option>
-                        <option value="heygen" selected>High Quality Video — HeyGen (paid, approval required)</option>
-                        <option value="krea">Krea Video — Seedance 2.0 (paid, approval required)</option>
+                        <option value="krea" selected>Krea Video — Seedance 2.0 (paid, approval required)</option>
+                        <option value="heygen">Legacy video — HeyGen (paid, approval required)</option>
                         <option value="wan">Wan 2.2 (5-second product visual, approx. $0.15)</option>
                         <option value="wan-human">Wan 2.2 — Human demonstration (experimental, approx. $0.15)</option>
                         <option value="premium">Legacy montage — use existing presenter clip (no new paid clip)</option>
@@ -1445,8 +1449,8 @@
 
                 </details>
                     <div id="kreaEnginePanel" class="hidden mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
-                        <p class="text-xs font-semibold text-slate-200">Krea image-to-video — <span id="kreaEngineState" role="status" class="text-amber-400">Checking setup…</span></p>
-                        <p id="kreaConnectionStatus" role="status" class="text-xs text-slate-400">Silent five-second vertical product demonstration. Krea API charges separately from your Basic subscription. Approval required for every job.</p>
+                        <p class="text-xs font-semibold text-slate-200">Krea video — <span id="kreaEngineState" role="status" class="text-amber-400">Checking setup…</span></p>
+                        <p id="kreaConnectionStatus" role="status" class="text-sm text-slate-300">Unlock Video Studio first. Then we can check Krea without spending credits.</p>
                         <button type="button" onclick="checkKreaActivation()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check Krea setup (no credits)</button>
                     </div>
                     <div id="heygenEnginePanel" class="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
@@ -1474,10 +1478,10 @@
                     <p id="freeStudioInstructions" class="hidden text-xs text-slate-400">Open <code>Start_Free_Video_Studio.bat</code> once to use the free studio. No pairing code needed. Uses real photos and scene changes.</p>
                     <details id="videoOwnerAccessDetails" class="hidden rounded-lg border border-slate-700 p-3"><summary class="cursor-pointer text-sm text-slate-300">Owner access</summary>
                     <div id="hostedVideoOwnerAccess" class="rounded-lg space-y-2 mt-3">
-                        <p class="text-xs text-slate-300">Hosted video owner beta — unlock with your access code. Customer subscriptions are not enabled yet.</p>
+                        <p class="text-sm text-slate-300">Enter your TrafficLift owner access code (not your Krea password or API token).</p>
                         <input id="videoOwnerAccessCode" type="password" autocomplete="off" placeholder="Private owner access code" class="w-full bg-slate-950 rounded-lg p-2 text-slate-100">
                         <button type="button" onclick="unlockHostedOwnerVideo()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Unlock Video Studio</button>
-                        <p id="videoOwnerAccessStatus" role="status" class="text-xs text-slate-400"></p>
+                        <p id="videoOwnerAccessStatus" role="status" class="text-sm text-amber-200"></p>
                         <details id="hostedVideoAcceptanceReview" class="hidden border-t border-slate-700 pt-3 space-y-2"><summary class="text-xs cursor-pointer text-slate-400">Technical video checks</summary>
                             <p class="text-xs text-slate-300">Owner review: genuine hosted Kokoro/FFmpeg acceptance sample. This is not a customer-created product video.</p>
                             <button type="button" onclick="loadHostedAcceptanceSample()" class="rounded-lg bg-slate-800 px-3 py-2 text-xs">Check real hosted MP4 sample</button>
@@ -1754,9 +1758,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'heygen';
+        document.getElementById('videoProvider').value = 'krea';
         document.getElementById('videoEngineAdvanced').open = false;
         document.getElementById('videoOwnerAccessDetails').open = false;
+        setVideoOwnerQuickStatus(false);
         document.getElementById('premiumDemoFile').value = '';
         const videoPhoto = readVideoPhotoChoice(winner);
         document.getElementById('videoPhotoUrl').value = videoPhoto.url || '';
@@ -1877,6 +1882,25 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // An existing HttpOnly session survives reloads; never ask the browser for its secret.
         void restoreHostedOwnerSession();
     }
+    function setVideoOwnerQuickStatus(authorized) {
+        const status = document.getElementById('videoOwnerQuickStatus');
+        const button = document.getElementById('videoOwnerQuickButton');
+        if (status) status.textContent = authorized
+            ? '1. Video Studio unlocked. You can check Krea below.'
+            : '1. Unlock Video Studio to continue.';
+        if (button) button.classList.toggle('hidden', Boolean(authorized));
+    }
+    function showVideoOwnerUnlock() {
+        const details = document.getElementById('videoOwnerAccessDetails');
+        if (!details) return;
+        details.classList.remove('hidden');
+        details.open = true;
+        details.scrollIntoView({behavior:'smooth', block:'center'});
+        const status = document.getElementById('videoOwnerAccessStatus');
+        if (status && !status.textContent) status.textContent = 'Enter your existing TrafficLift owner code once to unlock this browser session.';
+        const field = document.getElementById('videoOwnerAccessCode');
+        if (field) field.focus({preventScroll:true});
+    }
     async function restoreHostedOwnerSession() {
         if (!hostedVideoSite) return;
         try {
@@ -1886,7 +1910,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             // No valid session, hosted mode disabled, or network unavailable: keep login locked.
             return;
         }
-        document.getElementById('videoOwnerAccessStatus').textContent = 'Owner session restored securely.';
+        document.getElementById('videoOwnerAccessStatus').textContent = 'Video Studio is unlocked.';
+        setVideoOwnerQuickStatus(true);
         document.getElementById('videoOwnerAccessDetails').open = false;
         document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
         await loadFreeVideoHistory();
@@ -1917,7 +1942,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({access_code:code})
             });
-            note.textContent = 'Owner access unlocked for this browser session.';
+            note.textContent = 'Video Studio unlocked successfully.';
+            setVideoOwnerQuickStatus(true);
+            if (document.getElementById('videoProvider')?.value === 'krea') void checkKreaActivation();
             document.getElementById('videoOwnerAccessDetails').open = false;
             document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
             await loadFreeVideoHistory();
@@ -1936,7 +1963,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         + ' Check Past Videos before starting another render.';
                 }
             }
-        } catch (error) { note.textContent = error.message; }
+        } catch (error) {
+            note.textContent = 'That TrafficLift owner code was not accepted. Check the code you previously used, then try again.';
+            setVideoOwnerQuickStatus(false);
+        }
     }
 
     async function checkHeyGenActivation() {
@@ -2403,14 +2433,21 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(18000)
             });
             const data = await response.json().catch(() => ({}));
+            if (response.status === 401) {
+                label.textContent = 'Unlock needed';
+                note.textContent = 'First unlock Video Studio using your TrafficLift owner code. This is not your Krea password.';
+                setVideoOwnerQuickStatus(false);
+                return;
+            }
             if (!response.ok) throw new Error(apiErrorText(data, 'Krea setup check failed.'));
-            label.textContent = data.enabled ? 'Configured' : 'Not enabled';
+            setVideoOwnerQuickStatus(true);
+            label.textContent = data.enabled ? 'Connected to TrafficLift' : 'Not ready';
             note.textContent = data.enabled
-                ? 'Krea is configured. This check does not spend credits or verify your API balance. Each video still requires approval.'
-                : 'Krea API remains disabled. Configure KREA_API_KEY and enable it in Render after final verification.';
+                ? 'TrafficLift detects the Krea configuration. Your API account and image must still be accepted by Krea before a video can start.'
+                : 'Krea has not been enabled on the server. No video was started.';
         } catch (error) {
-            label.textContent = 'Unavailable';
-            note.textContent = error.message || String(error);
+            label.textContent = 'Check failed';
+            note.textContent = 'We could not check the connection. Your video has not started. ' + (error.message || 'Try checking again.');
         }
     }
 
@@ -2431,8 +2468,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(18000)
         });
         const readiness = await readinessResponse.json().catch(() => ({}));
+        if (readinessResponse.status === 401) {
+            setVideoOwnerQuickStatus(false);
+            showVideoOwnerUnlock();
+            throw new Error('Unlock Video Studio with your TrafficLift owner code before creating your video.');
+        }
         if (!readinessResponse.ok || !readiness.enabled)
-            throw new Error('Krea API is not enabled. No paid generation was started.');
+            throw new Error('Krea is not ready. Check Krea setup above. No paid video was started.');
         // No implied marketing promises or unsafe mechanics. Start from the approved photo.
         const name = (winner.name || '').slice(0,90);
         const benefit = (document.getElementById('freeProductFact')?.value || '').trim().slice(0,160);
@@ -2830,7 +2872,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
             throw new Error('Unsupported video engine. Select HeyGen or another listed engine.');
         } catch (e) {
-            statusEl.textContent = 'Video could not finish: ' + (e.message || String(e));
+            statusEl.textContent = 'Video not created: ' + (e.message || String(e));
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Create Video</span>';
