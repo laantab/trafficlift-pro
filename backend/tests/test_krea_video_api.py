@@ -60,6 +60,6 @@ def test_http_error_never_leaks_secret(monkeypatch):
     response._content = b'secret-krea-token'
     with patch("backend.krea_video_api.requests.request", return_value=response):
         with pytest.raises(HTTPException) as error:
-            provider_request("POST", "/generate/video/bytedance/seedance-2-fast", json={})
+            provider_request("POST", "/generate/video/bytedance/seedance-2", json={})
     assert error.value.status_code == 402
     assert "secret-krea-token" not in error.value.detail
