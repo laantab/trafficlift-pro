@@ -43,7 +43,47 @@ def provider_request(method, path, **kwargs):
     except requests.HTTPError as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         code = {400: 422, 401: 503, 402: 402, 403: 403, 422: 422, 429: 429}.get(status, 502)
-        raise HTTPException(code, "Krea API rejected request (HTTP %s). Check API key, balance or settings; do not automatically retry." % (status or "unknown")) from exc
+        # Krea validation errors can identify a field (e.g. start_image or
+        # aspect_ratio). Only return allowlisted field labels, never arbitrary
+        # provider text, signed media URLs, product facts, or API credentials.
+        if status == 422:
+            safe_fields = {
+                "start_image": "starting product image",
+                "end_image": "ending image",
+                "reference_images": "reference images",
+                "prompt": "video instructions",
+                "duration": "video length",
+                "resolution": "video quality",
+                "aspect_ratio": "video shape",
+                "generate_audio": "audio option",
+            }
+            problem_fields = set()
+            try:
+                body = exc.response.json()
+                if isinstance(body, dict):
+                    entries = body.get("details") or body.get("errors") or []
+                    if isinstance(entries, dict):
+                        entries = [entries]
+                    if isinstance(entries, list):
+                        for item in entries[:12]:
+                            if isinstance(item, dict):
+                                field = item.get("field") or item.get("path") or ""
+                                if isinstance(field, list):
+                                    field = next((part for part in field if isinstance(part, str) and part in safe_fields), "")
+                                elif isinstance(field, str):
+                                    field = field.lstrip("$.").split(".")[0].split("[")[0]
+                                if field in safe_fields:
+                                    problem_fields.add(safe_fields[field])
+            except (ValueError, TypeError, AttributeError):
+                pass
+            if problem_fields:
+                raise HTTPException(422, "Krea could not accept the " + ", ".join(sorted(problem_fields)) + ". Review those settings; no video was started. Do not retry automatically.") from exc
+            raise HTTPException(422, "Krea rejected the video settings or starting image. Try a direct, publicly accessible product image and check the video options. No video was started; do not retry automatically.") from exc
+        if status == 402:
+            raise HTTPException(402, "Krea API funds are unavailable. Your Krea Basic subscription credits do not cover API videos. No video was started.") from exc
+        if status in (401, 403):
+            raise HTTPException(code, "Krea API access was declined. Check the private Krea token in Render; do not enter it in TrafficLift.") from exc
+        raise HTTPException(code, "Krea request could not start (HTTP %s). Check your connection or API settings before retrying." % (status or "unknown")) from exc
     except requests.Timeout as exc:
         raise HTTPException(504, "Krea timed out. A paid job may exist; check Krea jobs before resubmitting.") from exc
     except requests.RequestException as exc:
@@ -73,7 +113,7 @@ def submit(body: KreaSubmit, request: Request):
     if not body.confirm_video_photo:
         raise HTTPException(422, "Confirm that the separate Video Studio photo depicts the exact product.")
     if body.resolution not in ("480p", "720p"):
-        raise HTTPException(422, "Krea Fast supports 480p or 720p in this integration.")
+        raise HTTPException(422, "Choose 480p or 720p for this Krea test.")
     if body.aspect_ratio not in ("9:16", "1:1", "16:9", "3:4", "4:3"):
         raise HTTPException(422, "Unsupported Krea video aspect ratio.")
     try:

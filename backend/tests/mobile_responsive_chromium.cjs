@@ -44,7 +44,7 @@ const source = fs.readFileSync('index.html', 'utf8')
    });
    assert(video.scroll<=video.viewport+1,'phone Video Studio must fit without sideways scrolling');
    assert(video.height >= 760 && video.height <= 920, 'phone Video Studio should fill the emulated 844px viewport; got '+video.height+'px (innerHeight '+video.screen+')');
-   assert(video.selection==='heygen','preserve HeyGen default');
+   assert(video.selection==='krea','Krea should be the default video engine');
    assert(video.submit.width>270,'render control should span phone width');
    // Use a separate non-mobile context: mobile emulation retains the device
    // viewport scaling policy even after setViewportSize.

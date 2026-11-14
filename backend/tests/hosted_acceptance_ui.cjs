@@ -74,7 +74,7 @@ vm.runInContext(code, context);
   await context.restoreHostedOwnerSession();
   assert.strictEqual(loginCount, 1, 'session restoration must not re-submit the password');
   assert(!element('hostedVideoAcceptanceReview').classList.contains('hidden'));
-  assert(element('videoOwnerAccessStatus').textContent.includes('restored securely'));
+  assert(element('videoOwnerAccessStatus').textContent.includes('unlocked'));
   // Expired/invalid cookie fails closed and never displays protected review.
   authorized = false;
   element('hostedVideoAcceptanceReview').classList.add('hidden');

@@ -90,7 +90,7 @@ jobs:
       - name: Check HeyGen short narration and single CTA without paid requests
         run: python -m pytest backend/tests/test_heygen_video_api.py -q
       - name: Check Krea video API safety without paid calls
-        run: python -m pytest backend/tests/test_krea_video_api.py -q
+        run: python -m pytest backend/tests/test_krea_video_api.py backend/tests/test_krea_error_explanations.py -q
       - name: Check Wan 2.2 trial safety without paid calls
         run: python -m pytest backend/tests/test_wan_video_api.py -q
       - name: Check Premium Product Ad assembly, MP4 safety and no paid calls
@@ -109,6 +109,8 @@ jobs:
         run: node backend/tests/heygen_verify_ui.cjs
       - name: Verify HeyGen engine selection and paid consent
         run: node backend/tests/heygen_video_ui.cjs
+      - name: Verify friendly Krea-first owner setup flow
+        run: node backend/tests/krea_friendly_ui.cjs
       - name: Check hosted owner video retry does not duplicate renders
         run: node backend/tests/hosted_owner_video_resume_ui.cjs
       - name: Install local DOM and canvas test dependencies
