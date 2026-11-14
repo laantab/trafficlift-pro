@@ -1888,7 +1888,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         if (status) status.textContent = authorized
             ? '1. Video Studio unlocked. You can check Krea below.'
             : '1. Unlock Video Studio to continue.';
-        if (button) button.classList.toggle('hidden', Boolean(authorized));
+        if (button) { if (authorized) button.classList.add('hidden'); else button.classList.remove('hidden'); }
     }
     function showVideoOwnerUnlock() {
         const details = document.getElementById('videoOwnerAccessDetails');
