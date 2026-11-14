@@ -1,8 +1,8 @@
 // Offline UI wiring contract. No paid HeyGen calls.
 const fs = require('fs'), assert = require('assert');
 const s = fs.readFileSync('index.html','utf8');
-assert(s.includes('<option value="heygen" selected>High Quality Video — HeyGen (paid, approval required)</option>'));
-assert(s.includes("document.getElementById('videoProvider').value = 'heygen'"));
+assert(s.includes('<option value="heygen">Legacy video — HeyGen (paid, approval required)</option>'));
+assert(s.includes("document.getElementById('videoProvider').value = 'krea'"));
 assert(s.includes("if (provider === 'heygen')"));
 assert(s.includes("await submitHeyGenVideo(statusEl, resultEl)"));
 assert(s.includes("window.confirm('High-quality video uses paid HeyGen credits"));
@@ -13,4 +13,4 @@ assert(s.includes("if (heygenPendingVideoId)"));
 assert(s.includes("do not submit again") || s.includes("Do not submit again"));
 assert(s.includes("video.controls = true"));
 assert(s.includes("provider !== 'free' && provider !== 'heygen'"));
-console.log('PASS: HeyGen selected, explicit paid approval, owner cookie, duplicate avoidance and preview');
+console.log('PASS: Krea default; legacy HeyGen preserved with consent, owner cookie, duplicate avoidance and preview');
