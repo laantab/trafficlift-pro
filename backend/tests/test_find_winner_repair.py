@@ -881,13 +881,14 @@ def test_video_query_legacy_fallback_resolves_file_id(monkeypatch):
     assert any("/v1/files/retrieve" in url for url, _ in calls)
 
 
-def test_video_frontend_uses_current_winner_and_heygen_without_minimax():
-    """Retired MiniMax UI must not block the independent HeyGen photo flow."""
+def test_video_frontend_uses_current_winner_and_krea_without_minimax():
+    """Retired MiniMax UI must not block Krea or legacy HeyGen photo flow."""
     src = (ROOT / "index.html").read_text(encoding="utf-8-sig")
     assert "function buildWinnerVideoPrompt" in src
     assert "window.__currentWinner" in src
-    assert 'document.getElementById(\'videoProvider\').value = \'heygen\'' in src
-    assert '<option value="heygen" selected>' in src
+    assert 'document.getElementById(\'videoProvider\').value = \'krea\'' in src
+    assert '<option value="krea" selected>' in src
+    assert '<option value="heygen">' in src
     assert '<option value="minimax">' not in src
     assert 'id="minimaxContainer"' not in src
     assert "await submitHeyGenVideo(statusEl, resultEl)" in src
