@@ -817,6 +817,9 @@ app.include_router(photo_video_router)
 # Isolated, disabled-by-default paid HeyGen video provider.
 from backend.heygen_video_api import router as heygen_video_router
 app.include_router(heygen_video_router)
+
+from backend.krea_video_api import router as krea_video_router
+app.include_router(krea_video_router)
 # One generation, three free local social aspect-ratio exports.
 from backend.social_exports_api import router as social_exports_router
 app.include_router(social_exports_router)
