@@ -90,7 +90,7 @@ jobs:
       - name: Check HeyGen short narration and single CTA without paid requests
         run: python -m pytest backend/tests/test_heygen_video_api.py -q
       - name: Check Krea video API safety without paid calls
-        run: python -m pytest backend/tests/test_krea_video_api.py -q
+        run: python -m pytest backend/tests/test_krea_video_api.py backend/tests/test_krea_error_explanations.py -q
       - name: Check Wan 2.2 trial safety without paid calls
         run: python -m pytest backend/tests/test_wan_video_api.py -q
       - name: Check Premium Product Ad assembly, MP4 safety and no paid calls
