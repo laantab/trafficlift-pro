@@ -13,7 +13,7 @@ from local_video.trafficlift_video_bridge import _validate_public_https_url
 
 router = APIRouter()
 API = "https://api.krea.ai"
-MODEL = "seedance-2-fast"
+MODEL = "seedance-2"
 JOB_ID = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
 
 
