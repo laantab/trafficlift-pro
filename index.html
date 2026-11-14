@@ -1946,7 +1946,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             });
             note.textContent = 'Video Studio unlocked successfully.';
             videoOwnerSessionReady = true;
-            setVideoOwnerQuickStatus(true);
+            if (typeof setVideoOwnerQuickStatus === 'function') setVideoOwnerQuickStatus(true);
             if (document.getElementById('videoProvider')?.value === 'krea') void checkKreaActivation();
             document.getElementById('videoOwnerAccessDetails').open = false;
             document.getElementById('hostedVideoAcceptanceReview').classList.remove('hidden');
