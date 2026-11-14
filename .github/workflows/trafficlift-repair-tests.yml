@@ -109,6 +109,8 @@ jobs:
         run: node backend/tests/heygen_verify_ui.cjs
       - name: Verify HeyGen engine selection and paid consent
         run: node backend/tests/heygen_video_ui.cjs
+      - name: Verify friendly Krea-first owner setup flow
+        run: node backend/tests/krea_friendly_ui.cjs
       - name: Check hosted owner video retry does not duplicate renders
         run: node backend/tests/hosted_owner_video_resume_ui.cjs
       - name: Install local DOM and canvas test dependencies
