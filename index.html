@@ -1429,7 +1429,8 @@
                     <label class="block mt-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                         <option value="free">Free narrated photo video (legacy)</option>
-                        <option value="heygen" selected>High Quality Video — HeyGen (paid, approval required)</option>
+                        <option value="heygen" selected>Legacy Video — HeyGen (paid, approval required)</option>
+                        <option value="krea">Krea Video — Seedance 2 Fast (paid, approval required)</option>
                         <option value="wan">Wan 2.2 (5-second product visual, approx. $0.15)</option>
                         <option value="wan-human">Wan 2.2 — Human demonstration (experimental, approx. $0.15)</option>
                         <option value="premium">Legacy montage — use existing presenter clip (no new paid clip)</option>
@@ -1443,6 +1444,11 @@
                     </div>
 
                 </details>
+                    <div id="kreaEnginePanel" class="hidden mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
+                        <p class="text-xs font-semibold text-slate-200">Krea image-to-video — <span id="kreaEngineState" role="status" class="text-amber-400">Checking setup…</span></p>
+                        <p id="kreaConnectionStatus" role="status" class="text-xs text-slate-400">Silent five-second vertical product demonstration. Krea API charges separately from your Basic subscription. Approval required for every job.</p>
+                        <button type="button" onclick="checkKreaActivation()" class="rounded-lg bg-slate-700 px-3 py-2 text-sm">Check Krea setup (no credits)</button>
+                    </div>
                     <div id="heygenEnginePanel" class="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
                         <p class="text-xs font-semibold text-slate-200">High-quality product video — <span id="heygenEngineState" role="status" class="text-amber-400">Checking activation…</span></p>
                         <p id="heygenConnectionStatus" role="status" class="text-xs text-slate-400">Checks the video provider connection without spending credits.</p>
@@ -1817,14 +1823,16 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
     function syncVideoProviderOptions() {
         const provider = document.getElementById('videoProvider').value;
-        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free' && provider !== 'heygen' && provider !== 'wan' && provider !== 'wan-human' && provider !== 'premium');
+        document.getElementById('freeVideoOptions').classList.toggle('hidden', provider !== 'free' && provider !== 'heygen' && provider !== 'wan' && provider !== 'wan-human' && provider !== 'premium' && provider !== 'krea');
         document.getElementById('localVideoOptions').classList.toggle('hidden', provider !== 'local');
-        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free' || provider === 'heygen' || provider === 'wan' || provider === 'wan-human' || provider === 'premium');
+        document.getElementById('videoPromptOptions').classList.toggle('hidden', provider === 'free' || provider === 'heygen' || provider === 'wan' || provider === 'wan-human' || provider === 'premium' || provider === 'krea');
         document.getElementById('heygenEnginePanel').classList.toggle('hidden', provider !== 'heygen');
+        document.getElementById('kreaEnginePanel').classList.toggle('hidden', provider !== 'krea');
         document.getElementById('premiumAdPanel').classList.toggle('hidden', provider !== 'premium');
         document.getElementById('wanEnginePanel').classList.toggle('hidden', !['wan','wan-human'].includes(provider));
         if (provider === 'wan' || provider === 'wan-human') void checkWanActivation();
         if (provider === 'heygen') void checkHeyGenActivation();
+        if (provider === 'krea') void checkKreaActivation();
     }
 
     function openResearchConnection() {
@@ -2174,6 +2182,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         } finally { button.disabled = false; }
     }
     let heygenPendingVideoId = null;
+    let kreaPendingJobId = null;
     let premiumPendingJobId = null;
     async function pollPremiumAd(id, statusEl, resultEl) {
         for (let tries=0; tries<90; tries++) {
@@ -2383,6 +2392,110 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             try { return JSON.stringify(detail); } catch (_) {}
         }
         return fallback;
+    }
+
+    async function checkKreaActivation() {
+        const label = document.getElementById('kreaEngineState');
+        const note = document.getElementById('kreaConnectionStatus');
+        label.textContent = 'Checking…';
+        try {
+            const response = await fetch(location.origin + '/api/v1/krea-video/readiness', {
+                credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(18000)
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(apiErrorText(data, 'Krea setup check failed.'));
+            label.textContent = data.enabled ? 'Configured' : 'Not enabled';
+            note.textContent = data.enabled
+                ? 'Krea is configured. This check does not spend credits or verify your API balance. Each video still requires approval.'
+                : 'Krea API remains disabled. Configure KREA_API_KEY and enable it in Render after final verification.';
+        } catch (error) {
+            label.textContent = 'Unavailable';
+            note.textContent = error.message || String(error);
+        }
+    }
+
+    async function submitKreaVideo(statusEl, resultEl) {
+        if (!hostedVideoSite) throw new Error('Open hosted TrafficLift to use Krea.');
+        if (kreaPendingJobId) {
+            statusEl.textContent = 'Checking existing Krea job — no new paid video submitted.';
+            await pollKreaVideo(kreaPendingJobId, statusEl, resultEl);
+            return;
+        }
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.name) throw new Error('Choose a product before creating its Krea video.');
+        const image = (document.getElementById('videoPhotoUrl')?.value || '').trim();
+        if (!/^https:\/\//i.test(image)) throw new Error('Provide the public HTTPS photo URL for the Video Studio start frame.');
+        if (document.getElementById('videoPhotoConfirmed')?.checked !== true)
+            throw new Error('Confirm the Video Studio start frame matches the exact product.');
+        const readinessResponse = await fetch(location.origin + '/api/v1/krea-video/readiness', {
+            credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(18000)
+        });
+        const readiness = await readinessResponse.json().catch(() => ({}));
+        if (!readinessResponse.ok || !readiness.enabled)
+            throw new Error('Krea API is not enabled. No paid generation was started.');
+        // No implied marketing promises or unsafe mechanics. Start from the approved photo.
+        const name = (winner.name || '').slice(0,90);
+        const benefit = (document.getElementById('freeProductFact')?.value || '').trim().slice(0,160);
+        const prompt = 'Professional realistic product demonstration of the exact pictured ' + name +
+            '. One steady shot, stable natural lighting, product shape and colors unchanged. ' +
+            (benefit ? 'Product detail for context: ' + benefit + '. ' : '') +
+            'Hands interact naturally only if supported by the product image. Preserve the photographed product identity. ' +
+            'No object overlap, clipping, melting, warping, shaky camera, added text, voiceover or misleading claims.';
+        const approved = window.confirm(
+            'Krea API video uses separately billed credits, NOT your annual Krea Basic credits. ' +
+            'Start ONE 5-second 720p vertical video? You must check your API balance and price first. ' +
+            'Cancel means no paid video.'
+        );
+        if (!approved) {
+            statusEl.textContent = 'Krea generation cancelled; no charge requested.';
+            return;
+        }
+        statusEl.textContent = 'Submitting one approved Krea video…';
+        // After submit uncertainty never create another billable job automatically.
+        const response = await fetch(location.origin + '/api/v1/krea-video/submit', {
+            method:'POST', credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({image_url:image,confirm_video_photo:true,prompt,
+                duration:5,resolution:'720p',aspect_ratio:'9:16',approve_paid_generation:true}),
+            signal:AbortSignal.timeout(45000)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok)
+            throw new Error(apiErrorText(data, 'Krea rejected the request. Check existing jobs before retrying.'));
+        if (!/^[a-zA-Z0-9_-]{6,128}$/.test(data.job_id || ''))
+            throw new Error('Krea submission result is unknown; check Krea jobs before resubmitting.');
+        kreaPendingJobId = data.job_id;
+        await pollKreaVideo(kreaPendingJobId, statusEl, resultEl);
+    }
+
+    async function pollKreaVideo(id, statusEl, resultEl) {
+        for (let attempt = 0; attempt < 120; attempt++) {
+            const response = await fetch(location.origin + '/api/v1/krea-video/status/' + encodeURIComponent(id), {
+                credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(35000)
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok)
+                throw new Error(apiErrorText(data, 'Krea status lookup failed; do not restart generation.'));
+            if (data.status === 'completed' && /^https:\/\//.test(data.video_url || '')) {
+                kreaPendingJobId = null;
+                statusEl.textContent = 'Krea video ready. Review product identity, movement and aspect ratio before posting.';
+                const video = document.createElement('video');
+                video.controls = true; video.playsInline = true; video.preload = 'metadata';
+                video.src = data.video_url; video.className = 'w-full max-h-[60vh] mx-auto';
+                const link = document.createElement('a');
+                link.href = data.video_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                link.textContent = 'Open / download Krea MP4'; link.className = 'block mt-3 text-brand-400 underline';
+                resultEl.replaceChildren(video, link); resultEl.classList.remove('hidden');
+                return;
+            }
+            if (data.status === 'failed' || data.status === 'cancelled') {
+                kreaPendingJobId = null;
+                throw new Error('Krea job ' + data.status + '. Review the existing job before retrying.');
+            }
+            statusEl.textContent = 'Krea ' + (data.status || 'processing') + ' — checking saved job ' + id;
+            await new Promise(resolve => setTimeout(resolve,5000));
+        }
+        throw new Error('Krea is still working. Do not submit a new job. Existing job ID: ' + id);
     }
 
     async function submitHeyGenVideo(statusEl, resultEl) {
@@ -2674,7 +2787,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const resultEl   = document.getElementById('videoResult');
         const submitBtn  = document.getElementById('videoSubmitBtn');
 
-        if (provider !== 'free' && provider !== 'heygen' && provider !== 'wan' && provider !== 'wan-human' && provider !== 'premium' && !prompt) {
+        if (provider !== 'free' && provider !== 'heygen' && provider !== 'wan' && provider !== 'wan-human' && provider !== 'premium' && provider !== 'krea' && !prompt) {
             statusEl.innerHTML = '<span class="text-red-400">Prompt is required.</span>';
             return;
         }
@@ -2697,6 +2810,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             }
             if (provider === 'heygen') {
                 await submitHeyGenVideo(statusEl, resultEl);
+                return;
+            }
+            if (provider === 'krea') {
+                await submitKreaVideo(statusEl, resultEl);
                 return;
             }
             if (provider === 'wan' || provider === 'wan-human') {
