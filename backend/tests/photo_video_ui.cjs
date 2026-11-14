@@ -12,7 +12,7 @@ function element(id) {
 const winner={name:'Sunset Projection Lamp',image_url:'https://example.com/lamp.jpg',url:'https://example.com/lamp'};
 let submitted; let createCount=0; let historyJobs=[]; let statusJob=null; let statusChecks=0;
 const stored=new Map();
-const context={sessionStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)},document:{getElementById:element,createElement:()=>element('created-'+Math.random())},restoreCurrentWinner:()=>winner,buildWinnerVideoPrompt:()=> 'prompt',syncVideoModelOptions(){},updateVideoPromptCount(){},lucide:{createIcons(){}},showToast(){},URL,Date,AbortSignal,apiUrl:p=>p,setTimeout:fn=>{fn();return 1},fetch:async(path,opts={})=>{
+const context={sessionStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)},document:{getElementById:element,createElement:()=>element('created-'+Math.random())},restoreCurrentWinner:()=>winner,buildWinnerVideoPrompt:()=> 'prompt',syncVideoModelOptions(){},setVideoOwnerQuickStatus(){},updateVideoPromptCount(){},lucide:{createIcons(){}},showToast(){},URL,Date,AbortSignal,apiUrl:p=>p,setTimeout:fn=>{fn();return 1},fetch:async(path,opts={})=>{
  let data;
  if(path==='/api/v1/photo-videos'&&opts.method==='POST'){createCount++;submitted=JSON.parse(opts.body);data={video:{id:'a'.repeat(32)}};}
  else if(path==='/api/v1/photo-videos')data={videos:historyJobs};
@@ -28,7 +28,7 @@ vm.runInContext(funcs+'\n'+open,context);
  assert.equal(element('freeProductPreview').src,winner.image_url);
  assert.equal(element('videoPhotoUrl').value,winner.image_url,'video owns separate initial photo snapshot');
  assert.equal(element('videoPhotoConfirmed').checked,false,'paid video photo must not be pre-approved');
- assert.equal(element('videoProvider').value,'heygen','new Video Studio must default to HeyGen V2');
+ assert.equal(element('videoProvider').value,'krea','new Video Studio must default to Krea');
  assert.equal(element('freeProductName').value,winner.name);
  assert(element('videoResult').classList.contains('hidden'));
  element('freeVideoLength').value='15';element('freeVideoStyle').value='warm';element('freeProductFact').value='Warm glow.';
