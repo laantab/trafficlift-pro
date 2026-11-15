@@ -5,6 +5,7 @@ confirmed video-only image and explicit per-request paid approval.
 """
 import os
 import re
+import logging
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -15,6 +16,42 @@ router = APIRouter()
 API = "https://api.krea.ai"
 MODEL = "seedance-2"
 JOB_ID = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
+
+logger = logging.getLogger(__name__)
+
+def _safe_validation_fields(body):
+    """Read only recognized validation field identifiers, never values or messages."""
+    safe = {
+        "start_image": "starting product image", "end_image": "ending image",
+        "reference_images": "reference images", "prompt": "video instructions",
+        "duration": "video length", "resolution": "video quality",
+        "aspect_ratio": "video shape", "generate_audio": "audio option",
+    }
+    found = set()
+
+    def walk(node, depth=0):
+        if depth > 5:
+            return
+        if isinstance(node, dict):
+            for key in ("field", "path", "loc"):
+                value = node.get(key)
+                parts = value if isinstance(value, list) else [value]
+                for part in parts[:8]:
+                    if isinstance(part, str):
+                        field = part.strip("$.").split(".")[-1].split("[")[0]
+                        if field in safe:
+                            found.add(field)
+            for key in ("details", "errors", "error", "detail"):
+                child = node.get(key)
+                if isinstance(child, (dict, list)):
+                    walk(child, depth + 1)
+        elif isinstance(node, list):
+            for child in node[:12]:
+                walk(child, depth + 1)
+
+    walk(body)
+    return sorted(found), [safe[k] for k in sorted(found)]
+
 
 
 class KreaSubmit(BaseModel):
@@ -47,35 +84,13 @@ def provider_request(method, path, **kwargs):
         # aspect_ratio). Only return allowlisted field labels, never arbitrary
         # provider text, signed media URLs, product facts, or API credentials.
         if status == 422:
-            safe_fields = {
-                "start_image": "starting product image",
-                "end_image": "ending image",
-                "reference_images": "reference images",
-                "prompt": "video instructions",
-                "duration": "video length",
-                "resolution": "video quality",
-                "aspect_ratio": "video shape",
-                "generate_audio": "audio option",
-            }
-            problem_fields = set()
             try:
-                body = exc.response.json()
-                if isinstance(body, dict):
-                    entries = body.get("details") or body.get("errors") or []
-                    if isinstance(entries, dict):
-                        entries = [entries]
-                    if isinstance(entries, list):
-                        for item in entries[:12]:
-                            if isinstance(item, dict):
-                                field = item.get("field") or item.get("path") or ""
-                                if isinstance(field, list):
-                                    field = next((part for part in field if isinstance(part, str) and part in safe_fields), "")
-                                elif isinstance(field, str):
-                                    field = field.lstrip("$.").split(".")[0].split("[")[0]
-                                if field in safe_fields:
-                                    problem_fields.add(safe_fields[field])
+                fields, labels = _safe_validation_fields(exc.response.json())
             except (ValueError, TypeError, AttributeError):
-                pass
+                fields, labels = [], []
+            # Only recognized field identifiers; do not log provider text or request data.
+            logger.warning("Krea validation HTTP 422 fields=%s", ",".join(fields) or "unidentified")
+            problem_fields = set(labels)
             if problem_fields:
                 raise HTTPException(422, "Krea could not accept the " + ", ".join(sorted(problem_fields)) + ". Review those settings; no video was started. Do not retry automatically.") from exc
             raise HTTPException(422, "Krea rejected the video settings or starting image. Try a direct, publicly accessible product image and check the video options. No video was started; do not retry automatically.") from exc
