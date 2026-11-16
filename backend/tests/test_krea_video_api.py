@@ -40,7 +40,7 @@ def test_submit_image_to_video_without_audio_or_pin_sharing(monkeypatch):
     payload = send.call_args.kwargs["json"]
     assert payload["start_image"] == "https://example.com/mat.png"
     assert payload["aspect_ratio"] == "9:16"
-    assert payload["generate_audio"] is False
+    assert "generate_audio" not in payload  # Krea defaults to silent video
     send.assert_called_once()
 
 
