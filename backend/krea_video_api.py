@@ -141,7 +141,8 @@ def submit(body: KreaSubmit, request: Request):
         "duration": body.duration,
         "resolution": body.resolution,
         "aspect_ratio": body.aspect_ratio,
-        "generate_audio": False,
+        # Krea Seedance 2.0 defaults generate_audio to false. Omitting this
+        # optional parameter avoids model/account-specific audio validation.
     }
     result = provider_request("POST", "/generate/video/bytedance/" + MODEL, json=payload)
     job_id = result.get("job_id")
