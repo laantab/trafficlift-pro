@@ -28,7 +28,7 @@ vm.runInContext(funcs+'\n'+open,context);
  assert.equal(element('freeProductPreview').src,winner.image_url);
  assert.equal(element('videoPhotoUrl').value,winner.image_url,'video owns separate initial photo snapshot');
  assert.equal(element('videoPhotoConfirmed').checked,false,'paid video photo must not be pre-approved');
- assert.equal(element('videoProvider').value,'krea','new Video Studio must default to Krea');
+ assert.equal(element('videoProvider').value,'heygen','Video Studio must default to the owner-approved HeyGen engine');
  assert.equal(element('freeProductName').value,winner.name);
  assert(element('videoResult').classList.contains('hidden'));
  element('freeVideoLength').value='15';element('freeVideoStyle').value='warm';element('freeProductFact').value='Warm glow.';

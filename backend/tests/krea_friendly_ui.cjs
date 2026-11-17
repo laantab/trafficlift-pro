@@ -1,9 +1,9 @@
-// Krea is the default and owner access can be reached without finding hidden settings.
+// Krea remains optional while HeyGen is the default; owner access stays available.
 // No network or paid calls.
 const fs=require('fs'),assert=require('assert');
 const s=fs.readFileSync('index.html','utf8');
-assert(s.includes('<option value="krea" selected>'));
-assert(s.includes("document.getElementById('videoProvider').value = 'krea'"));
+assert(s.includes('<option value="krea">'));
+assert(s.includes("document.getElementById('videoProvider').value = 'heygen'"));
 assert(s.includes('id="videoOwnerQuickButton"'));
 assert(s.includes('onclick="showVideoOwnerUnlock()"'));
 assert(s.includes("function showVideoOwnerUnlock()"));
@@ -15,4 +15,4 @@ assert(s.includes("Confirm the Video Studio start frame matches the exact produc
 assert(s.includes("approve_paid_generation:true"));
 assert(s.includes("await submitKreaVideo(statusEl, resultEl)"));
 assert(s.includes("provider !== 'heygen'"));
-console.log('PASS: Krea-first workflow, owner guide, isolated image and paid consent');
+console.log('PASS: HeyGen primary, optional Krea, owner guide, isolated image and paid consent');
