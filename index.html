@@ -3655,6 +3655,32 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         ctx.fillText('— image unavailable, branded fallback shown —', w / 2, h - 60);
     }
 
+    function _drawCompactVerifiedHero(ctx, img, w, h) {
+        // Editorial small-photo layout: preserve the exact source photograph
+        // and its native detail instead of stretching a seller thumbnail.
+        // No generated/replacement image, no feature claims, no paid service.
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, 0, w, h);
+        const naturalW = img.naturalWidth, naturalH = img.naturalHeight;
+        if (Math.min(naturalW, naturalH) < 480) {
+            throw new Error('The exact seller photo is too small for a readable Pinterest pin (under 480 pixels). Keep this winner and choose a larger original photo of the same product.');
+        }
+        // Build a clean product-card composition, not a full-bleed enlargement.
+        const maxWidth = w - 140, maxHeight = h - 260;
+        const scale = Math.min(1.12, maxWidth / naturalW, maxHeight / naturalH);
+        const drawW = naturalW * scale, drawH = naturalH * scale;
+        const x = (w - drawW) / 2, y = 90 + (maxHeight - drawH) / 2;
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(x - 15, y - 15, drawW + 30, drawH + 30);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x - 8, y - 8, drawW + 16, drawH + 16);
+        ctx.drawImage(img, x, y, drawW, drawH);
+        ctx.fillStyle = '#ec4899';
+        ctx.fillRect(55, 55, 100, 7);
+        ctx.fillRect(w - 155, h - 80, 100, 7);
+        // Intentionally no fabricated text overlay or image substitution.
+    }
+
     function _drawHeroImage(ctx, img, w, h) {
         // Contain rather than cover: never crop the actual product.
         ctx.fillStyle = '#f8fafc';
@@ -3755,9 +3781,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 (1080 - 76) / hero.naturalHeight
             );
             if (photoUpscale > 1.35) {
-                throw new Error('No sufficiently sharp photo of this exact product was found, even after checking larger versions from the seller image CDN. Choose another listing with a higher-resolution original photo.');
+                // The original remains genuine even if its resolution cannot
+                // fill a large hero region. Use a restrained editorial layout
+                // with no more than 1.12x enlargement, never a blurry upscale.
+                _drawCompactVerifiedHero(ctx, hero, W, 1080);
+            } else {
+                _drawHeroImage(ctx, hero, W, 1080);
             }
-            _drawHeroImage(ctx, hero, W, 1080);
         } else {
             throw new Error('The actual product photo could not be loaded. A generic picture will not replace it.');
         }
