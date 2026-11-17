@@ -1425,16 +1425,16 @@
                     <p class="text-sm font-semibold text-slate-100">Create your product video in 3 steps</p>
                     <p id="videoOwnerQuickStatus" role="status" class="text-sm text-amber-200">1. Unlock Video Studio to continue.</p>
                     <button id="videoOwnerQuickButton" type="button" onclick="showVideoOwnerUnlock()" class="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-semibold">Unlock Video Studio</button>
-                    <p class="text-sm text-slate-300">2. Check the product photo below. 3. Create and review your Krea video.</p>
-                    <p class="text-xs text-slate-400">Krea API video charges are separate from your Krea Basic subscription. Nothing is charged without your approval.</p>
+                    <p class="text-sm text-slate-300">2. Check the product photo below. 3. Create and review your HeyGen video.</p>
+                    <p class="text-xs text-slate-400">HeyGen API video charges require your approval. Krea remains available as an optional engine.</p>
                 </div>
                 <details id="videoEngineAdvanced" class="rounded-lg border border-slate-700 p-3">
-                    <summary class="text-sm cursor-pointer text-slate-300">Video engine: Krea (tap to change)</summary>
+                    <summary class="text-sm cursor-pointer text-slate-300">Video engine: HeyGen (tap to change)</summary>
                     <label class="block mt-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Video engine</label>
                     <select id="videoProvider" onchange="syncVideoProviderOptions()" class="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-brand-500 transition">
                         <option value="free">Free narrated photo video (legacy)</option>
-                        <option value="krea" selected>Krea Video — Seedance 2.0 (paid, approval required)</option>
-                        <option value="heygen">Legacy video — HeyGen (paid, approval required)</option>
+                        <option value="krea">Krea Video — Seedance 2.0 (paid, approval required)</option>
+                        <option value="heygen" selected>HeyGen product video (paid, approval required)</option>
                         <option value="wan">Wan 2.2 (5-second product visual, approx. $0.15)</option>
                         <option value="wan-human">Wan 2.2 — Human demonstration (experimental, approx. $0.15)</option>
                         <option value="premium">Legacy montage — use existing presenter clip (no new paid clip)</option>
@@ -1759,7 +1759,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
         const promptEl = document.getElementById('videoPrompt');
         promptEl.value = buildWinnerVideoPrompt(winner);
-        document.getElementById('videoProvider').value = 'krea';
+        document.getElementById('videoProvider').value = 'heygen';
         document.getElementById('videoEngineAdvanced').open = false;
         document.getElementById('videoOwnerAccessDetails').open = false;
         setVideoOwnerQuickStatus(videoOwnerSessionReady);
@@ -1795,7 +1795,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         syncVideoProviderOptions();
         syncVideoModelOptions();
         updateVideoPromptCount();
-        document.getElementById('videoStatus').textContent = '';
+        document.getElementById('videoStatus').textContent = heygenPendingVideoId
+            ? 'Existing paid HeyGen job saved. Create Video will check that job without charging for another.' : '';
         document.getElementById('videoResult').classList.add('hidden');
         document.getElementById('videoResult').innerHTML = '';
         const modal = document.getElementById('videoModal');
@@ -2223,7 +2224,23 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             await loadFreeVideoHistory();
         } finally { button.disabled = false; }
     }
-    let heygenPendingVideoId = null;
+    // Preserve accepted paid HeyGen jobs across a browser reload. Never submit a
+    // duplicate paid generation when the original job can still be checked.
+    const HEYGEN_PENDING_JOB_KEY = 'tlp_pending_heygen_video_job';
+    function readHeyGenPendingVideoId() {
+        try {
+            const id = sessionStorage.getItem(HEYGEN_PENDING_JOB_KEY);
+            return /^[a-zA-Z0-9_-]{6,128}$/.test(id || '') ? id : null;
+        } catch (_) { return null; }
+    }
+    let heygenPendingVideoId = readHeyGenPendingVideoId();
+    function setHeyGenPendingVideoId(id) {
+        heygenPendingVideoId = id;
+        try {
+            if (id) sessionStorage.setItem(HEYGEN_PENDING_JOB_KEY, id);
+            else sessionStorage.removeItem(HEYGEN_PENDING_JOB_KEY);
+        } catch (_) { /* In-memory protection remains active until reload. */ }
+    }
     let kreaPendingJobId = null;
     let premiumPendingJobId = null;
     async function pollPremiumAd(id, statusEl, resultEl) {
@@ -2598,7 +2615,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         if (!/^[a-zA-Z0-9_-]{6,128}$/.test(data.video_id || '')) {
             throw new Error('HeyGen submission status is unknown. Do not submit again before reviewing HeyGen jobs.');
         }
-        heygenPendingVideoId = data.video_id;
+        setHeyGenPendingVideoId(data.video_id);
         await pollHeyGenVideo(heygenPendingVideoId, statusEl, resultEl);
     }
     async function pollHeyGenVideo(id, statusEl, resultEl) {
@@ -2693,11 +2710,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                     }
                 });
                 resultEl.append(video,link,identityLabel,rejectButton,exportsButton,exportStatus);
-                heygenPendingVideoId = null;
+                setHeyGenPendingVideoId(null);
                 return;
             }
             if (['failed','cancelled'].includes(data.status)) {
-                heygenPendingVideoId = null;
+                setHeyGenPendingVideoId(null);
                 throw new Error('HeyGen reported ' + data.status + '. Review the provider job before restarting.');
             }
             statusEl.textContent = 'HeyGen ' + (data.status || 'processing') + ' — checking the existing job (' + id + ')';
