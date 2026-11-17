@@ -104,3 +104,37 @@ def test_primary_video_engine_is_heygen_and_paid_job_survives_reload():
     assert "setHeyGenPendingVideoId(null);" in html
     assert "if (heygenPendingVideoId) {" in html
     assert "await pollHeyGenVideo(heygenPendingVideoId, statusEl, resultEl);" in html
+
+
+def test_real_social_export_has_vertical_h264_audio_and_safe_link_card(tmp_path):
+    """No HeyGen credits: encode an owned synthetic landscape master locally."""
+    import json
+    import subprocess
+    from backend.social_exports_api import _convert, _ffmpeg, _link_card
+    ffmpeg = _ffmpeg()
+    source = tmp_path / "landscape-source.mp4"
+    card = tmp_path / "link-card.png"
+    output = tmp_path / "social-vertical.mp4"
+    subprocess.run([
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        "-f", "lavfi", "-i", "color=c=red:s=320x240:r=10",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000",
+        "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-shortest", str(source),
+    ], capture_output=True, check=True, timeout=35)
+    _link_card(card, 720, 1280, "https://example.com/dp/TEST123?tag=approved")
+    _convert(source, output, 720, 1280, card=card, duration=2)
+    from pathlib import Path
+    assert output.is_file() and output.stat().st_size > 2048
+    # Find ffprobe alongside static-ffmpeg/ffmpeg, including on hosted CI.
+    import shutil
+    ffprobe = shutil.which("ffprobe") or str(Path(ffmpeg).with_name("ffprobe"))
+    result = subprocess.run([
+        ffprobe, "-v", "error", "-show_entries",
+        "stream=codec_type,codec_name,width,height",
+        "-of", "json", str(output)
+    ], check=True, capture_output=True, text=True, timeout=20)
+    streams = json.loads(result.stdout)["streams"]
+    assert any(x.get("codec_type") == "video" and x.get("codec_name") == "h264"
+               and x.get("width") == 720 and x.get("height") == 1280 for x in streams)
+    assert any(x.get("codec_type") == "audio" and x.get("codec_name") == "aac" for x in streams)
