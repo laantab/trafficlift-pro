@@ -90,3 +90,17 @@ def test_export_requires_approved_https_marketing_url():
 def test_marketing_link_is_preserved_exactly_for_caption():
     url = "https://example.com/product?tag=affiliate-20&variant=2"
     assert _marketing_url(url) == url
+
+
+def test_primary_video_engine_is_heygen_and_paid_job_survives_reload():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[2] / "index.html").read_text(encoding="utf-8")
+    assert '<option value="heygen" selected>' in html
+    assert '<option value="krea" selected>' not in html
+    assert "document.getElementById('videoProvider').value = 'heygen';" in html
+    assert "function readHeyGenPendingVideoId()" in html
+    assert "sessionStorage.getItem(HEYGEN_PENDING_JOB_KEY)" in html
+    assert "setHeyGenPendingVideoId(data.video_id);" in html
+    assert "setHeyGenPendingVideoId(null);" in html
+    assert "if (heygenPendingVideoId) {" in html
+    assert "await pollHeyGenVideo(heygenPendingVideoId, statusEl, resultEl);" in html
