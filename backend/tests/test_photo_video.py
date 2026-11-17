@@ -211,3 +211,35 @@ def test_numeric_ounce_units_are_spoken_naturally_without_mutating_captions():
     assert normalize_narration_measurements('1.5 fl. oz. bottle') == '1.5 ounces bottle'
     assert normalize_narration_measurements('AB20oz model') == 'AB20oz model'
     assert normalize_narration_measurements('20 ounce travel mug') == '20 ounces travel mug'
+
+
+def test_video_reuses_existing_verified_photo_enhancer_without_modifying_source(tmp_path):
+    """Moderate seller photos can be corrected without changing Pinterest or IDs."""
+    from PIL import Image, ImageDraw
+    from backend.photo_video import prepare_verified_video_photo, validate_video_photo_resolution
+    source = tmp_path / 'seller-photo.jpg'
+    im = Image.new('RGB', (600, 800), '#f0e7d9')
+    draw = ImageDraw.Draw(im)
+    draw.rounded_rectangle((80, 100, 520, 690), radius=45, fill='#b53d35', outline='#222222', width=14)
+    for y in range(180, 630, 38):
+        draw.line((120, y, 480, y), fill='#fff3a0', width=7)
+    im.save(source, quality=93)
+    original = source.read_bytes()
+    with pytest.raises(ValueError, match='resolution is too low'):
+        validate_video_photo_resolution(im.size)
+    enhanced = prepare_verified_video_photo(source)
+    validate_video_photo_resolution(enhanced.size)
+    assert enhanced.width >= im.width
+    assert enhanced.height >= im.height
+    assert source.read_bytes() == original
+
+
+def test_video_rejects_tiny_photos_even_with_enhancer(tmp_path):
+    from PIL import Image, ImageDraw
+    from backend.photo_video import prepare_verified_video_photo
+    source = tmp_path / 'tiny-photo.jpg'
+    im = Image.new('RGB', (300, 300), 'white')
+    ImageDraw.Draw(im).rectangle((50, 50, 260, 260), fill='red')
+    im.save(source)
+    with pytest.raises(ValueError, match='at least 400 pixels'):
+        prepare_verified_video_photo(source)
