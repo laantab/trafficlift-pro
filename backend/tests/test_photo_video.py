@@ -218,10 +218,10 @@ def test_video_reuses_existing_verified_photo_enhancer_without_modifying_source(
     from PIL import Image, ImageDraw
     from backend.photo_video import prepare_verified_video_photo, validate_video_photo_resolution
     source = tmp_path / 'seller-photo.jpg'
-    im = Image.new('RGB', (600, 800), '#f0e7d9')
+    im = Image.new('RGB', (600, 600), '#f0e7d9')
     draw = ImageDraw.Draw(im)
-    draw.rounded_rectangle((80, 100, 520, 690), radius=45, fill='#b53d35', outline='#222222', width=14)
-    for y in range(180, 630, 38):
+    draw.rounded_rectangle((80, 70, 520, 540), radius=45, fill='#b53d35', outline='#222222', width=14)
+    for y in range(145, 510, 38):
         draw.line((120, y, 480, y), fill='#fff3a0', width=7)
     im.save(source, quality=93)
     original = source.read_bytes()
