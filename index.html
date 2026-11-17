@@ -1771,7 +1771,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         document.getElementById('videoPhotoStatus').textContent = videoPhoto.confirmed
             ? 'Video photo confirmed for this product. Pinterest photo is unchanged.'
             : 'Check the video photo preview and confirm the exact product before generation.';
-        document.getElementById('freeProductName').value = winner.name;
+        // Pydantic allows at most 90 characters; setting .value in JS bypasses maxlength.
+        // Keep full identity in the winner record, but use a concise ad title.
+        document.getElementById('freeProductName').value = String(winner.name || '').split('|')[0].trim().slice(0, 90);
         // The product_url is kept as seller research evidence. Publishing uses
         // the separately authorized marketing link shown on the winner card.
         document.getElementById('freeProductUrl').value = winner.url || '';
@@ -2071,7 +2073,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const response = await fetch(url, {...options, signal: AbortSignal.timeout(30000)});
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-            const detail = typeof data.detail === 'string' ? data.detail : 'Check the product fields and try again.';
+            const detail = typeof data.detail === 'string' ? data.detail :
+                (Array.isArray(data.detail)
+                    ? data.detail.map(item => {
+                        const field = (item.loc || []).filter(part => part !== 'body').join('.');
+                        return (field ? field + ': ' : '') + String(item.msg || 'Invalid value');
+                    }).join('; ')
+                    : 'The video request was rejected. Check product information.');
             if (hostedVideoSite && response.status === 401 && !path.includes('/video-owner-login')) {
                 const panel = document.getElementById('hostedVideoOwnerAccess');
                 const note = document.getElementById('videoOwnerAccessStatus');
@@ -2707,8 +2715,13 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const winner = restoreCurrentWinner();
         if (!winner) throw new Error('Choose a product first.');
         const videoPhotoUrl = requireVideoPhoto();
+        const productName = document.getElementById('freeProductName').value.trim().split('|')[0].trim().slice(0, 90);
+        const listingUrl = document.getElementById('freeProductUrl').value.trim();
+        if (!productName) throw new Error('The product name is missing. Select a product first.');
+        if (!/^https:\/\/\S+$/i.test(listingUrl))
+            throw new Error('The selected product has no verified HTTPS seller listing. Open Edit product details and enter the exact product listing URL. No video started.');
         const payload = {
-            name: document.getElementById('freeProductName').value.trim(),
+            name: productName,
             image_url: videoPhotoUrl,
             product_url: document.getElementById('freeProductUrl').value.trim(),
             benefit: document.getElementById('freeProductFact').value.trim(),
