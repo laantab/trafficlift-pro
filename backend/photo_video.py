@@ -331,11 +331,11 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
         try:
             photo = prepare_verified_video_photo(path)
             fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
-                if min(photo.size)>=1400:
-                    w,h=photo.size
-                    detail=photo.crop((round(w*.175),round(h*.175),round(w*.825),round(h*.825)))
-                    detail_photos.append(ImageOps.contain(detail,(888,888),Image.Resampling.LANCZOS))
-                else:detail_photos.append(None)
+            if min(photo.size)>=1400:
+                w,h=photo.size
+                detail=photo.crop((round(w*.175),round(h*.175),round(w*.825),round(h*.825)))
+                detail_photos.append(ImageOps.contain(detail,(888,888),Image.Resampling.LANCZOS))
+            else:detail_photos.append(None)
         except (ValueError,OSError):
             if path==image_path:raise
     if not fitted_photos:raise ValueError('A real product photo is required.')
