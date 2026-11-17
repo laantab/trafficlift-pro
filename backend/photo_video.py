@@ -438,7 +438,7 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     subprocess.run(['ffmpeg','-y','-v','error','-i','base.mp4','-i','voice.wav','-i','music.wav','-filter_complex',filters,'-map','[v]','-map','[a]','-c:v','libx264','-preset','fast','-crf','20','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t',str(seconds),'-movflags','+faststart','video.mp4'],cwd=root,check=True,timeout=600)
     progress('Checking video')
     quality=check_video(out,seconds)
-    quality['motion']=check_motion(out,seconds)
+    quality['motion']=check_motion(out,seconds,storyboard=storyboard,boundaries=boundaries)
     quality['rendered_creative']=inspect_rendered_creative(out, seconds, root, subtitle_panel_color=bg)
     quality['narration_audio']=narration_qa
     quality['marketing_approval']='NOT_APPROVED: real product imagery and full video still need human review'
@@ -571,18 +571,58 @@ def check_video(path,seconds):
     return {'status':'PASS','duration':seconds,'dimensions':[1080,1920],'decode':'PASS','text_bounds':'PASS every composed frame','social_upload':'Not tested'}
 
 
-def check_motion(path,seconds):
-    """Compare only the photo panel, so captions cannot fake motion PASS."""
-    import numpy as np
-    raw=subprocess.check_output(['ffmpeg','-v','error','-i',str(path),'-vf','fps=1,crop=888:888:96:510,scale=96:96','-t',str(seconds),'-f','rawvideo','-pix_fmt','rgb24','pipe:1'],timeout=180)
-    frame_bytes=96*96*3
-    if len(raw)<frame_bytes*3 or len(raw)%frame_bytes:raise ValueError('Video motion check could not read enough frames.')
-    frames=np.frombuffer(raw,dtype=np.uint8).reshape(-1,96,96,3).astype(np.float32)
-    differences=np.abs(frames[1:]-frames[:-1]).mean(axis=(1,2,3))
-    moving=int(np.count_nonzero(differences>.25))
-    if moving<max(2,int(len(differences)*.6)):raise ValueError('The product picture is staying still. Motion check failed.')
-    return {'status':'PASS','changed_photo_intervals':moving,'sampled_intervals':len(differences)}
+def check_motion(path, seconds, storyboard=None, boundaries=None):
+    """Verify real motion only where a product photograph is actually displayed.
 
+    One-photo ads intentionally include static seller-fact cards, so requiring
+    60 percent of ALL video seconds to move incorrectly rejects good renders.
+    Transitions between scenes must not count toward photo motion.
+    """
+    import numpy as np
+    sample_rate = 2 if storyboard is not None and boundaries is not None else 1
+    raw = subprocess.check_output(
+        ['ffmpeg', '-v', 'error', '-i', str(path),
+         '-vf', f'fps={sample_rate},crop=888:888:96:510,scale=96:96',
+         '-t', str(seconds), '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+        timeout=180,
+    )
+    frame_bytes = 96 * 96 * 3
+    if len(raw) < frame_bytes * 3 or len(raw) % frame_bytes:
+        raise ValueError('Video motion check could not read enough frames.')
+    frames = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 96, 96, 3).astype(np.float32)
+    differences = np.abs(frames[1:] - frames[:-1]).mean(axis=(1, 2, 3))
+    if storyboard is not None and boundaries is not None:
+        if len(boundaries) != len(storyboard) + 1:
+            raise ValueError('Video motion check has mismatched scene boundaries.')
+        eligible = []
+        for idx in range(1, len(frames)):
+            start_time = (idx - 1) / sample_rate
+            end_time = idx / sample_rate
+            # Compare frames only within the same photo-hero scene, and skip
+            # fade-in frames. Static fact cards and cuts cannot fake a PASS.
+            scene = bisect.bisect_right(boundaries, start_time) - 1
+            if not (0 <= scene < len(storyboard)):
+                continue
+            if storyboard[scene].get('layout') != 'photo_hero':
+                continue
+            if end_time >= boundaries[scene + 1]:
+                continue
+            if start_time < boundaries[scene] + .25:
+                continue
+            eligible.append(idx - 1)
+        if len(eligible) < 2:
+            raise ValueError('Video motion check could not sample enough product-photo frames.')
+        moving = int(np.count_nonzero(differences[eligible] > .25))
+        required = max(2, int(math.ceil(len(eligible) * .25)))
+        if moving < required:
+            raise ValueError('The product picture is staying still. Motion check failed.')
+        return {'status': 'PASS', 'changed_photo_intervals': moving,
+                'sampled_intervals': len(eligible), 'scope': 'product_photo_scenes'}
+    moving = int(np.count_nonzero(differences > .25))
+    if moving < max(2, int(len(differences) * .6)):
+        raise ValueError('The product picture is staying still. Motion check failed.')
+    return {'status': 'PASS', 'changed_photo_intervals': moving,
+            'sampled_intervals': len(differences)}
 
 
 def narration_starts(lengths, seconds):
