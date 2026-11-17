@@ -74,6 +74,41 @@ def validate_video_photo_resolution(size, max_upscale=1.35):
     return round(scale, 3)
 
 
+def prepare_verified_video_photo(path):
+    """Use the existing conservative pin enhancer only when video resolution fails.
+
+    A higher-resolution exact-source download is attempted before this point.
+    Preserve the same photograph and never fabricate missing product details.
+    """
+    from PIL import Image, ImageOps
+    from io import BytesIO
+    with Image.open(path) as source:
+        if source.width * source.height > 40_000_000:
+            raise ValueError('Product photo is too large to decode safely.')
+        photo = crop_uniform_photo_margin(ImageOps.exif_transpose(source).convert('RGB'))
+    if min(photo.size) < 400:
+        raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
+    try:
+        validate_video_photo_resolution(photo.size)
+        return photo
+    except ValueError as original_error:
+        if 'resolution is too low' not in str(original_error):
+            raise
+        # This same, quality-limited enhancement already powers the high-quality
+        # Pinterest path. Do not modify the Pinterest renderer or its defaults.
+        from backend.pin_image_api import _enhance_verified_photo
+        source_bytes = BytesIO()
+        photo.save(source_bytes, format='PNG')
+        enhanced_bytes = _enhance_verified_photo(source_bytes.getvalue())
+        if enhanced_bytes is None:
+            raise original_error
+        with Image.open(BytesIO(enhanced_bytes)) as enhanced:
+            improved = enhanced.convert('RGB')
+        # Enhancement is not permission to use a blurred or tiny source.
+        validate_video_photo_resolution(improved.size)
+        return improved
+
+
 def balanced_caption_chunks(phrase, max_words=7):
     """Preserve the spoken words while avoiding orphaned one-word subtitles."""
     words = str(phrase or '').split()
@@ -294,17 +329,13 @@ def render(image_path, directory, name, benefit, destination, seconds, style, pr
     fitted_photos=[];detail_photos=[]
     for path in [image_path]+list(extra_images or [])[:3]:
         try:
-            with Image.open(path) as source:
-                if source.width*source.height>40_000_000:raise ValueError('Product photo is too large to decode safely.')
-                photo=crop_uniform_photo_margin(ImageOps.exif_transpose(source).convert('RGB'))
-                if min(photo.size)<400:raise ValueError('Product photo is too small. Choose a photo at least 400 pixels on each side.')
-                validate_video_photo_resolution(photo.size)
-                fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
-                if min(photo.size)>=1400:
-                    w,h=photo.size
-                    detail=photo.crop((round(w*.175),round(h*.175),round(w*.825),round(h*.825)))
-                    detail_photos.append(ImageOps.contain(detail,(888,888),Image.Resampling.LANCZOS))
-                else:detail_photos.append(None)
+            photo = prepare_verified_video_photo(path)
+            fitted_photos.append(ImageOps.contain(photo,(888,888),Image.Resampling.LANCZOS))
+            if min(photo.size)>=1400:
+                w,h=photo.size
+                detail=photo.crop((round(w*.175),round(h*.175),round(w*.825),round(h*.825)))
+                detail_photos.append(ImageOps.contain(detail,(888,888),Image.Resampling.LANCZOS))
+            else:detail_photos.append(None)
         except (ValueError,OSError):
             if path==image_path:raise
     if not fitted_photos:raise ValueError('A real product photo is required.')
