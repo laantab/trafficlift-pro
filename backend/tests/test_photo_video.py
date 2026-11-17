@@ -243,3 +243,34 @@ def test_video_rejects_tiny_photos_even_with_enhancer(tmp_path):
     im.save(source)
     with pytest.raises(ValueError, match='at least 400 pixels'):
         prepare_verified_video_photo(source)
+
+
+def test_motion_check_allows_static_fact_cards_but_requires_moving_product_photo():
+    """The renderer intentionally interleaves stationary fact cards."""
+    from backend.photo_video import check_motion
+    samples = []
+    for index in range(18):  # 9 seconds at 2 fps, three scenes
+        if index < 6:  # first product photo gently changes
+            value = index * 4
+        elif index < 12:  # stationary seller-fact card
+            value = 90
+        else:  # closing product photo changes
+            value = 120 + (index - 12) * 4
+        samples.append(bytes([value]) * (96 * 96 * 3))
+    storyboard = [{'layout': 'photo_hero'}, {'layout': 'seller_fact_card'}, {'layout': 'photo_hero'}]
+    with patch('backend.photo_video.subprocess.check_output', return_value=b''.join(samples)):
+        result = check_motion('ad.mp4', 9, storyboard=storyboard, boundaries=[0, 3, 6, 9])
+    assert result['status'] == 'PASS'
+    assert result['scope'] == 'product_photo_scenes'
+
+
+def test_motion_check_rejects_static_product_photos_despite_moving_fact_card():
+    from backend.photo_video import check_motion
+    samples = []
+    for index in range(18):
+        value = 40 if index < 6 else (index * 10 if index < 12 else 140)
+        samples.append(bytes([value]) * (96 * 96 * 3))
+    storyboard = [{'layout': 'photo_hero'}, {'layout': 'seller_fact_card'}, {'layout': 'photo_hero'}]
+    with patch('backend.photo_video.subprocess.check_output', return_value=b''.join(samples)):
+        with pytest.raises(ValueError, match='staying still'):
+            check_motion('ad.mp4', 9, storyboard=storyboard, boundaries=[0, 3, 6, 9])
