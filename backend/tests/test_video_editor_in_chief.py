@@ -74,3 +74,33 @@ def test_owner_guard_prevents_preflight_access():
         with pytest.raises(HTTPException) as e:
             preflight(PreflightRequest(**BASE), Mock())
     assert e.value.status_code == 401
+
+
+def test_finished_social_video_without_narration_is_blocked(monkeypatch, tmp_path):
+    import json
+    from backend.social_exports_api import _editor_verify_export
+    from types import SimpleNamespace
+    monkeypatch.setattr("backend.social_exports_api.shutil.which", lambda name: "/usr/bin/ffprobe")
+    monkeypatch.setattr("backend.social_exports_api.subprocess.run",
+        lambda *a, **kw: SimpleNamespace(stdout=json.dumps({"streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 720, "height": 1280}
+        ]})))
+    with pytest.raises(HTTPException) as error:
+        _editor_verify_export(tmp_path / "silent.mp4", 720, 1280)
+    assert error.value.status_code == 422
+    assert "narrated audio" in error.value.detail
+
+
+def test_finished_social_video_with_correct_video_and_audio_passes(monkeypatch, tmp_path):
+    import json
+    from backend.social_exports_api import _editor_verify_export
+    from types import SimpleNamespace
+    monkeypatch.setattr("backend.social_exports_api.shutil.which", lambda name: "/usr/bin/ffprobe")
+    monkeypatch.setattr("backend.social_exports_api.subprocess.run",
+        lambda *a, **kw: SimpleNamespace(stdout=json.dumps({"streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 720, "height": 1280},
+            {"codec_type": "audio", "codec_name": "aac"},
+        ]})))
+    report=_editor_verify_export(tmp_path / "vertical.mp4", 720, 1280)
+    assert report["technical_qa"] == "passed"
+    assert "owner approval" in report["visual_identity_review"]
