@@ -13,7 +13,7 @@ from backend.photo_video_api import video_guard
 router = APIRouter()
 _VALID_PROVIDERS = {"heygen", "krea", "free"}
 _PLACEHOLDER = re.compile(
-    r"\b(?:lorem ipsum|insert (?:url|link|product)|placeholder|visit product link)\b", re.I
+    r"\b(?:lorem ipsum|insert (?:url|link|product)|(?:^|\\s)placeholder(?:\\s|$))\b", re.I
 )
 _RISKY_CLAIMS = re.compile(
     r"\b(?:guaranteed results?|100% guaranteed|cures? [a-z ]+|risk[- ]free profits?)\b", re.I
