@@ -98,3 +98,12 @@ const {createCanvas, Image} = require('@napi-rs/canvas');
     console.log('PASS: 502, missing package, image failure, persisted winner, retry, real JPEG preview and browser download; no discovery');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e.stack||e);process.exitCode=1});
+
+
+// Release v3.0.4 has a direct retry control in the same Pinterest preview.
+const releaseHtml=require('fs').readFileSync('index.html','utf8');
+assert(releaseHtml.includes('id="pinterestRedoBtn"'));
+assert(releaseHtml.includes('onclick="redoPinterestPin()"'));
+assert(releaseHtml.includes('async function redoPinterestPin()'));
+assert(releaseHtml.includes('window.__lastPinterestDesign = {winnerId: winner.id, pkg: reviewedPkg}'));
+assert(releaseHtml.includes('await renderPinPreview(winner, cached.pkg)'));
