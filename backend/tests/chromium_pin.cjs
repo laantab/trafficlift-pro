@@ -23,6 +23,13 @@ const { createCanvas } = require('@napi-rs/canvas');
   iconCtx.fillStyle='#f8fafc';iconCtx.fillRect(0,0,64,64);
   iconCtx.fillStyle='#222';iconCtx.fillRect(28,10,12,44);
   const iconPng=icon.toBuffer('image/png');
+  // Realistic retailer thumbnail: 520px white square, product only 100px
+  // wide. The output must emphasize the PRODUCT, not the white margins.
+  const marginPhoto=createCanvas(520,520);
+  const mc=marginPhoto.getContext('2d');
+  mc.fillStyle='#fff';mc.fillRect(0,0,520,520);
+  mc.fillStyle='#111827';mc.fillRect(210,105,100,325);
+  const marginPng=marginPhoto.toBuffer('image/png');
   const tiny = createCanvas(300,300);
   const tinyCtx = tiny.getContext('2d');
   tinyCtx.fillStyle='#f8fafc'; tinyCtx.fillRect(0,0,300,300);
@@ -34,7 +41,7 @@ const { createCanvas } = require('@napi-rs/canvas');
     await page.addInitScript(()=>{window.lucide={createIcons(){}};});
     await page.route('http://127.0.0.1:8000/**',async route=>{
       const u=route.request().url();
-      if(u.includes('/api/v1/product-image?'))return route.fulfill({status:200,contentType:'image/png',body:u.includes('icon.png')?iconPng:(u.includes('lowres.png')?tinyPng:(u.includes('compact.png')?compactPng:png))});
+      if(u.includes('/api/v1/product-image?'))return route.fulfill({status:200,contentType:'image/png',body:u.includes('margin.png')?marginPng:(u.includes('icon.png')?iconPng:(u.includes('lowres.png')?tinyPng:(u.includes('compact.png')?compactPng:png)))});
       if(u.endsWith('/studio'))return route.fulfill({status:200,contentType:'text/html',body:source});
       return route.fulfill({status:200,contentType:'application/json',body:'{}'});
     });
@@ -106,6 +113,25 @@ const { createCanvas } = require('@napi-rs/canvas');
     assert.equal(compactResult.width,1000);
     assert.equal(compactResult.height,1500);
     assert(compactResult.dark>30000,'The exact compact product was not displayed');
+    // The actual object, not the outer white image canvas, must take up
+    // a meaningful portion of the hero. Long title retains key lid model.
+    const marginResult=await page.evaluate(async()=>{
+      const winner={name:'ThermoFlask Insulated Stainless Steel Coffee Travel Mug with Sip-N-Lok Lid',
+                    image_url:'https://images.example/margin.png'};
+      const jpeg=await renderPinPreview(winner,{
+        pin_title:winner.name,pin_cta_suggestion:'See Product Details'
+      });
+      const im=new Image();im.src=jpeg;await im.decode();
+      const cv=document.createElement('canvas');cv.width=im.width;cv.height=im.height;
+      const c=cv.getContext('2d');c.drawImage(im,0,0);
+      const data=c.getImageData(0,0,1000,1080).data;let dark=0;
+      for(let i=0;i<data.length;i+=4)if(data[i]<70&&data[i+1]<70&&data[i+2]<70)dark++;
+      return {dark,headline:_shortPinterestDisplayTitle(winner.name),
+              w:im.width,h:im.height};
+    });
+    assert(marginResult.dark>70000,'Product should be prominent, not a tiny image surrounded by white');
+    assert(marginResult.headline.includes('Sip-N-Lok Lid'),'Long title lost model name');
+    assert.equal(marginResult.w,1000);assert.equal(marginResult.h,1500);
     // Regression: old versions could make authentic pins from 300px source
     // photos. This must succeed without enlarged blurry hero imagery.
     const small = await page.evaluate(async () => {
