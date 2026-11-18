@@ -12,7 +12,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>TrafficLift Pro v3.0.6 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v3.0.7 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -20,7 +20,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
-    <meta name="app-version" content="3.0.6">
+    <meta name="app-version" content="3.0.7">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -140,7 +140,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v3.0.6 · AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v3.0.7 · AI Traffic Engine</span>
                 </div>
             </div>
             <div id="trafficliftHeaderActions" class="flex items-center gap-3">
@@ -370,7 +370,7 @@
 
                 <!-- Footer -->
                 <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
-                    <span>TrafficLift Pro v3.0.6</span>
+                    <span>TrafficLift Pro v3.0.7</span>
                     <span id="statusMessage">Ready</span>
                 </div>
             </div>
@@ -2512,6 +2512,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             (benefit ? 'Product detail for context: ' + benefit + '. ' : '') +
             'Hands interact naturally only if supported by the product image. Preserve the photographed product identity. ' +
             'No object overlap, clipping, melting, warping, shaky camera, added text, voiceover or misleading claims.';
+        await editorInChiefPreflight({
+            provider:'krea',product_name:winner.name,image_url:image,
+            image_confirmed:true,duration:5,aspect_ratio:'9:16',script:prompt
+        },statusEl);
         const approved = window.confirm(
             'Krea API video uses separately billed credits, NOT your annual Krea Basic credits. ' +
             'Start ONE 5-second 720p vertical video? You must check your API balance and price first. ' +
@@ -2569,6 +2573,20 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         throw new Error('Krea is still working. Do not submit a new job. Existing job ID: ' + id);
     }
 
+    async function editorInChiefPreflight(options, statusEl) {
+        statusEl.textContent = 'Video Editor-in-Chief: checking product identity, photo, aspect ratio and script…';
+        const response = await fetch(location.origin + '/api/v1/video-editor-in-chief/preflight', {
+            method:'POST', credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(options), signal:AbortSignal.timeout(30000)
+        });
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(apiErrorText(result, 'Editor-in-Chief blocked incomplete video instructions; no video started.'));
+        const notices=(result.automatic_corrections||[]).concat(result.warnings||[]);
+        statusEl.textContent='Editor-in-Chief preflight passed. '+(notices.length?notices.join(' '):'Ready for owner approval.');
+        return result;
+    }
+
     async function submitHeyGenVideo(statusEl, resultEl) {
         if (!hostedVideoSite) throw new Error('Open the official hosted TrafficLift website for HeyGen video.');
         if (heygenPendingVideoId) {
@@ -2582,6 +2600,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         const videoPhotoConfirmed = document.getElementById('videoPhotoConfirmed')?.checked === true;
         if (!/^https:\/\//i.test(videoPhotoUrl)) throw new Error('Enter a public HTTPS photo URL for Video Studio. Pinterest uses its own photo.');
         if (!videoPhotoConfirmed) throw new Error('Confirm the exact product shown in the Video Studio photo before starting a paid video.');
+        await editorInChiefPreflight({
+            provider:'heygen',product_name:winner.name,image_url:videoPhotoUrl,
+            image_confirmed:videoPhotoConfirmed,duration:15,aspect_ratio:'9:16'
+        },statusEl);
         // Video rendering owns its image; Pinterest's image selection is never changed.
         // Marketing-destination approval is required later for outbound
         // promotional actions, not for creating a reviewable draft video.
