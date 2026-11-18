@@ -135,8 +135,14 @@ def submit(body: KreaSubmit, request: Request):
         _validate_public_https_url(body.image_url)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, "Provide an accessible public HTTPS video image URL; no paid video was started.") from exc
+    from backend.video_editor_in_chief import review_preflight
+    reviewed = review_preflight(
+        provider="krea", product_name="Video Studio product",
+        image_url=body.image_url, image_confirmed=True, duration=body.duration,
+        aspect_ratio=body.aspect_ratio, script=body.prompt,
+    )
     payload = {
-        "prompt": body.prompt + " Preserve the exact photographed product. No warping, melting, object clipping, invented text or URL.",
+        "prompt": reviewed["corrected_script"] + " Preserve the exact photographed product. No warping, melting, object clipping, invented text or URL.",
         "start_image": body.image_url,
         "duration": body.duration,
         "resolution": body.resolution,
