@@ -18,6 +18,11 @@ const { createCanvas } = require('@napi-rs/canvas');
   compactCtx.fillStyle='#fff'; compactCtx.fillRect(0,0,520,520);
   compactCtx.fillStyle='#334155'; compactCtx.fillRect(130,90,270,350);
   const compactPng=compact.toBuffer('image/png');
+  const icon = createCanvas(64,64);
+  const iconCtx=icon.getContext('2d');
+  iconCtx.fillStyle='#f8fafc';iconCtx.fillRect(0,0,64,64);
+  iconCtx.fillStyle='#222';iconCtx.fillRect(28,10,12,44);
+  const iconPng=icon.toBuffer('image/png');
   const tiny = createCanvas(300,300);
   const tinyCtx = tiny.getContext('2d');
   tinyCtx.fillStyle='#f8fafc'; tinyCtx.fillRect(0,0,300,300);
@@ -29,7 +34,7 @@ const { createCanvas } = require('@napi-rs/canvas');
     await page.addInitScript(()=>{window.lucide={createIcons(){}};});
     await page.route('http://127.0.0.1:8000/**',async route=>{
       const u=route.request().url();
-      if(u.includes('/api/v1/product-image?'))return route.fulfill({status:200,contentType:'image/png',body:u.includes('lowres.png')?tinyPng:(u.includes('compact.png')?compactPng:png)});
+      if(u.includes('/api/v1/product-image?'))return route.fulfill({status:200,contentType:'image/png',body:u.includes('icon.png')?iconPng:(u.includes('lowres.png')?tinyPng:(u.includes('compact.png')?compactPng:png))});
       if(u.endsWith('/studio'))return route.fulfill({status:200,contentType:'text/html',body:source});
       return route.fulfill({status:200,contentType:'application/json',body:'{}'});
     });
@@ -101,22 +106,35 @@ const { createCanvas } = require('@napi-rs/canvas');
     assert.equal(compactResult.width,1000);
     assert.equal(compactResult.height,1500);
     assert(compactResult.dark>30000,'The exact compact product was not displayed');
-    // Even a correctly identified product must not export a blurry upscale
-    // of a tiny catalog thumbnail disguised as a 1000x1500 designed pin.
-    const lowResolution = await page.evaluate(async () => {
+    // Regression: old versions could make authentic pins from 300px source
+    // photos. This must succeed without enlarged blurry hero imagery.
+    const small = await page.evaluate(async () => {
+      const winner={name:'JAS11242 LED Motion-Sensor Night Light',
+                    image_url:'https://images.example/lowres.png'};
+      const jpeg=await renderPinPreview(winner,{
+        pin_title:'JAS11242 Motion-Sensor Night Light',
+        pin_cta_suggestion:'See Product Details'
+      });
+      const decoded=new Image();decoded.src=jpeg;await decoded.decode();
+      return {width:decoded.width,height:decoded.height,hasFile:!!window.__lastPinDataUrl};
+    });
+    assert.deepEqual([small.width,small.height,small.hasFile],[1000,1500,true]);
+    // Tiny 64px tracker-style icon still cannot be called a product photograph.
+    const tinyIcon = await page.evaluate(async()=>{
       try {
-        const winner = {name:'JAS11242 LED Motion-Sensor Night Light',
-                        image_url:'https://images.example/lowres.png'};
-        await renderPinPreview(winner, {
+        await renderPinPreview({
+          name:'JAS11242 LED Motion-Sensor Night Light',
+          image_url:'https://images.example/icon.png'
+        },{
           pin_title:'JAS11242 Motion-Sensor Night Light',
           pin_cta_suggestion:'See Product Details'
         });
         return 'unexpected success';
-      } catch (error) { return error.message; }
+      } catch(error) {return error.message;}
     });
-    assert.match(lowResolution,/under 480 pixels|too small for a readable Pinterest pin/i);
-    assert.equal(await page.evaluate(() => window.__lastPinDataUrl),null,
-      'A failed low-resolution pin must not leave a downloadable stale design');
+    assert.match(tinyIcon,/tiny icon/i);
+    assert.equal(await page.evaluate(()=>window.__lastPinDataUrl),null,
+      'Invalid icon may not leave the prior product pin downloadable');
     // A real browser with blocked storage must never issue a new winner request
     // under a temporary identity that disappears on reload.
     let discoveryRequests=0;
