@@ -131,6 +131,15 @@ const { createCanvas } = require('@napi-rs/canvas');
     });
     assert(marginResult.dark>70000,'Product should be prominent, not a tiny image surrounded by white');
     assert(marginResult.headline.includes('Sip-N-Lok Lid'),'Long title lost model name');
+    assert(!marginResult.headline.includes('…'),'Display title must never have ellipsis');
+    // Reproduce the actual bug: SEO title was previously shortened upstream
+    // before the hero/title renderer saw it. Recover the full seller product
+    // name and keep the distinctive lid model in the display headline.
+    const recovered=await page.evaluate(() => _shortPinterestDisplayTitle(
+      'ThermoFlask Insulated Stainless Steel Coffee Travel Mug...',
+      'ThermoFlask Insulated Stainless Steel Coffee Travel Mug with Sip-N-Lok Lid'
+    ));
+    assert.equal(recovered,'ThermoFlask Travel Mug with Sip-N-Lok Lid');
     assert.equal(marginResult.w,1000);assert.equal(marginResult.h,1500);
     // Regression: old versions could make authentic pins from 300px source
     // photos. This must succeed without enlarged blurry hero imagery.

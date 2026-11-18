@@ -12,7 +12,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>TrafficLift Pro v3.0.5 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v3.0.6 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -20,7 +20,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
-    <meta name="app-version" content="3.0.5">
+    <meta name="app-version" content="3.0.6">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -140,7 +140,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v3.0.5 · AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v3.0.6 · AI Traffic Engine</span>
                 </div>
             </div>
             <div id="trafficliftHeaderActions" class="flex items-center gap-3">
@@ -370,7 +370,7 @@
 
                 <!-- Footer -->
                 <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
-                    <span>TrafficLift Pro v3.0.5</span>
+                    <span>TrafficLift Pro v3.0.6</span>
                     <span id="statusMessage">Ready</span>
                 </div>
             </div>
@@ -3759,22 +3759,36 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // Do not draw a border around the old white image canvas.
     }
 
-    function _shortPinterestDisplayTitle(title) {
-        const value=String(title||'').trim();
-        if(value.length<=58)return value;
-        // Keep the defining brand AND special model/lid, rather than chopping
-        // off the end of a long e-commerce title. SEO copy remains untouched.
+    function _shortPinterestDisplayTitle(title, originalProductName) {
+        // The SEO pin_title may have been truncated before it reaches this
+        // renderer. Prefer the verified winner's original product name when
+        // making a short *display-only* title; never change the SEO copy.
+        const original=String(originalProductName||'').trim();
+        const value=original||String(title||'').trim();
+        if(value.length<=52)return value;
         const parts=value.match(/^(.+?)\s+with\s+(.+)$/i);
         if(parts) {
-            const first=parts[1].trim().split(/\s+/);
-            const head=[first[0],...first.slice(-2)].join(' ');
-            const result=head+' with '+parts[2].trim();
-            if(result.length<=66)return result;
+            const lead=parts[1].trim().split(/\s+/);
+            const brand=lead[0];
+            // Keep the meaningful item type and distinguishing model.
+            const tail=lead.slice(-2).join(' ');
+            const suffix=parts[2].trim();
+            const candidate=brand+' '+tail+' with '+suffix;
+            if(candidate.length<=65)return candidate;
+            const compact=brand+' '+tail+' — '+suffix;
+            if(compact.length<=65)return compact;
         }
-        // Last-resort word-boundary abbreviation, not a visually clipped line.
-        const words=value.split(/\s+/),keep=[];
-        for(const word of words){if((keep.join(' ')+' '+word).trim().length>55)break;keep.push(word);}
-        return (keep.join(' ')||value.slice(0,52)).trim()+'…';
+        // Generic fallback: readable complete words with no ellipsis or
+        // hanging conjunctions, so every pin looks intentionally designed.
+        const words=value.split(/\s+/);
+        let keep=[];
+        for(const word of words) {
+            if((keep.join(' ')+' '+word).trim().length>47)break;
+            keep.push(word);
+        }
+        while(keep.length>2 && /^(?:with|and|for|of|the|by|a|an)$/i.test(keep[keep.length-1]))
+            keep.pop();
+        return keep.join(' ')||words[0];
     }
 
         function _drawHeroImage(ctx, img, w, h) {
@@ -3788,12 +3802,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         // No dark overlay: the headline is on its own solid band.
     }
 
-        function _drawTitleBand(ctx, w, yStart, height, title, category) {
+        function _drawTitleBand(ctx, w, yStart, height, title, category, productName) {
         ctx.fillStyle='#0f172a';ctx.fillRect(0,yStart,w,height);
         ctx.textAlign='left';ctx.textBaseline='top';
         ctx.fillStyle='#f472b6';ctx.font='700 22px system-ui, sans-serif';
         ctx.fillText(String(category||'PRODUCT IDEAS').toUpperCase().slice(0,45),50,yStart+24);
-        const headline=_shortPinterestDisplayTitle(title);
+        const headline=_shortPinterestDisplayTitle(title, productName);
         let lines=null,fontSize=60;
         // Two complete lines fit the fixed-height band; do not silently
         // paint a third line behind the CTA bar.
@@ -3889,7 +3903,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         }
 
         // 2. TITLE BAND (900..1200)
-        _drawTitleBand(ctx, W, 1080, 270, pinTitle, (winner && winner.category) || 'Product Ideas');
+        _drawTitleBand(ctx, W, 1080, 270, pinTitle, (winner && winner.category) || 'Product Ideas', productName);
 
         // 3. CTA BAR (1200..1500)
         _drawCtaBar(ctx, W, 1350, 150, cta);
