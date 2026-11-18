@@ -4,6 +4,7 @@ One provider generation; three local FFmpeg conversions; no paid generation.
 Never accepts an arbitrary media URL from the caller.
 """
 import ipaddress
+import json
 import os
 import re
 import shutil
@@ -154,6 +155,46 @@ def _link_card(target, width, height, marketing_url):
     card.save(target)
 
 
+def _editor_verify_export(destination, width, height):
+    """Automated post-render *technical* QA; semantic identity still needs review.
+
+    This does not spend video credits, modify source footage or claim to
+    recognize invented features. Reject a silent, malformed or wrong-size
+    social-media video before shipping the download to the owner.
+    """
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        try:
+            import static_ffmpeg
+            static_ffmpeg.add_paths()
+            ffprobe = shutil.which("ffprobe")
+        except Exception:
+            pass
+    if not ffprobe:
+        raise HTTPException(503, "Editor-in-Chief cannot verify the finished export: FFprobe is unavailable.")
+    try:
+        checked = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries",
+             "stream=codec_type,codec_name,width,height",
+             "-of", "json", str(destination)],
+            capture_output=True, text=True, check=True, timeout=15,
+        )
+        streams = json.loads(checked.stdout)["streams"]
+    except (OSError, ValueError, KeyError, subprocess.CalledProcessError,
+            subprocess.TimeoutExpired) as exc:
+        raise HTTPException(502, "Editor-in-Chief could not decode the finished social video.") from exc
+    video = next((item for item in streams if item.get("codec_type") == "video"), {})
+    audio = next((item for item in streams if item.get("codec_type") == "audio"), {})
+    if (video.get("codec_name") != "h264" or
+            video.get("width") != width or video.get("height") != height):
+        raise HTTPException(502, "Editor-in-Chief rejected the export: wrong video codec or aspect ratio.")
+    if audio.get("codec_name") != "aac":
+        raise HTTPException(422, "Editor-in-Chief found no usable narrated audio track. Keep the original HeyGen video and verify its narration before publishing.")
+    return {"dimensions": [width, height], "video": "h264",
+            "audio": "aac", "technical_qa": "passed",
+            "visual_identity_review": "owner approval still required"}
+
+
 def _convert(source, destination, width, height, card=None, duration=15):
     # Blurred, full-bleed background + whole uncropped foreground.
     filter_graph = (
@@ -185,6 +226,7 @@ def _convert(source, destination, width, height, card=None, duration=15):
         raise HTTPException(502, "Video conversion failed; original HeyGen video is unchanged.") from exc
     if not destination.is_file() or destination.stat().st_size < 2048:
         raise HTTPException(502, "Exported video was incomplete.")
+    _editor_verify_export(destination, width, height)
 
 
 @router.post("/api/v1/heygen-video/social-exports/{video_id}")

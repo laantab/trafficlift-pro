@@ -462,10 +462,17 @@ def heygen_submit(body: HeyGenSubmit, request: Request):
     # a genuine vertical source image. The UI must confirm format before using it.
     # The existing VideoRequest URL validator requires a public HTTPS listing image.
     # Mode image_to_video is deliberate: no unsupported text-only product lookalikes.
+    from backend.video_editor_in_chief import review_preflight
+    original_prompt = product_prompt(plan.get("product") or product.name, plan)
+    reviewed = review_preflight(
+        provider="heygen", product_name=product.name, image_url=listing_image,
+        image_confirmed=True, duration=body.duration, aspect_ratio="9:16",
+        script=original_prompt,
+    )
     payload = {
         "model": "heygen-video-1",
         "mode": "image_to_video",
-        "prompt": product_prompt(plan.get("product") or product.name, plan),
+        "prompt": reviewed["corrected_script"],
         "duration": body.duration,
         "image": {"type": "url", "url": listing_image},
         "resolution": "768p",

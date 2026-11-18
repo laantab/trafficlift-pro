@@ -376,6 +376,12 @@ def create(payload:VideoRequest,request:Request):
         # Fail with actionable HTTP 422 before reserving hosted capacity,
         # creating a job, downloading images or invoking a paid renderer.
         marketing_readiness_gate(sales_plan)
+        from backend.video_editor_in_chief import review_preflight
+        review_preflight(
+            provider="free", product_name=payload.name,
+            image_url=payload.image_url, image_confirmed=True,
+            duration=payload.seconds, aspect_ratio="9:16",
+        )
     except ValueError as exc:raise HTTPException(422,str(exc))
     try:dependencies()
     except ValueError as exc:raise HTTPException(503,str(exc))
