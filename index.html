@@ -12,7 +12,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>TrafficLift Pro v3.0.3 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v3.0.4 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -20,7 +20,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
-    <meta name="app-version" content="3.0.3">
+    <meta name="app-version" content="3.0.4">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -140,7 +140,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v3.0.3 · AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v3.0.4 · AI Traffic Engine</span>
                 </div>
             </div>
             <div id="trafficliftHeaderActions" class="flex items-center gap-3">
@@ -370,7 +370,7 @@
 
                 <!-- Footer -->
                 <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
-                    <span>TrafficLift Pro v3.0.3</span>
+                    <span>TrafficLift Pro v3.0.4</span>
                     <span id="statusMessage">Ready</span>
                 </div>
             </div>
@@ -3251,6 +3251,46 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
         return data;
     }
 
+    // One-click, no-credit redo of the existing Pinterest artwork.
+    // Preserve the selected winner, marketing link, and all copy; this
+    // touches only the photo canvas. Approval remains a publishing guard.
+    async function redoPinterestPin() {
+        const winner = restoreCurrentWinner();
+        if (!winner || !winner.id) {
+            showToast('No selected product', 'Select a saved winner to redo its pin.', 'warning');
+            return;
+        }
+        const btn = document.getElementById('pinterestRedoBtn');
+        const wrap = document.getElementById('pinPreviewWrap');
+        if (btn && btn.disabled) return;
+        if (btn) { btn.disabled = true; btn.textContent = 'Redrawing…'; }
+        if (wrap) wrap.innerHTML = '<span class="animate-pulse">Redrawing your pin…</span>';
+        try {
+            const cached = window.__lastPinterestDesign;
+            // A previously generated package can be repainted entirely locally;
+            // never spend API credits or initiate another product search.
+            if (!cached || cached.winnerId !== winner.id) {
+                await renderPinterestAd();
+                return;
+            }
+            const generation = ++window.__pinRenderGeneration;
+            const jpeg = await renderPinPreview(winner, cached.pkg);
+            if (generation !== window.__pinRenderGeneration || !jpeg) return;
+            const preview = document.getElementById('pinPreviewWrap');
+            if (preview) preview.innerHTML = '<img src="' + jpeg + '" alt="Redesigned Pinterest pin" class="w-full h-full object-contain">';
+            const note = document.getElementById('pinPreviewNotice');
+            if (note) { note.textContent = 'Pin ready — review it, then download when your marketing link is approved.';note.classList.remove('hidden'); }
+            showToast('Pin ready','Pinterest image redone for your saved product.','success');
+        } catch (error) {
+            const message = error?.message || String(error);
+            const preview = document.getElementById('pinPreviewWrap');
+            if (preview) preview.innerHTML = '<div role="alert" class="p-3 text-rose-300 text-xs">Pin not ready: '+escapeHtml(message)+'</div>';
+            showToast('Pin not ready',message,'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '↻ Redo Pin'; }
+        }
+    }
+
     async function renderPinterestAd() {
         const winner = restoreCurrentWinner();
         const btn = document.getElementById('pinterestLaunchBtn');
@@ -3273,7 +3313,8 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 out.classList.remove('hidden');
                 out.innerHTML = '<div role="alert" class="bg-rose-900/30 border border-rose-700/40 text-rose-200 text-xs rounded-lg p-3">' +
                     '<strong>Pin not ready.</strong> ' + escapeHtml(message) +
-                    '<p class="mt-2">Your winning product and verified photo are still saved. Use Generate Pinterest Pin to retry.</p></div>';
+                    '<p class="mt-2">Your product is saved. Redo the pin without starting another search.</p>' +
+                    '<button type="button" onclick="renderPinterestAd()" class="mt-3 bg-indigo-600 text-white rounded-lg px-4 py-2 font-semibold">↻ Redo Pin</button></div>';
             }
             showToast('Pinterest pin failed', message, 'error');
         } finally {
@@ -3378,6 +3419,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
 
         // Build the editable marketing package without any paid text generation.
         const reviewedPkg = editPinterestPackage(pkg, winner);
+        window.__lastPinterestDesign = {winnerId: winner.id, pkg: reviewedPkg};
         const pinDesc       = reviewedPkg.optimized_description ?? reviewedPkg.pin_description ?? '';
         const keywords      = Array.isArray(pkg.recommended_keywords) ? pkg.recommended_keywords
                             : Array.isArray(pkg.keywords)             ? pkg.keywords
@@ -3398,7 +3440,12 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             <div class="bg-slate-950 border border-pink-700/40 rounded-xl p-4 space-y-3" id="pinterestPackage">
                 <div class="flex items-center justify-between">
                     <span class="text-xs font-bold text-pink-400">📌 Pinterest Marketing Draft</span>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button type="button" id="pinterestRedoBtn" onclick="redoPinterestPin()"
+                            class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs px-3 py-2 rounded-lg font-semibold shadow"
+                            title="Redo this exact product's Pinterest image in one click. No new product search, no marketing-link approval, no paid credits.">
+                            ↻ Redo Pin
+                        </button>
                         <button onclick="copyPinterestPackage(this)"
                             data-board="${escapeHtml(reviewedPkg.board_title || '')}"
                             data-pin="${escapeHtml(reviewedPkg.pin_title || '')}"
