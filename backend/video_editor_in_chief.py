@@ -51,8 +51,9 @@ def review_preflight(*, provider, product_name, image_url, image_confirmed,
     u = urlsplit(url)
     if u.scheme.lower() != "https" or not u.hostname or u.username or u.password:
         problems.append("Provide a public HTTPS video-photo URL for the exact product.")
-    if not (5 <= int(duration) <= 30):
-        problems.append("Choose a short video duration of 5 to 30 seconds.")
+    max_duration = 60 if provider == "free" else 30
+    if not (5 <= int(duration) <= max_duration):
+        problems.append("Choose a video duration of 5 to " + str(max_duration) + " seconds.")
     if aspect_ratio not in {"9:16", "1:1", "16:9", "3:4", "4:3"}:
         problems.append("Choose a supported video aspect ratio.")
     if not content:
