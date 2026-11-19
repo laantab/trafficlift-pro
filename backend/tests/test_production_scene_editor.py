@@ -1,4 +1,4 @@
-"""Video Editor-in-Chief v3.0.8: real media review and film edit tests.
+"""Video Editor-in-Chief v3.0.9: internal media review and protected film edit tests.
 
 All tests use locally generated fixtures. No HeyGen POST or provider credits.
 """
@@ -84,9 +84,12 @@ def test_editor_is_integrated_with_real_heygen_export_and_video_studio():
     html=(root/"index.html").read_text()
     assert "cut_unusable_scene(source, corrected, options.remove_start, options.remove_end)" in exports
     assert "await fetch(location.origin+'/api/v1/video-editor-in-chief/heygen/'" in html
-    assert "editorialCut={remove_start:start,remove_end:end};" in html
-    assert "body: JSON.stringify({marketing_url: marketingUrl,...(editorialCut||{})})" in html
-    assert "void reviewButton.click();" in html
+    assert "void checkFinishedVideoQuality();" in html
+    assert "exportsButton.disabled = !identityCheck.checked || !editorReviewed;" in html
+    assert "body: JSON.stringify({marketing_url: marketingUrl})" in html
+    assert "Editor-in-Chief: inspect scenes" not in html
+    assert "reviewPanel.append(" not in html
+    assert "Remove rejected scene from exports" not in html
 
 
 def test_edited_preview_requires_owner_before_downloading_provider_video():
@@ -100,14 +103,19 @@ def test_edited_preview_requires_owner_before_downloading_provider_video():
     source.assert_not_called()
 
 
-def test_corrected_preview_and_export_use_same_cut_parameters():
+def test_corrected_preview_remains_owner_only_not_part_of_customer_video_screen():
     from pathlib import Path
-    source=(Path(__file__).resolve().parents[2]/"index.html").read_text()
-    assert "/preview-cut" in source
-    assert "body:JSON.stringify({remove_start:start,remove_end:end})" in source
-    assert "editorialCut={remove_start:start,remove_end:end};" in source
-    assert "CORRECTED VIDEO" in source
-    assert "identityCheck.checked=false;" in source
+    root=Path(__file__).resolve().parents[2]
+    html=(root/"index.html").read_text()
+    editor=(root/"backend/production_scene_editor.py").read_text()
+    assert 'def preview_cut(' in editor
+    assert 'video_guard(request)' in editor
+    assert '"/preview-cut"' in editor
+    assert '"/preview-cut"' not in html
+    assert "Bad scene starts (s)" not in html
+    assert "Editor-in-Chief: inspect scenes" not in html
+    assert "Checking video quality…" in html
+    assert "void checkFinishedVideoQuality();" in html
 
 
 def test_thermoflask_storyboard_prevents_secondary_cup_pouring():
