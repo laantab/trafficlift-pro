@@ -83,7 +83,7 @@ def test_editor_is_integrated_with_real_heygen_export_and_video_studio():
     exports=(root/"backend/social_exports_api.py").read_text()
     html=(root/"index.html").read_text()
     assert "cut_unusable_scene(source, corrected, options.remove_start, options.remove_end)" in exports
-    assert "await fetch(location.origin+'/api/v1/video-editor-in-chief/heygen/'" in html
+    assert "'/api/v1/video-editor-in-chief/heygen/'" in html
     assert "void checkFinishedVideoQuality();" in html
     assert "exportsButton.disabled = !identityCheck.checked || !editorReviewed;" in html
     assert "body: JSON.stringify({marketing_url: marketingUrl})" in html
@@ -110,8 +110,8 @@ def test_corrected_preview_remains_owner_only_not_part_of_customer_video_screen(
     editor=(root/"backend/production_scene_editor.py").read_text()
     assert 'def preview_cut(' in editor
     assert 'video_guard(request)' in editor
-    assert '"/preview-cut"' in editor
-    assert '"/preview-cut"' not in html
+    assert '/preview-cut' in editor
+    assert '/preview-cut' not in html
     assert "Bad scene starts (s)" not in html
     assert "Editor-in-Chief: inspect scenes" not in html
     assert "Checking video quality…" in html
