@@ -70,7 +70,7 @@ def review_preflight(*, provider, product_name, image_url, image_confirmed,
         content += " Preserve the exact reference product across every scene. Never replace its color, lid, shape or printed labels."
         corrections.append("Added a product-identity instruction to prevent lookalike substitutions.")
     if problems:
-        raise HTTPException(status_code=422, detail="Editor-in-Chief: " + " ".join(problems))
+        raise HTTPException(status_code=422, detail="Video details need correction: " + " ".join(problems))
     return {
         "approved_for_render": True,
         "provider": provider,

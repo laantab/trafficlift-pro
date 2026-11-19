@@ -175,7 +175,7 @@ def _editor_verify_export(destination, width, height):
         except Exception:
             pass
     if not ffprobe:
-        raise HTTPException(503, "Editor-in-Chief cannot verify the finished export: FFprobe is unavailable.")
+        raise HTTPException(503, "Video quality check cannot verify the finished export: FFprobe is unavailable.")
     try:
         checked = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries",
@@ -186,14 +186,14 @@ def _editor_verify_export(destination, width, height):
         streams = json.loads(checked.stdout)["streams"]
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired) as exc:
-        raise HTTPException(502, "Editor-in-Chief could not decode the finished social video.") from exc
+        raise HTTPException(502, "Video quality check could not decode the finished social video.") from exc
     video = next((item for item in streams if item.get("codec_type") == "video"), {})
     audio = next((item for item in streams if item.get("codec_type") == "audio"), {})
     if (video.get("codec_name") != "h264" or
             video.get("width") != width or video.get("height") != height):
-        raise HTTPException(502, "Editor-in-Chief rejected the export: wrong video codec or aspect ratio.")
+        raise HTTPException(502, "Video quality check rejected the export: wrong video codec or aspect ratio.")
     if audio.get("codec_name") != "aac":
-        raise HTTPException(422, "Editor-in-Chief found no usable narrated audio track. Keep the original HeyGen video and verify its narration before publishing.")
+        raise HTTPException(422, "Video has no usable narrated audio track. Keep the original HeyGen video and verify its narration before publishing.")
     return {"dimensions": [width, height], "video": "h264",
             "audio": "aac", "technical_qa": "passed",
             "visual_identity_review": "owner approval still required"}
