@@ -83,7 +83,7 @@ log = logging.getLogger("trafficlift_pro")
 # ── App config ──────────────────────────────────────────────────────────────
 
 APP_NAME = "TrafficLift Pro"
-APP_VERSION = "3.0.7"
+APP_VERSION = "3.0.8"
 DESCRIPTION = (
     "Autonomous AI traffic engine for online entrepreneurs. "
     "Paste a product URL — get Pinterest SEO, TikTok scripts, YouTube Shorts, "
@@ -816,6 +816,8 @@ from backend.photo_video_api import router as photo_video_router
 app.include_router(photo_video_router)
 from backend.video_editor_in_chief import router as video_editor_in_chief_router
 app.include_router(video_editor_in_chief_router)
+from backend.production_scene_editor import router as production_scene_editor_router
+app.include_router(production_scene_editor_router)
 # Isolated, disabled-by-default paid HeyGen video provider.
 from backend.heygen_video_api import router as heygen_video_router
 app.include_router(heygen_video_router)
