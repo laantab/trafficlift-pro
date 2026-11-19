@@ -338,6 +338,20 @@ def product_prompt(name, plan):
             "to the same mat EMPTY; then the empty mat may be lifted or flexed only if this behavior is "
             "supported by the reference. Never show food floating unsupported. "
         )
+    drinkware_rule = ""
+    if any(term in lower_name for term in ("thermoflask", "travel mug", "coffee tumbler", "insulated mug")):
+        drinkware_rule = (
+            "TRAVEL MUG PRODUCT ACTION LOCK: The exact supplied travel mug is the ONLY drinking vessel "
+            "in the advertisement. No second cup, different mug, glass, pitcher, kettle, "
+            "measuring jug, or coffee carafe may appear as the subject of a demonstration. "
+            "Never show coffee being poured OUT OF another cup, never switch the source or destination "
+            "vessel, and never fabricate an alternate lid or pouring spout. "
+            "If showing coffee filling the product, pour DIRECTLY into the photographed "
+            "ThermoFlask through its actual visible opening, maintaining one continuous action. "
+            "If its actual filling or lid mechanics cannot be reproduced accurately, OMIT "
+            "the pouring scene completely and show a steady hero shot of the exact original mug "
+            "plus a simple accurate lid close-up. No invented pouring sequence. "
+        )
     return (
         "Vertical product advertisement. Use the supplied exact seller product photo "
         "as the opening frame; preserve product identity, design, markings and proportions. "
@@ -370,7 +384,7 @@ def product_prompt(name, plan):
         "No object may pass through, clip into, merge with, melt into, teleport through, "
         "or disappear through another object. Maintain continuous believable support, "
         "gravity, contact, and occlusion from frame to frame. "
-        + flexible_mat_rule +
+        + flexible_mat_rule + drinkware_rule +
         "PACKAGING TEXT LOCK: preserve existing printed lettering exactly "
         "as photographed, without re-drawing, translating, inventing, "
         "morphing, blurring, or animating individual letters. "
