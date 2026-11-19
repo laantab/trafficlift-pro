@@ -2727,24 +2727,60 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         clear.type='button';clear.className='border border-slate-500 rounded px-3 py-2';
                         clear.textContent='Clear scene cut';
                         const feedback=document.createElement('p');feedback.className='text-xs text-amber-200 mt-2';
-                        apply.addEventListener('click',()=>{
+                        let draftUrl=null;
+                        const draftPanel=document.createElement('div');
+                        draftPanel.className='mt-3';
+                        apply.addEventListener('click',async()=>{
                             const start=Number(from.value),end=Number(to.value);
                             if(!from.value||!to.value||!Number.isFinite(start)||!Number.isFinite(end)
                                 ||start<0||end>report.duration+.05||end-start<.35
                                 ||end-start>report.duration*.45||report.duration-(end-start)<5){
-                                feedback.textContent='Enter a valid bad-scene range. A cut cannot remove most of the video or leave under 5 seconds.';
+                                feedback.textContent='Enter valid start/end seconds; a cut cannot remove most of the video or leave under five seconds.';
                                 return;
                             }
-                            editorialCut={remove_start:start,remove_end:end};
-                            identityCheck.checked=false;exportsButton.disabled=true;
-                            feedback.textContent='Bad scene '+start+'–'+end+'s selected. This shot and its matching audio will be removed from the exported videos. Reapprove only after reviewing the corrected sequence.';
+                            identityCheck.checked=false;
+                            exportsButton.disabled=true;
+                            editorialCut=null;
+                            apply.disabled=true;
+                            feedback.textContent='Editor is cutting this shot and its matching audio from the ACTUAL video…';
+                            try {
+                                const response=await fetch(location.origin+'/api/v1/video-editor-in-chief/heygen/'+encodeURIComponent(id)+'/preview-cut',{
+                                    method:'POST',credentials:'same-origin',cache:'no-store',
+                                    headers:{'Content-Type':'application/json'},
+                                    body:JSON.stringify({remove_start:start,remove_end:end}),
+                                    signal:AbortSignal.timeout(125000)
+                                });
+                                if(!response.ok) {
+                                    const error=await response.json().catch(()=>({}));
+                                    throw new Error(apiErrorText(error,'Editor could not make a safe corrected draft.'));
+                                }
+                                const blob=await response.blob();
+                                if(draftUrl) URL.revokeObjectURL(draftUrl);
+                                draftUrl=URL.createObjectURL(blob);
+                                draftPanel.replaceChildren();
+                                const msg=document.createElement('p');
+                                msg.className='text-amber-200 font-semibold';
+                                msg.textContent='CORRECTED VIDEO — watch from beginning to end with sound before approving.';
+                                const player=document.createElement('video');
+                                player.src=draftUrl;player.controls=true;player.playsInline=true;
+                                player.className='w-full max-h-[60vh] mt-2';
+                                draftPanel.append(msg,player);
+                                editorialCut={remove_start:start,remove_end:end};
+                                feedback.textContent='Scene '+start+'–'+end+'s removed in corrected preview. Confirm this edit preserves accurate narration and product identity.';
+                            }catch(error){
+                                editorialCut=null;
+                                draftPanel.replaceChildren();
+                                feedback.textContent='Correction not approved: '+(error.message||String(error))+'. Original is unchanged.';
+                            }finally{apply.disabled=false;}
                         });
                         clear.addEventListener('click',()=>{
                             editorialCut=null;identityCheck.checked=false;exportsButton.disabled=true;
-                            feedback.textContent='Cut cleared. No scene will be removed.';
+                            if(draftUrl) {URL.revokeObjectURL(draftUrl);draftUrl=null;}
+                            draftPanel.replaceChildren();
+                            feedback.textContent='Cut cleared. Original video will be used, subject to a full scene review.';
                         });
                         fields.append(from,to,apply,clear);
-                        reviewPanel.append(fields,feedback);
+                        reviewPanel.append(fields,feedback,draftPanel);
                         reviewStatus.textContent='Real footage sampled. You must still verify product identity and actions; no automatic semantic approval.';
                     }catch(error){
                         editorReviewed=false;
