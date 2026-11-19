@@ -94,6 +94,10 @@ def _ffmpeg():
 class ExportOptions(BaseModel):
     # This is the explicitly approved destination from the chosen product card.
     marketing_url: str = Field(min_length=12, max_length=2048)
+    # The owner's rejected footage (optional) is cut before social variants.
+    # None / None keeps the existing approved original export behavior.
+    remove_start: float | None = None
+    remove_end: float | None = None
 
 
 def _marketing_url(value):
@@ -248,6 +252,13 @@ def social_exports(video_id: str, request: Request, options: ExportOptions):
     try:
         source = work / "source.mp4"
         _download(url, source)
+        if (options.remove_start is None) != (options.remove_end is None):
+            raise HTTPException(422, "Specify both the start and end of the rejected scene.")
+        if options.remove_start is not None:
+            from backend.production_scene_editor import cut_unusable_scene
+            corrected = work / "scene-edited.mp4"
+            cut_unusable_scene(source, corrected, options.remove_start, options.remove_end)
+            source = corrected
         duration = _video_duration(source)
         destination = work / "TrafficLift-Social-Formats.zip"
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_STORED) as bundle:
@@ -255,7 +266,10 @@ def social_exports(video_id: str, request: Request, options: ExportOptions):
                 "POST_CAPTION_AND_LINK.txt",
                 "#ad\nProduct link: " + approved_url + "\n"
                 "Include this exact URL in your post caption, bio-link page, "
-                "or platform link field. The printed URL in an MP4 is not clickable.\n",
+                "or platform link field. The printed URL in an MP4 is not clickable.\n"
+                "EDITOR REVIEW: Confirm every scene depicts the exact sold product, "
+                "the intended action and accurate narration. An edited video is "
+                "NOT automatically approved for posting.\n",
             )
             for filename, width, height in _FORMATS:
                 rendered = work / filename
