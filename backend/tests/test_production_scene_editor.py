@@ -87,3 +87,24 @@ def test_editor_is_integrated_with_real_heygen_export_and_video_studio():
     assert "editorialCut={remove_start:start,remove_end:end};" in html
     assert "body: JSON.stringify({marketing_url: marketingUrl,...(editorialCut||{})})" in html
     assert "void reviewButton.click();" in html
+
+
+def test_edited_preview_requires_owner_before_downloading_provider_video():
+    from backend.production_scene_editor import preview_cut, CutRequest
+    with patch("backend.production_scene_editor.video_guard",
+               side_effect=HTTPException(401, "Owner only")), \
+         patch("backend.production_scene_editor._source_from_heygen") as source:
+        with pytest.raises(HTTPException) as error:
+            preview_cut("sample_video_123", CutRequest(remove_start=2, remove_end=4), Mock())
+    assert error.value.status_code == 401
+    source.assert_not_called()
+
+
+def test_corrected_preview_and_export_use_same_cut_parameters():
+    from pathlib import Path
+    source=(Path(__file__).resolve().parents[2]/"index.html").read_text()
+    assert "/preview-cut" in source
+    assert "body:JSON.stringify({remove_start:start,remove_end:end})" in source
+    assert "editorialCut={remove_start:start,remove_end:end};" in source
+    assert "CORRECTED VIDEO" in source
+    assert "identityCheck.checked=false;" in source
