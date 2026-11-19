@@ -19,9 +19,9 @@ def test_developer_docs_remain_accessible_separately():
 
 def test_release_version_is_consistent_in_ui_and_backend():
     from trafficlift_pro import APP_VERSION
-    assert APP_VERSION == "3.0.8"
+    assert APP_VERSION == "3.0.9"
     response = TestClient(app).get("/")
     assert response.status_code == 200
-    assert response.text.count("v3.0.8") >= 3
-    assert 'name="app-version" content="3.0.8"' in response.text
-    assert "v3.0.7" not in response.text
+    assert response.text.count("v3.0.9") >= 3
+    assert 'name="app-version" content="3.0.9"' in response.text
+    assert "v3.0.8" not in response.text
