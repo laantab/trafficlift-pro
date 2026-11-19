@@ -190,12 +190,16 @@ def compose_heygen_narration(name, plan, max_words=34):
     if not identity:
         raise HTTPException(422, "A specific product name is required for the ad.")
 
-    cta = "Find the exact product link in the post caption."
+    from backend.editorial_script import closing_cta
+    cta = closing_cta(name)
     hook = _supported_problem_hook(name, identity, plan)
     if hook:
         narration = " ".join([*hook, cta])
         if len(narration.split()) <= max_words:
             return narration
+        concise = " ".join([hook[0],hook[2],cta])
+        if len(concise.split()) <= max_words:
+            return concise
 
     facts = []
     seen = []
@@ -315,6 +319,10 @@ def exact_seller_photo_fallback(product):
 
 def product_prompt(name, plan):
     narration = compose_heygen_narration(name, plan)
+    from backend.editorial_script import editorial_review
+    # Script copy is approved only when it identifies the selected product,
+    # follows the exact seller evidence, and ends with a relevant sales CTA.
+    editorial_review(name, plan, narration)
     lower_name = str(name or "").casefold()
     flexible_mat_rule = ""
     if (("mat" in lower_name or "sheet" in lower_name)

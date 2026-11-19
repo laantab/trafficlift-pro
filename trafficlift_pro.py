@@ -83,7 +83,7 @@ log = logging.getLogger("trafficlift_pro")
 # ── App config ──────────────────────────────────────────────────────────────
 
 APP_NAME = "TrafficLift Pro"
-APP_VERSION = "3.0.9"
+APP_VERSION = "3.0.10"
 DESCRIPTION = (
     "Autonomous AI traffic engine for online entrepreneurs. "
     "Paste a product URL — get Pinterest SEO, TikTok scripts, YouTube Shorts, "
