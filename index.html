@@ -12,7 +12,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>TrafficLift Pro v3.0.8 — AI Traffic Engine</title>
+    <title>TrafficLift Pro v3.0.9 — AI Traffic Engine</title>
     <!--
         Optional: hard-code the cloud backend URL here for production deploys.
         The user can also override this at runtime from the in-app Settings gear.
@@ -20,7 +20,7 @@
         Example: <meta name="api-base" content="https://trafficlift-pro.onrender.com">
     -->
     <meta name="api-base" content="https://trafficlift-pro.onrender.com">
-    <meta name="app-version" content="3.0.8">
+    <meta name="app-version" content="3.0.9">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -140,7 +140,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg leading-none tracking-tight">TrafficLift <span class="text-brand-400">Pro</span></h1>
-                    <span class="text-xs text-slate-400">v3.0.8 · AI Traffic Engine</span>
+                    <span class="text-xs text-slate-400">v3.0.9 · AI Traffic Engine</span>
                 </div>
             </div>
             <div id="trafficliftHeaderActions" class="flex items-center gap-3">
@@ -370,7 +370,7 @@
 
                 <!-- Footer -->
                 <div class="pt-4 mt-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between items-center">
-                    <span>TrafficLift Pro v3.0.8</span>
+                    <span>TrafficLift Pro v3.0.9</span>
                     <span id="statusMessage">Ready</span>
                 </div>
             </div>
@@ -2574,16 +2574,16 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
     }
 
     async function editorInChiefPreflight(options, statusEl) {
-        statusEl.textContent = 'Video Editor-in-Chief: checking product identity, photo, aspect ratio and script…';
+        statusEl.textContent = 'Checking product details and video settings…';
         const response = await fetch(location.origin + '/api/v1/video-editor-in-chief/preflight', {
             method:'POST', credentials:'same-origin', cache:'no-store',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify(options), signal:AbortSignal.timeout(30000)
         });
         const result=await response.json().catch(()=>({}));
-        if(!response.ok)throw new Error(apiErrorText(result, 'Editor-in-Chief blocked incomplete video instructions; no video started.'));
+        if(!response.ok)throw new Error(apiErrorText(result, 'The video information needs correction; no video started.'));
         const notices=(result.automatic_corrections||[]).concat(result.warnings||[]);
-        statusEl.textContent='Editor-in-Chief preflight passed. '+(notices.length?notices.join(' '):'Ready for owner approval.');
+        statusEl.textContent='Video details checked. '+(notices.length?notices.join(' '):'Ready for owner approval.');
         return result;
     }
 
@@ -2649,7 +2649,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(apiErrorText(data, 'HeyGen status request failed. Retry checks, not generation.'));
             if (data.status === 'completed' && /^https:\/\//.test(data.video_url || '')) {
-                statusEl.textContent = 'HeyGen video ready — review appearance, narration, flicker and product identity before posting.';
+                statusEl.textContent = 'Your video has finished. Checking quality before it is ready to publish.';
                 resultEl.classList.remove('hidden');
                 resultEl.replaceChildren();
                 const video = document.createElement('video');
@@ -2658,136 +2658,36 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const link = document.createElement('a');
                 link.href = data.video_url; link.target='_blank'; link.rel='noopener noreferrer';
                 link.textContent = 'Open HeyGen finished video'; link.className = 'block mt-3 text-brand-400 underline';
-                // Every completed HeyGen video enters actual footage review,
-                // not just technical metadata checks. No paid provider generation.
+                // Internal footage-quality check: run automatically, with no
+                // visible editor tools or frame-by-frame production controls.
+                // The finished video remains owner-review gated until a real
+                // visual identity classifier is verified.
                 let editorReviewed = false;
-                let editorialCut = null;
-                const reviewButton = document.createElement('button');
-                reviewButton.type='button';
-                reviewButton.className='mt-3 rounded-lg bg-indigo-700 px-4 py-3 text-sm font-semibold text-white';
-                reviewButton.textContent='Editor-in-Chief: inspect scenes (free)';
-                const reviewPanel = document.createElement('div');
-                reviewPanel.className='mt-3 rounded-lg border border-indigo-700 p-3 text-sm text-slate-200';
-                const reviewStatus=document.createElement('p');
-                reviewStatus.setAttribute('role','status');
-                reviewStatus.textContent='Editor-in-Chief has not reviewed the actual video yet. Exports locked.';
-                reviewPanel.appendChild(reviewStatus);
-                reviewButton.addEventListener('click',async()=>{
-                    reviewButton.disabled=true;
-                    reviewStatus.textContent='Inspecting actual scenes, transitions, darkness and narration track. No new video generated…';
+                const qualityNotice = document.createElement('p');
+                qualityNotice.className = 'mt-3 text-sm text-slate-300';
+                qualityNotice.setAttribute('role','status');
+                qualityNotice.textContent = 'Checking video quality…';
+                async function checkFinishedVideoQuality() {
+                    exportsButton.disabled = true;
                     try {
-                        const response=await fetch(location.origin+'/api/v1/video-editor-in-chief/heygen/'+encodeURIComponent(id)+'/review',{
-                            method:'GET', credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(115000)
+                        const response = await fetch(location.origin + '/api/v1/video-editor-in-chief/heygen/' + encodeURIComponent(id) + '/review', {
+                            method:'GET', credentials:'same-origin',cache:'no-store',
+                            signal:AbortSignal.timeout(115000)
                         });
-                        const report=await response.json().catch(()=>({}));
-                        if(!response.ok)throw new Error(apiErrorText(report,'Video scene review failed.'));
-                        editorReviewed=true;
-                        reviewPanel.replaceChildren();
-                        const header=document.createElement('p');
-                        header.className='text-amber-200 font-semibold';
-                        header.textContent='Scene review: '+report.duration+'s, '+report.width+' × '+report.height+'. NOT APPROVED until product actions are checked.';
-                        reviewPanel.append(header);
-                        const board=document.createElement('div');
-                        board.className='grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2';
-                        for(const frame of report.frames||[]) {
-                            const item=document.createElement('div');
-                            const image=document.createElement('img');
-                            image.src='data:image/jpeg;base64,'+frame.jpeg_base64;
-                            image.alt='Actual video frame at '+frame.second+' seconds';
-                            image.className='w-full rounded';
-                            const stamp=document.createElement('span');
-                            stamp.textContent=frame.second+'s';
-                            item.append(image,stamp);board.append(item);
-                        }
-                        reviewPanel.append(board);
-                        const flags=document.createElement('p');
-                        flags.className='mt-2 text-amber-200';
-                        flags.textContent=(report.flags||[]).length
-                            ? 'Technical/scene alerts: '+report.flags.map(f=>f.time+'s — '+f.issue).join(' | ')
-                            : 'No obvious frozen/dark frames detected. This does not prove product identity.';
-                        reviewPanel.append(flags);
-                        const notice=document.createElement('p');
-                        notice.className='mt-2 text-slate-300';
-                        notice.textContent='Compare every frame and the full playback to the seller photo. If a different cup, altered lid or wrong demonstration appears, remove the bad scene below. Cutting also removes the matching narration; review the complete corrected video.';
-                        reviewPanel.append(notice);
-                        const fields=document.createElement('div');
-                        fields.className='flex gap-2 flex-wrap mt-3 items-center';
-                        const from=document.createElement('input');
-                        from.type='number';from.step='0.1';from.min='0';from.max=String(report.duration);
-                        from.placeholder='Bad scene starts (s)';from.setAttribute('aria-label','Bad scene start second');
-                        from.className='w-40 bg-slate-900 border border-slate-600 p-2 rounded';
-                        const to=document.createElement('input');
-                        to.type='number';to.step='0.1';to.min='0';to.max=String(report.duration);
-                        to.placeholder='Bad scene ends (s)';to.setAttribute('aria-label','Bad scene end second');
-                        to.className='w-40 bg-slate-900 border border-slate-600 p-2 rounded';
-                        const apply=document.createElement('button');
-                        apply.type='button';apply.className='bg-amber-700 rounded px-3 py-2 text-white';
-                        apply.textContent='Remove rejected scene from exports';
-                        const clear=document.createElement('button');
-                        clear.type='button';clear.className='border border-slate-500 rounded px-3 py-2';
-                        clear.textContent='Clear scene cut';
-                        const feedback=document.createElement('p');feedback.className='text-xs text-amber-200 mt-2';
-                        let draftUrl=null;
-                        const draftPanel=document.createElement('div');
-                        draftPanel.className='mt-3';
-                        apply.addEventListener('click',async()=>{
-                            const start=Number(from.value),end=Number(to.value);
-                            if(!from.value||!to.value||!Number.isFinite(start)||!Number.isFinite(end)
-                                ||start<0||end>report.duration+.05||end-start<.35
-                                ||end-start>report.duration*.45||report.duration-(end-start)<5){
-                                feedback.textContent='Enter valid start/end seconds; a cut cannot remove most of the video or leave under five seconds.';
-                                return;
-                            }
-                            identityCheck.checked=false;
-                            exportsButton.disabled=true;
-                            editorialCut=null;
-                            apply.disabled=true;
-                            feedback.textContent='Editor is cutting this shot and its matching audio from the ACTUAL video…';
-                            try {
-                                const response=await fetch(location.origin+'/api/v1/video-editor-in-chief/heygen/'+encodeURIComponent(id)+'/preview-cut',{
-                                    method:'POST',credentials:'same-origin',cache:'no-store',
-                                    headers:{'Content-Type':'application/json'},
-                                    body:JSON.stringify({remove_start:start,remove_end:end}),
-                                    signal:AbortSignal.timeout(125000)
-                                });
-                                if(!response.ok) {
-                                    const error=await response.json().catch(()=>({}));
-                                    throw new Error(apiErrorText(error,'Editor could not make a safe corrected draft.'));
-                                }
-                                const blob=await response.blob();
-                                if(draftUrl) URL.revokeObjectURL(draftUrl);
-                                draftUrl=URL.createObjectURL(blob);
-                                draftPanel.replaceChildren();
-                                const msg=document.createElement('p');
-                                msg.className='text-amber-200 font-semibold';
-                                msg.textContent='CORRECTED VIDEO — watch from beginning to end with sound before approving.';
-                                const player=document.createElement('video');
-                                player.src=draftUrl;player.controls=true;player.playsInline=true;
-                                player.className='w-full max-h-[60vh] mt-2';
-                                draftPanel.append(msg,player);
-                                editorialCut={remove_start:start,remove_end:end};
-                                feedback.textContent='Scene '+start+'–'+end+'s removed in corrected preview. Confirm this edit preserves accurate narration and product identity.';
-                            }catch(error){
-                                editorialCut=null;
-                                draftPanel.replaceChildren();
-                                feedback.textContent='Correction not approved: '+(error.message||String(error))+'. Original is unchanged.';
-                            }finally{apply.disabled=false;}
-                        });
-                        clear.addEventListener('click',()=>{
-                            editorialCut=null;identityCheck.checked=false;exportsButton.disabled=true;
-                            if(draftUrl) {URL.revokeObjectURL(draftUrl);draftUrl=null;}
-                            draftPanel.replaceChildren();
-                            feedback.textContent='Cut cleared. Original video will be used, subject to a full scene review.';
-                        });
-                        fields.append(from,to,apply,clear);
-                        reviewPanel.append(fields,feedback,draftPanel);
-                        reviewStatus.textContent='Real footage sampled. You must still verify product identity and actions; no automatic semantic approval.';
-                    }catch(error){
-                        editorReviewed=false;
-                        reviewStatus.textContent='Editor-in-Chief could not inspect this video: '+(error.message||String(error))+'. Export remains blocked.';
-                        exportsButton.disabled=true;
-                    }finally{reviewButton.disabled=false;}
-                });
+                        const report = await response.json().catch(() => ({}));
+                        if (!response.ok) throw new Error('Video quality check could not finish.');
+                        const serious = (report.flags || []).filter(flag => flag.kind === 'technical');
+                        editorReviewed = report.has_audio === true && serious.length === 0;
+                        qualityNotice.textContent = editorReviewed
+                            ? 'Video file checks passed. Confirm the product and demonstration are correct before posting.'
+                            : 'Video needs correction before publishing. No new generation was started.';
+                        exportsButton.disabled = !identityCheck.checked || !editorReviewed;
+                    } catch (_) {
+                        editorReviewed = false;
+                        exportsButton.disabled = true;
+                        qualityNotice.textContent = 'Video needs review before publishing. Your original video is saved.';
+                    }
+                }
                 const exportsButton = document.createElement('button');
                 exportsButton.type = 'button';
                 exportsButton.className = 'block mt-3 rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white font-semibold';
@@ -2822,10 +2722,10 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                 const exportStatus = document.createElement('p');
                 exportStatus.className = 'mt-2 text-xs text-slate-300';
                 exportStatus.setAttribute('role', 'status');
-                exportStatus.textContent = 'NOT APPROVED: compare every scene with the exact product photo. After approval, exports will add your saved marketing link to the video and include a caption file. An MP4 link is not clickable.';
+                exportStatus.textContent = 'Video not yet approved for publishing. Confirm product accuracy before downloading the social versions.';
                 exportsButton.addEventListener('click', async () => {
                     if (!identityCheck.checked || !editorReviewed) {
-                        exportStatus.textContent = 'Export blocked: inspect the actual video scenes and confirm the exact product first.';
+                        exportStatus.textContent = 'Video quality and product confirmation are required before export.';
                         return;
                     }
                     exportsButton.disabled = true;
@@ -2838,7 +2738,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         const response = await fetch(location.origin + '/api/v1/heygen-video/social-exports/' + encodeURIComponent(id), {
                             method: 'POST', credentials: 'same-origin', cache: 'no-store',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({marketing_url: marketingUrl,...(editorialCut||{})})
+                            body: JSON.stringify({marketing_url: marketingUrl})
                         });
                         if (!response.ok) {
                             const error = await response.json().catch(() => ({}));
@@ -2861,10 +2761,9 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         exportsButton.textContent = 'Download 3 social formats (no new video credits)';
                     }
                 });
-                resultEl.append(video,link,reviewButton,reviewPanel,identityLabel,rejectButton,exportsButton,exportStatus);
-                // Automatically inspect the already completed footage. The
-                // review endpoint uses only provider GET and local FFmpeg.
-                void reviewButton.click();
+                resultEl.append(video,link,qualityNotice,identityLabel,rejectButton,exportsButton,exportStatus);
+                // The production review runs without a customer-visible editor.
+                void checkFinishedVideoQuality();
                 setHeyGenPendingVideoId(null);
                 return;
             }
