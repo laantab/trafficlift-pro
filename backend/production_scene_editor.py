@@ -15,6 +15,9 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
+from pydantic import BaseModel, Field
 from PIL import Image, ImageChops, ImageStat
 
 from backend.photo_video_api import video_guard
@@ -189,3 +192,27 @@ def review_heygen(video_id: str, request: Request):
         return inspect_footage(source)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+class CutRequest(BaseModel):
+    remove_start: float = Field(ge=0, le=45)
+    remove_end: float = Field(ge=0, le=46)
+
+
+@router.post("/api/v1/video-editor-in-chief/heygen/{video_id}/preview-cut")
+def preview_cut(video_id: str, body: CutRequest, request: Request):
+    """Return an actual edited MP4 for mandatory re-review, no paid generation."""
+    video_guard(request)
+    work = Path(tempfile.mkdtemp(prefix="trafficlift-edited-preview-"))
+    try:
+        original = _source_from_heygen(video_id, work)
+        candidate = work / "editor-draft.mp4"
+        cut_unusable_scene(original, candidate, body.remove_start, body.remove_end)
+        return FileResponse(
+            candidate, media_type="video/mp4", filename="TrafficLift-Editor-Draft.mp4",
+            headers={"Cache-Control": "private, no-store"},
+            background=BackgroundTask(shutil.rmtree, work, ignore_errors=True),
+        )
+    except Exception:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
