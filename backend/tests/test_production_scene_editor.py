@@ -86,7 +86,7 @@ def test_editor_is_integrated_with_real_heygen_export_and_video_studio():
     assert "'/api/v1/video-editor-in-chief/heygen/'" in html
     assert "void checkFinishedVideoQuality();" in html
     assert "exportsButton.disabled = !identityCheck.checked || !editorReviewed;" in html
-    assert "body: JSON.stringify({marketing_url: marketingUrl})" in html
+    assert "body: JSON.stringify({marketing_url: marketingUrl, owner_product_accuracy_confirmed: identityCheck.checked && editorReviewed})" in html
     assert "Editor-in-Chief: inspect scenes" not in html
     assert "reviewPanel.append(" not in html
     assert "Remove rejected scene from exports" not in html

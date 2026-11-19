@@ -30,9 +30,19 @@ def test_export_never_runs_without_owner_guard():
                side_effect=HTTPException(401, "Owner access needed")), \
          patch("backend.social_exports_api.provider_request") as provider:
         with pytest.raises(HTTPException) as error:
-            social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product"))
+            social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product", owner_product_accuracy_confirmed=True))
         assert error.value.status_code == 401
         provider.assert_not_called()
+
+
+def test_server_rejects_unconfirmed_video_before_provider_access():
+    request = Mock()
+    with patch("backend.social_exports_api.video_guard"), \
+         patch("backend.social_exports_api.provider_request") as provider:
+        with pytest.raises(HTTPException) as error:
+            social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product"))
+    assert error.value.status_code == 409
+    provider.assert_not_called()
 
 
 def test_export_checks_existing_job_and_never_submits_paid_video():
@@ -42,7 +52,7 @@ def test_export_checks_existing_job_and_never_submits_paid_video():
          patch("backend.social_exports_api.provider_request",
                return_value={"status": "processing"}) as provider:
         with pytest.raises(HTTPException) as error:
-            social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product"))
+            social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product", owner_product_accuracy_confirmed=True))
         assert error.value.status_code == 409
         assert provider.call_args.args[0] == "GET"
 
@@ -71,7 +81,7 @@ def test_three_complete_mp4s_are_packaged_from_one_source(tmp_path):
          patch("backend.social_exports_api._video_duration", return_value=15), \
          patch("backend.social_exports_api._link_card"), \
          patch("backend.social_exports_api._convert", side_effect=fake_convert):
-        response = social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product"))
+        response = social_exports("finished_video_123", request, ExportOptions(marketing_url="https://example.com/product", owner_product_accuracy_confirmed=True))
         assert produced == [(720, 1280), (864, 1080), (768, 768)]
         assert response.filename.endswith(".zip")
         with zipfile.ZipFile(response.path) as z:

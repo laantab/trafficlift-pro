@@ -2738,7 +2738,7 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         const response = await fetch(location.origin + '/api/v1/heygen-video/social-exports/' + encodeURIComponent(id), {
                             method: 'POST', credentials: 'same-origin', cache: 'no-store',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({marketing_url: marketingUrl})
+                            body: JSON.stringify({marketing_url: marketingUrl, owner_product_accuracy_confirmed: identityCheck.checked && editorReviewed})
                         });
                         if (!response.ok) {
                             const error = await response.json().catch(() => ({}));
