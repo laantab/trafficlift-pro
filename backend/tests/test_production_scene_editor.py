@@ -108,3 +108,15 @@ def test_corrected_preview_and_export_use_same_cut_parameters():
     assert "editorialCut={remove_start:start,remove_end:end};" in source
     assert "CORRECTED VIDEO" in source
     assert "identityCheck.checked=false;" in source
+
+
+def test_thermoflask_storyboard_prevents_secondary_cup_pouring():
+    from backend.heygen_video_api import product_prompt
+    prompt=product_prompt(
+        "ThermoFlask Insulated Stainless Steel Coffee Travel Mug with Sip-N-Lok Lid",
+        {"mode":"product_overview","evidence":[]},
+    )
+    assert "ONLY drinking vessel" in prompt
+    assert "Never show coffee being poured OUT OF another cup" in prompt
+    assert "OMIT" in prompt and "pouring scene" in prompt
+    assert "exact original mug" in prompt
