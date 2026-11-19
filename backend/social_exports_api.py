@@ -94,6 +94,9 @@ def _ffmpeg():
 class ExportOptions(BaseModel):
     # This is the explicitly approved destination from the chosen product card.
     marketing_url: str = Field(min_length=12, max_length=2048)
+    # Owner's explicit inspection of the completed footage; technical QA alone
+    # cannot certify product identity or realistic demonstrations.
+    owner_product_accuracy_confirmed: bool = False
     # The owner's rejected footage (optional) is cut before social variants.
     # None / None keeps the existing approved original export behavior.
     remove_start: float | None = None
@@ -236,6 +239,8 @@ def _convert(source, destination, width, height, card=None, duration=15):
 @router.post("/api/v1/heygen-video/social-exports/{video_id}")
 def social_exports(video_id: str, request: Request, options: ExportOptions):
     video_guard(request)
+    if not options.owner_product_accuracy_confirmed:
+        raise HTTPException(409, "Video needs owner confirmation that every scene shows the correct product and action before social export.")
     approved_url = _marketing_url(options.marketing_url)
     if not _ID.fullmatch(video_id):
         raise HTTPException(404, "Unknown completed video.")
