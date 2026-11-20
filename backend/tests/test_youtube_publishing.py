@@ -347,6 +347,49 @@ def test_session_expired_or_unknown_initiation_never_reinserts(setup, monkeypatc
     assert mock.call_args.args[0] == 'PUT'
 
 
+def test_owner_can_resume_same_channel_after_reconnect_without_changing_approval(setup, monkeypatch):
+    client, connection, _ = setup
+    job = draft(client).json()
+    approve(client, job)
+    saved = store.job(job['id'])
+    saved.update(session=SESSION, session_started=True, state='needs_attention')
+    store.save_job(saved, release=True)
+    connection['grant_id'] = 'renewed-grant'
+    store.put('youtube', 'owner', connection)
+    monkeypatch.setattr(youtube, 'channels', lambda _: [{'id': CHANNEL, 'title': 'Owner channel'}])
+    result = client.post('/api/v1/publishing/jobs/' + job['id'] + '/reconcile',
+                         json={'approve': True, 'review_hash': job['review_hash']})
+    assert result.status_code == 200, result.text
+    assert store.job(job['id'])['snapshot'] == saved['snapshot']
+    assert store.job(job['id'])['active_grant_id'] == 'renewed-grant'
+    send, calls = fake_youtube(job)
+    monkeypatch.setattr(youtube, 'call', send)
+    youtube.process_job(job['id'])
+    assert store.job(job['id'])['video_id'] == VIDEO
+    assert not any(method == 'POST' for method, _, _ in calls)
+
+
+def test_reconcile_rejects_different_channel_and_allows_pre_upload_recovery(setup, monkeypatch):
+    client, connection, _ = setup
+    job = draft(client).json()
+    approve(client, job)
+    connection['channel_id'] = 'different'
+    store.put('youtube', 'owner', connection)
+    monkeypatch.setattr(youtube, 'channels', lambda _: [{'id': CHANNEL, 'title': 'Owner channel'}])
+    url = '/api/v1/publishing/jobs/' + job['id'] + '/reconcile'
+    payload = {'approve': True, 'review_hash': job['review_hash']}
+    assert client.post(url, json=payload).status_code == 409
+    connection['channel_id'] = CHANNEL
+    connection['grant_id'] = 'renewed-grant'
+    store.put('youtube', 'owner', connection)
+    assert client.post(url, json=payload).status_code == 200
+    send, calls = fake_youtube(job)
+    monkeypatch.setattr(youtube, 'call', send)
+    youtube.process_job(job['id'])
+    assert store.job(job['id'])['video_id'] == VIDEO
+    assert sum(method == 'POST' for method, _, _ in calls) == 1
+
+
 @pytest.mark.parametrize('case', ['changed_file', 'disconnected', 'changed_channel', 'new_grant'])
 def test_approved_upload_stops_on_media_or_account_change(setup, case):
     client, connection, root = setup

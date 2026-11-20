@@ -363,7 +363,7 @@ class Approval(BaseModel):
 def approve(identifier: str, payload: Approval, request: Request):
     guard(request, True)
     job = store.job(identifier)
-    connection = youtube.credentials(job['snapshot']['grant_id'])
+    connection = youtube.credentials(job.get('active_grant_id', job['snapshot']['grant_id']))
     if connection.get('channel_id') != job['snapshot']['channel_id']:
         raise HTTPException(409, 'The selected channel changed. Review the intended account.')
     return youtube.public_job(store.approve(identifier, payload.review_hash))
@@ -373,15 +373,25 @@ def approve(identifier: str, payload: Approval, request: Request):
 def reconcile(identifier: str, payload: Approval, request: Request):
     guard(request, True)
     job = store.job(identifier)
-    if not job.get('approved_at') or job['review_hash'] != payload.review_hash or not (job.get('session') or job.get('video_id')):
+    if not job.get('approved_at') or job['review_hash'] != payload.review_hash:
         raise HTTPException(409, 'No approved upload session is available to reconcile. Inspect YouTube Studio.')
+    connection = youtube.credentials()
+    channel = job['snapshot']['channel_id']
+    if connection.get('channel_id') != channel or channel not in {item['id'] for item in youtube.channels(connection)}:
+        raise HTTPException(409, 'Reconnect and select the same verified channel before resuming this upload.')
+    if job.get('session_started') and not (job.get('session') or job.get('video_id')):
+        raise HTTPException(409, 'Upload initiation is uncertain. Inspect YouTube Studio before any new publication.')
     # Never create a new session to recover a possibly completed upload.
     with store.database() as db:
         row = db.execute('SELECT lease,payload FROM jobs WHERE id=?', (identifier,)).fetchone()
         if row['lease'] > time.time():
             return youtube.public_job(store.unseal(row['payload']))
         job = store.unseal(row['payload'])
-        job.update(state='reconciling', attempts=0, next_attempt=0)
+        # Credential renewal may resume the same approved channel/session, but
+        # never changes the immutable approved media, metadata or visibility.
+        job.update(state='reconciling', attempts=0, next_attempt=0, active_grant_id=connection['grant_id'])
+        job['events'].append({'at': time.time(), 'state': 'reconciling',
+                              'message': 'Owner requested reconciliation for the verified channel.'})
         db.execute('UPDATE jobs SET state=?,payload=? WHERE id=?', ('reconciling', store.seal(job), identifier))
     return youtube.public_job(job)
 

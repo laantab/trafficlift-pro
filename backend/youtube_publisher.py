@@ -181,7 +181,7 @@ def process_job(identifier):
         if not configured() or not job.get('approved_at'):
             raise HTTPException(409, 'Publishing approval or configuration is unavailable.')
         snapshot = job['snapshot']
-        connection = credentials(snapshot['grant_id'])
+        connection = credentials(job.get('active_grant_id', snapshot['grant_id']))
         if connection.get('channel_id') != snapshot['channel_id']:
             raise HTTPException(409, 'Connected channel changed. Review the intended account.')
         if job.get('video_id'):
@@ -223,7 +223,7 @@ def process_job(identifier):
         with media.open('rb') as source:
             while offset < total and not job.get('video_id'):
                 # Refresh between chunks if needed and stop after disconnect.
-                connection = credentials(snapshot['grant_id'])
+                connection = credentials(job.get('active_grant_id', snapshot['grant_id']))
                 source.seek(offset)
                 chunk = source.read(CHUNK)
                 response = call('PUT', session, headers={

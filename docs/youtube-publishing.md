@@ -77,6 +77,12 @@ reconciled through the same session before continuing. Missing/expired sessions
 or uncertain initiation require attention rather than a fresh upload. There is
 no automatic second insert. Safe transient attempts are bounded. The owner can
 request **Reconcile existing upload** for a saved session or video ID.
+After reconnecting an expired/revoked grant, that control verifies the same
+selected channel again before resuming the existing session. It renews only the
+credential binding and records the owner action. The approved media and metadata
+stay frozen. An approved job interrupted before upload initiation can also
+resume. An uncertain initiation without a saved session remains blocked against
+duplicate submission.
 
 Returned IDs are stored before metadata verification. The UI distinguishes
 queued, uploading, uploaded, processing, private, unlisted, public, failed and
