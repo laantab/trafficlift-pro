@@ -8,6 +8,24 @@ on:
       - "fix/**"
 
 jobs:
+  youtube-publishing-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install isolated publishing test dependencies
+        run: pip install pytest fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1 requests==2.32.3 cryptography==46.0.3 Pillow==12.0.0 static-ffmpeg==3.0
+      - name: Test OAuth, durable approval, resumable upload and existing MP4 identity offline
+        run: python -m pytest backend/tests/test_youtube_publishing.py -q
+      - name: Install browser acceptance runtime
+        run: |
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium --only-shell
+      - name: Verify reviewed publishing screen and truthful private status with mocked APIs
+        run: python scripts/youtube_publishing_ui_acceptance.py
   pin-photo-isolated:
     # Independent check: earlier unrelated UI tests must not hide image regressions.
     runs-on: ubuntu-latest

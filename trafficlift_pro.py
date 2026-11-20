@@ -827,6 +827,8 @@ app.include_router(krea_video_router)
 # One generation, three free local social aspect-ratio exports.
 from backend.social_exports_api import router as social_exports_router
 app.include_router(social_exports_router)
+from backend.publishing_api import router as publishing_router
+app.include_router(publishing_router)
 # Separate disabled-by-default low-cost Wan visual trial.
 from backend.wan_video_api import router as wan_video_router
 app.include_router(wan_video_router)
@@ -879,6 +881,16 @@ async def root():
     from fastapi.responses import FileResponse
     from pathlib import Path
     return FileResponse(Path(__file__).resolve().with_name("index.html"), media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get('/launch-studio', include_in_schema=False)
+def launch_studio():
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    return FileResponse(Path(__file__).resolve().parent / 'static' / 'launch-studio.html',
+                        media_type='text/html', headers={'Cache-Control': 'no-store',
+                        'Referrer-Policy': 'no-referrer',
+                        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
