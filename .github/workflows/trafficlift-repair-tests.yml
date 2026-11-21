@@ -8,6 +8,18 @@ on:
       - "fix/**"
 
 jobs:
+  campaign-pipeline-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install isolated pipeline dependencies
+        run: pip install pytest fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1 requests==2.32.3 beautifulsoup4==4.12.3 cryptography==46.0.3 Pillow==12.0.0 static-ffmpeg==3.0 tzdata
+      - name: Test scheduling, encrypted queue, media, analytics and safe dispatch without live credentials
+        run: python -m pytest backend/tests/test_pipeline.py backend/tests/test_youtube_publishing.py -q
   youtube-publishing-offline:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
