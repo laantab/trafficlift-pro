@@ -22,6 +22,7 @@ httpx==0.28.1
 # Persistence (SQLite campaign history)
 sqlalchemy==2.0.36
 cryptography==46.0.3
+tzdata>=2025.2,<2027
 
 # Local dev: loads variables from a .env file (no-op on Render where env
 # comes from the platform). Remove this line if you only deploy via Docker.
