@@ -124,7 +124,7 @@ def build(job, product, images, lines):
             render_lock.release()
 
 
-@router.post("/api/v1/campaigns")
+@router.post("/api/v1/ad-campaigns")
 def create(payload: Campaign, request: Request):
     studio.video_guard(request)
     key, job = payload.product, payload.request_id.hex
@@ -174,7 +174,7 @@ def recover_interrupted_jobs():
             db.execute("UPDATE jobs SET status='failed' WHERE status='rendering'")
 
 
-@router.get("/api/v1/campaigns/{job}")
+@router.get("/api/v1/ad-campaigns/{job}")
 def status(job: uuid.UUID, request: Request):
     studio.video_guard(request)
     with database() as db:
@@ -184,7 +184,7 @@ def status(job: uuid.UUID, request: Request):
     return {"status":row[0]}
 
 
-@router.get("/api/v1/campaigns/{job}/{asset}")
+@router.get("/api/v1/ad-campaigns/{job}/{asset}")
 def download(job: uuid.UUID, asset: Literal["video","kit"], request: Request):
     if status(job,request)["status"] != "ready":
         raise HTTPException(409,"The campaign is still awaiting a successful render.")
