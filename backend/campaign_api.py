@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, HttpUrl
 from backend import photo_video_api as studio
+from backend.campaign_editor import EditorialHold, verified
 from backend.campaigns import ASSETS, HOLIDAY, plan, render_campaign
 
 router = APIRouter()
@@ -113,6 +114,9 @@ def build(job, product, images, lines):
     try:
         render_campaign(root()/job, product, images, lines)
         status = "ready"
+    except EditorialHold:
+        log.exception("Campaign held by editorial review")
+        status = "held"
     except Exception:
         log.exception("Campaign render failed")
         status = "failed"
@@ -172,6 +176,9 @@ def recover_interrupted_jobs():
     if (studio.storage()/"campaigns"/"campaigns.sqlite").exists():
         with database() as db:
             db.execute("UPDATE jobs SET status='failed' WHERE status='rendering'")
+            for row in db.execute("SELECT id FROM jobs WHERE status='ready'").fetchall():
+                if not (root()/row["id"]/"editorial.json").is_file():
+                    db.execute("UPDATE jobs SET status='legacy' WHERE id=?", (row["id"],))
 
 
 @router.get("/api/v1/ad-campaigns/{job}")
@@ -181,6 +188,10 @@ def status(job: uuid.UUID, request: Request):
         row = db.execute("SELECT status FROM jobs WHERE id=?", (job.hex,)).fetchone()
     if not row:
         raise HTTPException(404,"Campaign was not found.")
+    if row[0]=="legacy":
+        return {"status":"held"}
+    if row[0]=="ready" and not (root()/job.hex/"editorial.json").is_file():
+        return {"status":"held"}
     return {"status":row[0]}
 
 
@@ -188,6 +199,8 @@ def status(job: uuid.UUID, request: Request):
 def download(job: uuid.UUID, asset: Literal["video","kit"], request: Request):
     if status(job,request)["status"] != "ready":
         raise HTTPException(409,"The campaign is still awaiting a successful render.")
+    if not verified(root()/job.hex, asset):
+        raise HTTPException(409,"This export needs a fresh editorial review. Create a new campaign.")
     name = "video.mp4" if asset=="video" else "campaign.zip"
     return FileResponse(root()/job.hex/name, media_type="video/mp4" if asset=="video" else "application/zip",
                         filename=None if asset=="video" else "TrafficLift-Campaign.zip",headers={"Cache-Control":"private, no-store"})

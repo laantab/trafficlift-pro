@@ -30,6 +30,7 @@ async function watch(id){
  try{
  for(;;){let job=await api('/api/v1/ad-campaigns/'+id);
  if(job.status==='ready')break;
+ if(job.status==='held'){localStorage.removeItem('campaign-pending');localStorage.removeItem('campaign-last');throw Error('This video needs a fresh editorial review. Create a new campaign to continue.')}
  if(job.status==='failed'){localStorage.removeItem('campaign-pending');throw Error('Rendering stopped. Create Campaign will retry the opening.')}
  el('message').textContent='Creating the narration, video, cover frame and posting drafts…';
  await new Promise(resolve=>setTimeout(resolve,2500))}

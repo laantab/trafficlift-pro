@@ -105,12 +105,14 @@ def inspect_footage(source):
     count = min(12, max(5, math.ceil(duration / 1.5)))
     timestamps = [round((i + .5) * duration / count, 2) for i in range(count)]
     frames, warnings = [], []
+    samples = []
     prev = None
     for second in timestamps:
         try:
             image, jpeg = _sample_frame(source, second)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             raise HTTPException(422, "Editor could not inspect a frame of the actual footage.") from exc
+        samples.append((second,image))
         gray = image.convert("L").resize((80, 80))
         lightness = ImageStat.Stat(gray).mean[0]
         if lightness < 10:
@@ -118,14 +120,19 @@ def inspect_footage(source):
         if prev is not None:
             diff = ImageStat.Stat(ImageChops.difference(prev, gray)).mean[0]
             if diff < .18:
-                warnings.append({"time": second, "issue": "Little or no visual motion between samples; inspect for a frozen shot", "kind": "technical"})
+                warnings.append({"time": second, "issue": "Still shot; confirm that the hold is intentional", "kind": "review"})
             if diff > 58:
                 warnings.append({"time": second, "issue": "Abrupt scene transition; inspect for a substituted product", "kind": "review"})
         prev = gray
         frames.append({"second": second, "jpeg_base64": jpeg})
     if not meta["has_audio"]:
         warnings.append({"time": 0, "issue": "No audio track; narrated advertisement is not ready", "kind": "technical"})
+    from backend.reviewed_footage import decision
+    verdict = decision(source,samples)
+    if verdict["decision"]=="reject":
+        warnings.append({"kind":"technical","time":verdict["first_seen"],"issue":verdict["reason"]})
     return {
+        "editorial_review":verdict,
         **meta, "frames": frames, "flags": warnings,
         "approval": "NOT APPROVED",
         "scene_identity_analysis": "Manual comparison required; product and action identity are not automatically certified.",
@@ -189,7 +196,12 @@ def review_heygen(video_id: str, request: Request):
     work = Path(tempfile.mkdtemp(prefix="trafficlift-scene-review-"))
     try:
         source = _source_from_heygen(video_id, work)
-        return inspect_footage(source)
+        report = inspect_footage(source)
+        candidate = repair_candidate(source, work, report)
+        if candidate != source:
+            report = inspect_footage(candidate)
+            report["corrected_preview"] = True
+        return report
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -215,4 +227,33 @@ def preview_cut(video_id: str, body: CutRequest, request: Request):
         )
     except Exception:
         shutil.rmtree(work, ignore_errors=True)
+        raise
+
+def repair_candidate(source, work, report):
+    from backend.reviewed_footage import replace_ending
+    verdict = report["editorial_review"]
+    if verdict["decision"] != "reject":
+        return source
+    if verdict["last_seen"] < report["duration"]-2 or verdict["first_seen"] <= 4:
+        raise HTTPException(409,"This demonstration needs editorial review.")
+    candidate = work/"editor-preview.mp4"
+    replace_ending(source,candidate,verdict["first_seen"]-2,report["duration"])
+    if inspect_footage(candidate)["editorial_review"]["decision"]=="reject":
+        raise HTTPException(409,"The corrected preview still contains a rejected shot.")
+    return candidate
+
+
+@router.get("/api/v1/video-editor-in-chief/heygen/{video_id}/repair-ending")
+def repair_reviewed_ending(video_id: str, request: Request):
+    video_guard(request)
+    work = Path(tempfile.mkdtemp(prefix="trafficlift-editor-repair-"))
+    try:
+        original = _source_from_heygen(video_id, work)
+        candidate = repair_candidate(original,work,inspect_footage(original))
+        if candidate == original:
+            raise HTTPException(409,"No confirmed faulty ending was identified.")
+        return FileResponse(candidate,media_type="video/mp4",
+                            background=BackgroundTask(shutil.rmtree,work,ignore_errors=True))
+    except Exception:
+        shutil.rmtree(work,ignore_errors=True)
         raise

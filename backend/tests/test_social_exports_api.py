@@ -67,6 +67,7 @@ def test_three_complete_mp4s_are_packaged_from_one_source(tmp_path):
                return_value=Mock(free=999999999)), \
          patch("backend.social_exports_api.tempfile.mkdtemp",
                return_value=str(tmp_path)), \
+         patch("backend.production_scene_editor.inspect_footage", return_value={"editorial_review":{"decision":"needs_review"}}), \
          patch("backend.social_exports_api._download", side_effect=fake_download), \
          patch("backend.social_exports_api._video_duration", return_value=15), \
          patch("backend.social_exports_api._link_card"), \
