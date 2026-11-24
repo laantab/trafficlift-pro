@@ -50,6 +50,7 @@ class Campaign(BaseModel):
     request_id: uuid.UUID
 
 
+@router.get("/owner")
 @router.get("/campaigns")
 def page():
     return FileResponse(ASSETS.parents[1] / "static" / "campaigns.html")
