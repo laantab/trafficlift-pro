@@ -12,7 +12,7 @@
 <label>Book interior PDF (automatically selects two pages)<input id="pdf" type="file" accept="application/pdf"></label>
 <label>Inside page or detail photo<input id="inside" type="file" accept="image/*"></label><label>Second page or detail photo<input id="second" type="file" accept="image/*"></label>
 <label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details><button id="forget" type="button">Sign out and forget this device</button></section>
-<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p></section></main>
+<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><p><button id="another" type="button">Create another ad</button></p><a href="/">Back to TrafficLift</a></section></main>
 <script>
 const el=id=>document.getElementById(id);
 async function api(path,options={}) {
@@ -24,7 +24,7 @@ async function api(path,options={}) {
 }
 const post=(path,data)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 async function refresh(){const products=await api('/api/v1/campaign-products');el('products').replaceChildren(...products.map(p=>new Option(p.name,p.id)));el('studio').hidden=false;el('unlock').hidden=true}
-function report(error){el('message').textContent=error.message}
+function report(error){el('message').textContent=error.message;el('message').scrollIntoView({block:'nearest'})}
 async function watch(id){
  el('create').disabled=true;el('review').hidden=true;
  try{
@@ -38,9 +38,24 @@ async function watch(id){
  }finally{el('create').disabled=false}
 }
 el('approve').onclick=()=>{el('kit').hidden=false;el('approve').hidden=true;el('kit').click()};
-async function start(){await refresh();const id=localStorage.getItem('campaign-pending')||localStorage.getItem('campaign-last');if(id)await watch(id)}
+function newAd(){
+ el('player').pause();
+ el('review').hidden=true;
+ el('message').textContent='Choose a saved product, then select Create Campaign.';
+ el('products').focus({preventScroll:true});
+ el('studio').scrollIntoView({block:'start'});
+}
+el('another').onclick=newAd;
+async function start(){
+ await refresh();
+ const pending=localStorage.getItem('campaign-pending');
+ if(pending)return watch(pending);
+ if(new URLSearchParams(location.search).get('new')==='1')return newAd();
+ const last=localStorage.getItem('campaign-last');
+ if(last)await watch(last)
+}
 el('unlock').onsubmit=async e=>{e.preventDefault();try{await post('/api/v1/video-owner-login',{access_code:el('code').value,remember_device:el('remember').checked});el('code').value='';await start()}catch(error){report(error)}};
-el('create').onclick=async()=>{el('create').disabled=true;try{const id=crypto.randomUUID();const job=await post('/api/v1/ad-campaigns',{product:el('products').value,request_id:id});localStorage.setItem('campaign-pending',job.id);await watch(job.id)}catch(error){report(error)}finally{el('create').disabled=false}};
+el('create').onclick=async()=>{el('create').disabled=true;try{const id=crypto.randomUUID();const job=await post('/api/v1/ad-campaigns',{product:el('products').value,request_id:id});localStorage.setItem('campaign-pending',job.id);await watch(job.id);el('review').scrollIntoView({block:'start'})}catch(error){report(error)}finally{el('create').disabled=false}};
 async function imageData(file){const bitmap=await createImageBitmap(file);const scale=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));const c=document.createElement('canvas');c.width=Math.round(bitmap.width*scale);c.height=Math.round(bitmap.height*scale);c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);bitmap.close();return c.toDataURL('image/jpeg',.85).split(',')[1]}
 el('save').onsubmit=async e=>{e.preventDefault();const form=e.target;const button=form.querySelector('button');button.disabled=true;try{const data=Object.fromEntries(new FormData(form));data.affiliate=form.elements.affiliate.checked;data.images=[];for(const id of ['cover','inside','second']){const file=el(id).files[0];if(file)data.images.push(await imageData(file))}const pdf=el('pdf').files[0];if(pdf){if(pdf.size>37000000)throw Error('Use an interior PDF under 37 MB.');data.interior_pdf=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(pdf)})}const saved=await post('/api/v1/campaign-products',data);await refresh();el('products').value=saved.id;form.reset();form.closest('details').open=false;el('message').textContent='Saved. Your product is ready for a campaign.'}catch(error){report(error)}finally{button.disabled=false}};
 async function enter(){
