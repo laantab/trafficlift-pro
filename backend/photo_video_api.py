@@ -80,6 +80,7 @@ def valid_video_session(cookie: str, secret: str) -> bool:
 
 class OwnerVideoLogin(BaseModel):
     access_code: SecretStr
+    remember_device: bool = False
 
 
 @router.post('/api/v1/video-owner-login')
@@ -95,12 +96,46 @@ def owner_video_login(payload: OwnerVideoLogin, request: Request):
     configured = os.getenv('TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN', '')
     if len(configured) < 32 or not secrets.compare_digest(payload.access_code.get_secret_value(), configured):
         raise HTTPException(401, 'Invalid access code.')
+    response = owner_session_response(configured)
+    if payload.remember_device:
+        from backend.owner_device import remember
+        remember(storage(), response, configured)
+    return response
+
+
+def owner_session_response(configured):
+    import hashlib, hmac
     issued = str(int(time.time()))
     sig = hmac.new(configured.encode(), ('video-session:' + issued).encode(), hashlib.sha256).hexdigest()
     response = JSONResponse({'authorized': True, 'expires_in_seconds': 28800},
                             headers={'Cache-Control': 'private, no-store'})
     response.set_cookie('trafficlift_video_session', issued + '.' + sig,
                         max_age=28800, httponly=True, secure=True, samesite='strict', path='/api/v1')
+    return response
+
+
+@router.post('/api/v1/owner-device/enter')
+def enter_owner_section(request: Request):
+    from backend import owner_device
+    owner_device.check_origin(request)
+    secret = os.getenv('TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN','')
+    token = owner_device.token_from(request)
+    if (os.getenv('TRAFFICLIFT_HOSTED_VIDEO') != '1' or len(secret)<32 or not token
+            or not owner_device.record(storage(),"verify",token,secret)):
+        raise HTTPException(401,"Unlock this browser once to remember it.")
+    return owner_session_response(secret)
+
+
+@router.post('/api/v1/owner-device/forget')
+def forget_owner_browser(request: Request):
+    from backend import owner_device
+    owner_device.check_origin(request)
+    token = owner_device.token_from(request)
+    if token:
+        owner_device.record(storage(),"forget",token,os.getenv('TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN',''))
+    response = JSONResponse({"forgotten":True},headers={"Cache-Control":"private, no-store"})
+    response.delete_cookie(owner_device.COOKIE,path=owner_device.PATH,secure=True,httponly=True,samesite='strict')
+    response.delete_cookie('trafficlift_video_session',path='/api/v1',secure=True,httponly=True,samesite='strict')
     return response
 
 
