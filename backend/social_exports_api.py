@@ -259,6 +259,8 @@ def social_exports(video_id: str, request: Request, options: ExportOptions):
             corrected = work / "scene-edited.mp4"
             cut_unusable_scene(source, corrected, options.remove_start, options.remove_end)
             source = corrected
+        from backend.production_scene_editor import inspect_footage, repair_candidate
+        source = repair_candidate(source, work, inspect_footage(source))
         duration = _video_duration(source)
         destination = work / "TrafficLift-Social-Formats.zip"
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_STORED) as bundle:

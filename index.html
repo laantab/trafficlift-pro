@@ -2678,6 +2678,11 @@ Audio: upbeat modern commercial music, subtle sound design, and a concise confid
                         });
                         const report = await response.json().catch(() => ({}));
                         if (!response.ok) throw new Error('Video quality check could not finish.');
+                        if (report.corrected_preview) {
+                            video.src = location.origin + '/api/v1/video-editor-in-chief/heygen/' + encodeURIComponent(id) + '/repair-ending';
+                            link.href = video.src;
+                            link.textContent = 'Open corrected preview';
+                        }
                         const serious = (report.flags || []).filter(flag => flag.kind === 'technical');
                         editorReviewed = report.has_audio === true && serious.length === 0;
                         qualityNotice.textContent = editorReviewed

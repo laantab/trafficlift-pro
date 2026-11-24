@@ -271,6 +271,9 @@ async def import_media(request: Request, campaign_id: str):
         from starlette.concurrency import run_in_threadpool
         technical = await run_in_threadpool(inspect_media, temporary)
         media_hash = digest.hexdigest()
+        from backend.reviewed_footage import rejected_master
+        if rejected_master(media_hash):
+            raise HTTPException(422,"This master contains a previously rejected product demonstration.")
         target = root / (media_hash + '.mp4')
         if not target.exists():
             temporary.replace(target)
@@ -334,6 +337,9 @@ def create_review(payload: Review, request: Request):
     product = campaign(payload.campaign_id)
     if not media or media['product'] != product:
         raise HTTPException(409, 'The video belongs to a different or changed product. Select it again.')
+    from backend.reviewed_footage import rejected_master
+    if rejected_master(media['media_hash']):
+        raise HTTPException(422,"This master contains a previously rejected product demonstration.")
     link = _marketing_url(payload.marketing_url)
     source_asin, target_asin = asin(product['product_url']), asin(link)
     if source_asin and target_asin and source_asin != target_asin:

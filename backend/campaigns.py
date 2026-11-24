@@ -61,6 +61,9 @@ def render_campaign(directory, product, images, lines):
     from kokoro_onnx import Kokoro
     from PIL import Image, ImageDraw, ImageFont, ImageOps
     from backend.photo_video import dependencies, check_video, check_narration_audio
+    from backend import campaign_editor as editor
+    drafts = posts(product, lines)
+    editor.check_copy(product, lines, drafts)
     model, voices = dependencies()
     options = ort.SessionOptions()
     options.intra_op_num_threads = 2
@@ -104,18 +107,32 @@ def render_campaign(directory, product, images, lines):
     sf.write(directory/"voice.wav", audio, rate)
     check_narration_audio(directory/"voice.wav")
     seconds = len(audio)/rate
-    subprocess.run(["ffmpeg","-v","error","-y","-f","concat","-safe","0","-i","frames","-i","voice.wav",
-                    "-vf","fps=25,scale=in_range=full:out_range=tv,format=yuv420p","-t",str(seconds),"-color_range","tv","-pix_fmt","yuv420p","-c:v","libx264","-threads","2","-preset","veryfast",
-                    "-c:a","aac","-movflags","+faststart","video.mp4"], cwd=directory, check=True, timeout=300)
-    check_video(directory/"video.mp4", seconds)
-    # Check decoded audio after muxing, including the closing section.
-    subprocess.run(["ffmpeg","-v","error","-y","-i","video.mp4","-ss",str(sum(len(t) for t in tracks[:-1])/rate),
-                    "-vn","-ac","1","closing.wav"],cwd=directory,check=True,timeout=45)
-    check_narration_audio(directory/"closing.wav")
+    def encode():
+        subprocess.run(["ffmpeg","-v","error","-y","-f","concat","-safe","0","-i","frames","-i","voice.wav",
+                        "-vf","fps=25,scale=in_range=full:out_range=tv,format=yuv420p","-t",str(seconds),"-color_range","tv","-pix_fmt","yuv420p","-c:v","libx264","-threads","2","-preset","veryfast",
+                        "-c:a","aac","-movflags","+faststart","video.mp4"], cwd=directory, check=True, timeout=300)
+    def inspect():
+        check_video(directory/"video.mp4", seconds)
+        # Check decoded audio after muxing, including the closing section.
+        subprocess.run(["ffmpeg","-v","error","-y","-i","video.mp4","-ss",str(sum(len(t) for t in tracks[:-1])/rate),
+                        "-vn","-ac","1","closing.wav"],cwd=directory,check=True,timeout=45)
+        check_narration_audio(directory/"closing.wav")
+        frames = editor.review_frames(directory, images, [round(len(t)*25/rate) for t in tracks])
+        scenes = editor.review_speech(directory, tracks, rate)
+        return frames, scenes
+    encode()
+    try:
+        frames, scenes = inspect()
+    except (editor.EditorialHold, ValueError):
+        # Rebuild the candidate once from the original art and speech, then run
+        # every check again. No regeneration, new claims or provider charges.
+        encode()
+        frames, scenes = inspect()
     with zipfile.ZipFile(directory/"campaign.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(directory/"video.mp4", "video.mp4")
         archive.write(directory/"scene0.jpg", "cover-frame.jpg")
-        for platform, copy in posts(product, lines).items():
+        for platform, copy in drafts.items():
             archive.writestr(f"{platform}.txt", copy)
+    editor.receipt(directory, frames, scenes)
     for name in ["voice.wav","closing.wav","frames",*(f"scene{i}.jpg" for i in range(4))]:
         (directory/name).unlink()
