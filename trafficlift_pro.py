@@ -814,6 +814,8 @@ async def clear_all_campaigns() -> JSONResponse:
 app.include_router(product_scout_router)
 from backend.photo_video_api import router as photo_video_router
 app.include_router(photo_video_router)
+from backend.campaign_api import router as campaign_router
+app.include_router(campaign_router)
 from backend.video_editor_in_chief import router as video_editor_in_chief_router
 app.include_router(video_editor_in_chief_router)
 from backend.production_scene_editor import router as production_scene_editor_router

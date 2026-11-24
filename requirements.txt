@@ -37,3 +37,4 @@ static-ffmpeg==3.0
 
 # Official fal.ai client for queued Wan generation and status URL routing.
 fal-client==1.0.3
+pypdfium2>=4.30,<6

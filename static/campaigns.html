@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campaigns · TrafficLift Pro</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f4ec;color:#1c302c;font:17px/1.55 system-ui,sans-serif}main{max-width:680px;margin:auto;padding:24px}header{border-bottom:1px solid #bac4bc;padding-bottom:14px}h1{font:42px Georgia,serif;margin:24px 0}label{display:block;margin:12px 0}input,select,button,.download{font:inherit;padding:10px;border:1px solid #91a69b;border-radius:8px}input:not([type=checkbox]),select{width:100%;background:white}button,.download{background:#14513f;color:white;cursor:pointer}button:disabled{opacity:.6}a{color:#14513f}video{width:100%;max-height:58vh;background:#182625}details{margin:22px 0}summary{cursor:pointer}.download{display:inline-block;text-decoration:none}[hidden]{display:none!important}
+</style><main><header><a href="/">TrafficLift Pro</a></header><h1>Create a campaign</h1>
+<form id="unlock" hidden><label>Video access code<input id="code" type="password" autocomplete="current-password" required></label><button>Unlock Studio</button></form>
+<section id="studio" hidden><label>Saved product<select id="products"></select></label><button id="create">Create Campaign</button>
+<details><summary>Save another product</summary><form id="save">
+<label>Product name<input name="name" required maxlength="80"></label><label>Purchase link<input name="destination" type="url" required></label>
+<label>One verified feature<input name="feature" required minlength="3" maxlength="120"></label><label>Page quotation or demonstration detail<input name="prompt" maxlength="100"></label>
+<label>Cover or verified product photo<input id="cover" type="file" accept="image/*" required></label>
+<label>Book interior PDF (automatically selects two pages)<input id="pdf" type="file" accept="application/pdf"></label>
+<label>Inside page or detail photo<input id="inside" type="file" accept="image/*"></label><label>Second page or detail photo<input id="second" type="file" accept="image/*"></label>
+<label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details></section>
+<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p></section></main>
+<script>
+const el=id=>document.getElementById(id);
+async function api(path,options={}) {
+ const response=await fetch(path,{cache:'no-store',...options});
+ const data=await response.json();
+ if(response.status===401){el('unlock').hidden=false;el('studio').hidden=true}
+ if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Please check the product details.');
+ return data;
+}
+const post=(path,data)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+async function refresh(){const products=await api('/api/v1/campaign-products');el('products').replaceChildren(...products.map(p=>new Option(p.name,p.id)));el('studio').hidden=false;el('unlock').hidden=true}
+function report(error){el('message').textContent=error.message}
+async function watch(id){
+ el('create').disabled=true;el('review').hidden=true;
+ try{
+ for(;;){let job=await api('/api/v1/ad-campaigns/'+id);
+ if(job.status==='ready')break;
+ if(job.status==='failed'){localStorage.removeItem('campaign-pending');throw Error('Rendering stopped. Create Campaign will retry the opening.')}
+ el('message').textContent='Creating the narration, video, cover frame and posting drafts…';
+ await new Promise(resolve=>setTimeout(resolve,2500))}
+ const path='/api/v1/ad-campaigns/'+id;el('player').src=path+'/video';el('kit').href=path+'/kit';el('kit').hidden=true;el('approve').hidden=false;el('review').hidden=false;el('message').textContent='Play the video and review the narration.';localStorage.setItem('campaign-last',id);localStorage.removeItem('campaign-pending')
+ }finally{el('create').disabled=false}
+}
+el('approve').onclick=()=>{el('kit').hidden=false;el('approve').hidden=true;el('kit').click()};
+async function start(){await refresh();const id=localStorage.getItem('campaign-pending')||localStorage.getItem('campaign-last');if(id)await watch(id)}
+el('unlock').onsubmit=async e=>{e.preventDefault();try{await post('/api/v1/video-owner-login',{access_code:el('code').value});el('code').value='';await start()}catch(error){report(error)}};
+el('create').onclick=async()=>{el('create').disabled=true;try{const id=crypto.randomUUID();const job=await post('/api/v1/ad-campaigns',{product:el('products').value,request_id:id});localStorage.setItem('campaign-pending',job.id);await watch(job.id)}catch(error){report(error)}finally{el('create').disabled=false}};
+async function imageData(file){const bitmap=await createImageBitmap(file);const scale=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));const c=document.createElement('canvas');c.width=Math.round(bitmap.width*scale);c.height=Math.round(bitmap.height*scale);c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);bitmap.close();return c.toDataURL('image/jpeg',.85).split(',')[1]}
+el('save').onsubmit=async e=>{e.preventDefault();const form=e.target;const button=form.querySelector('button');button.disabled=true;try{const data=Object.fromEntries(new FormData(form));data.affiliate=form.elements.affiliate.checked;data.images=[];for(const id of ['cover','inside','second']){const file=el(id).files[0];if(file)data.images.push(await imageData(file))}const pdf=el('pdf').files[0];if(pdf){if(pdf.size>37000000)throw Error('Use an interior PDF under 37 MB.');data.interior_pdf=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(pdf)})}const saved=await post('/api/v1/campaign-products',data);await refresh();el('products').value=saved.id;form.reset();form.closest('details').open=false;el('message').textContent='Saved. Your product is ready for a campaign.'}catch(error){report(error)}finally{button.disabled=false}};
+start().catch(report);
+</script></html>
