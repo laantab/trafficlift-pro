@@ -50,6 +50,7 @@ def posts(product, lines):
         "youtube-shorts": f"{hook[:98]}\n\n{disclosure}{name} features {detail}. {lines[-1]}\n{link}",
         "instagram-reels": f"{hook}\n\n{disclosure}A closer look inside {name}. {detail.capitalize()}.\n{link}",
         "tiktok": f"{disclosure}{hook} {name} • {detail}.\n{link}",
+        "facebook-reels": f"{disclosure}{hook}\n\nTake a closer look at {name} in this reel. {lines[-1]}\n{link}",
         "linkedin": f"{disclosure}One detail worth a closer look in {name} is {detail}. This short demonstration shows it in context.\n{link}",
     }
 
