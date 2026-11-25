@@ -209,4 +209,23 @@ def sync(key:int):
     return {"saved":True}
 
 
+@private.post("/refresh")
+def refresh_report():
+    with closing(database()) as db:
+        subjects = list(db.execute("SELECT * FROM subjects ORDER BY id"))
+    statuses = []
+    for row in subjects:
+        status = "Uses the latest saved platform report"
+        if row["scope"] == "Post" and row["platform"] in {"TikTok", "YouTube"}:
+            try:
+                sync(row["id"])
+                status = "Updated from platform"
+            except HTTPException as exc:
+                status = exc.detail if exc.status_code in (409, 422) else "Platform refresh unavailable"
+            except Exception:
+                status = "Platform refresh unavailable"
+        statuses.append({"subject": row["id"], "status": status})
+    return {"statuses": statuses}
+
+
 router.include_router(private)
