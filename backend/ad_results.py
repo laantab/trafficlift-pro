@@ -24,7 +24,7 @@ def owner(request: Request):
 
 router = APIRouter()
 private = APIRouter(prefix="/api/v1/ad-results", dependencies=[Depends(owner)])
-Platform = Literal["YouTube","TikTok","Instagram","Facebook","LinkedIn","Amazon","Payhip"]
+Platform = Literal["YouTube","TikTok","Instagram","Facebook","LinkedIn","Amazon","Payhip","Website"]
 COUNT = dict(default=None, ge=0, le=10**12)
 FIELDS = ("impressions","views","clicks","orders","shipped_items","likes","comments","shares","sales_usd","commission_usd","spend_usd")
 
@@ -76,6 +76,7 @@ def database():
     """)
     # Known published posts supply identity only. All counts come from reports.
     conn.executemany("INSERT OR IGNORE INTO subjects(platform,scope,label,reference,creative) VALUES(?,?,?,?,?)", [
+        ("Website","Account","www.keepitrealnow.com","https://www.keepitrealnow.com/",""),
         ("YouTube","Post","A Season for Everyone","https://www.youtube.com/shorts/BcxC16-eWyw","Christmas paperback Short"),
         ("Facebook","Post","A Season for Everyone","https://www.facebook.com/122166192195121238/posts/122166192171121238","Whose laugh comes to mind? Feed post"),
     ])
