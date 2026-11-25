@@ -816,6 +816,8 @@ from backend.photo_video_api import router as photo_video_router
 app.include_router(photo_video_router)
 from backend.campaign_api import router as campaign_router
 app.include_router(campaign_router)
+from backend.ad_results import router as results_router
+app.include_router(results_router)
 from backend.video_editor_in_chief import router as video_editor_in_chief_router
 app.include_router(video_editor_in_chief_router)
 from backend.production_scene_editor import router as production_scene_editor_router
