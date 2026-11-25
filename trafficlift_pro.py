@@ -70,6 +70,7 @@ from backend.video import (
     build_trafficlift_short_prompt,
 )
 from backend.product_scout import router as product_scout_router
+from backend.analytics_readonly import router as analytics_readonly_router
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,9 @@ app = FastAPI(
     redoc_url="/redoc",
     contact={"name": APP_NAME, "url": "https://github.com/trafficlift/pro"},
 )
+
+# Read-only campaign metadata analytics; no paid calls or database mutations.
+app.include_router(analytics_readonly_router)
 
 app.add_middleware(
     CORSMiddleware,
