@@ -210,6 +210,30 @@ def sync(key:int):
     return {"saved":True}
 
 
+def refresh_website(subject_id):
+    key = os.getenv("TRAFFICLIFT_WEBSITE_KEY")
+    if not key:
+        return "Website connection needs setup."
+    try:
+        response = requests.get("https://keepitrealnow.com/wp-json/trafficlift/v1/totals",
+                                headers={"X-TrafficLift-Key": key}, timeout=15, allow_redirects=False)
+        response.raise_for_status()
+        days = response.json()["days"]
+        if not isinstance(days, list) or len(days) > 7:
+            raise ValueError("Invalid daily totals")
+        with closing(database()) as db, db:
+            for day in days:
+                report_date = date.fromisoformat(day["date"]).isoformat()
+                counts = {name: int(day[name]) for name in ("visitors", "pageviews")}
+                if min(counts.values()) < 0:
+                    raise ValueError("Invalid count")
+                save(db, subject_id, "Koko Analytics", "Daily website totals",
+                     report_date, report_date, counts)
+        return "Website totals updated." if days else "Connected. No daily counts available yet."
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return "Website refresh unavailable. Previously saved figures are shown."
+
+
 @private.post("/refresh")
 def refresh_report():
     with closing(database()) as db:
@@ -225,6 +249,8 @@ def refresh_report():
                 status = exc.detail if exc.status_code in (409, 422) else "Platform refresh unavailable"
             except Exception:
                 status = "Platform refresh unavailable"
+        if row["platform"] == "Website" and row["scope"] == "Account" and row["reference"] == "https://www.keepitrealnow.com/":
+            status = refresh_website(row["id"])
         statuses.append({"subject": row["id"], "status": status})
     return {"statuses": statuses}
 
