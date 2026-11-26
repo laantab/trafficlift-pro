@@ -185,3 +185,107 @@ def test_no_paid_provider_or_publishing_code_in_the_growth_feature():
     source = inspect.getsource(growth_api) + inspect.getsource(growth)
     for word in ("heygen", "krea", "fal_client", "minimax", "openai", "youtube_publisher", "pinterest", "requests.", "httpx"):
         assert word not in source.lower()
+
+
+def test_stock_scripts_pass_every_check_and_make_no_personal_claims():
+    import re
+    from backend import campaign_editor, campaigns
+    assert sorted(set(range(1, 31)) - set(growth._STOCK)) == [5, 14, 24]      # the owner's own books
+    for day in growth._STOCK:
+        item = growth.stock_entry(day)
+        lines = [scene["say"] for scene in item["scenes"]]
+        assert growth.ready(item), (day, [c for c in growth.review(item) if not c["ok"]])
+        assert len(item["searches"]) == 4 and all(item["searches"])
+        for text in lines + [item["caption"]]:
+            claim = re.sub(r"Tell me|If you use my link, I earn a commission\.", "", text)
+            assert not re.search(r"\b(?:I|I'm|I'll|I'd|my|me|mine)\b", claim), (day, text)
+        product = {"name": growth.ACCOUNT, "destination": growth.PROFILE, "feature": item["topic"],
+                   "prompt": "", "affiliate": False}
+        campaign_editor.check_copy(product, lines, campaigns.posts(product, lines))
+    assert growth.stock_entry(5) is None
+
+
+def test_stock_video_is_built_from_found_footage_and_keeps_its_credits(owner, tmp_path, monkeypatch):
+    import json
+    from backend import stock_media
+    from backend.campaign_editor import digest
+    monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
+    body = {"day": 1, "lines": [s["say"] for s in growth.stock_entry(1)["scenes"]], "request_id": str(uuid.uuid4())}
+    plan = owner.get("/api/v1/growth").json()
+    assert plan["stock_ready"] is False and plan["plan"][0]["stock"] and not plan["plan"][4]["stock"]
+    assert plan["plan"][0]["scenes"][0]["say"] == "Tight jar lid that will not budge?"
+    assert "searches" not in plan["plan"][0]
+    assert owner.post("/api/v1/growth/stock-videos", json=body).status_code == 503
+    monkeypatch.setenv("PEXELS_API_KEY", "test-key")
+    assert owner.post("/api/v1/growth/stock-videos", json={**body, "day": 5}).status_code == 422
+    seen = {}
+
+    def fake_collect(queries, folder):
+        seen["queries"] = queries
+        files = []
+        for i in range(4):
+            (folder / f"stock{i}.mp4").write_bytes(b"clip")
+            files.append(folder / f"stock{i}.mp4")
+        return files, [{"scene": i + 1, "kind": "video", "source": "Pexels", "creator": "A", "page": ""} for i in range(4)]
+
+    def fake_render(directory, product, media, spoken):
+        seen.update(product=product, media=[m.name for m in media], lines=spoken)
+        (directory / "video.mp4").write_bytes(b"mp4")
+        (directory / "editorial.json").write_text(json.dumps({"version": 1, "video": digest(directory / "video.mp4")}))
+
+    with patch.object(stock_media, "collect", side_effect=fake_collect), \
+            patch.object(growth_api, "render_stock_video", side_effect=fake_render):
+        job = owner.post("/api/v1/growth/stock-videos", json=body)
+        assert job.status_code == 202
+        for _ in range(100):
+            state = owner.get("/api/v1/growth/videos/" + job.json()["id"]).json()
+            if state["status"] != "rendering":
+                break
+            time.sleep(.05)
+    assert state["status"] == "ready" and len(state["credits"]) == 4 and state["credits"][0]["source"] == "Pexels"
+    assert seen["queries"] == growth.stock_entry(1)["searches"] and seen["lines"] == body["lines"]
+    assert seen["product"]["cover_text"] == "Stuck lid?" and seen["media"] == [f"stock{i}.mp4" for i in range(4)]
+    folder = tmp_path / "growth" / job.json()["id"]
+    assert not list(folder.glob("stock*")) and not growth_api.render_lock.locked()
+    assert owner.get(f"/api/v1/growth/videos/{job.json()['id']}/video").content == b"mp4"
+
+
+def test_stock_search_prefers_clips_and_only_contacts_the_stock_libraries(monkeypatch, tmp_path):
+    from backend import stock_media
+    monkeypatch.setenv("PEXELS_API_KEY", "k1")
+    monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
+    assert stock_media.allowed("https://videos.pexels.com/video-files/1/a.mp4")
+    assert stock_media.allowed("https://cdn.pixabay.com/video/a.mp4")
+    for bad in ("http://videos.pexels.com/a.mp4", "https://pexels.com.evil.example/a.mp4",
+                "https://user@pexels.com/a.mp4", "https://169.254.169.254/latest", "https://localhost/a"):
+        assert not stock_media.allowed(bad)
+    calls = []
+
+    class Reply:
+        status_code, is_redirect, headers = 200, False, {}
+        def __init__(self, data=None, body=b""): self.data, self.body = data, body
+        def json(self): return self.data
+        def raise_for_status(self): pass
+        def iter_content(self, size): yield self.body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "videos/search" in url:
+            same = {"id": 7, "duration": 9, "url": "https://www.pexels.com/video/7", "user": {"name": "Ann"},
+                    "video_files": [{"link": "https://videos.pexels.com/video-files/7/small.mp4", "width": 540, "height": 960, "file_type": "video/mp4"},
+                                    {"link": "https://videos.pexels.com/video-files/7/hd.mp4", "width": 1080, "height": 1920, "file_type": "video/mp4"}]}
+            return Reply({"videos": [same]})
+        if url.endswith("/v1/search"):
+            return Reply({"photos": [{"id": 3, "photographer": "Bo", "url": "https://www.pexels.com/photo/3",
+                                      "src": {"large2x": "https://images.pexels.com/photos/3/p.jpg"}}]})
+        return Reply(body=b"x" * 5000)
+
+    monkeypatch.setattr(stock_media.requests, "get", fake_get)
+    files, credits = stock_media.collect(["jar", "jar"], tmp_path)
+    assert [f.name for f in files] == ["stock0.mp4", "stock1.jpg"]            # the clip is never reused
+    assert [(c["kind"], c["creator"]) for c in credits] == [("video", "Ann"), ("photo", "Bo")]
+    assert "https://videos.pexels.com/video-files/7/hd.mp4" in calls
+    assert all(stock_media.allowed(url) for url in calls)
