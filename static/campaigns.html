@@ -13,8 +13,13 @@
 <label>Inside page or detail photo<input id="inside" type="file" accept="image/*"></label><label>Second page or detail photo<input id="second" type="file" accept="image/*"></label>
 <label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details>
 <details id="auto"><summary>Autopilot: post a new video every day</summary>
-<p>Autopilot makes a fresh video for the product each day and posts it to Pinterest. If the video editor stops a video, nothing posts and Autopilot pauses.</p>
-<label>Product<select id="autoProduct"></select></label><label>Pinterest board<select id="autoBoard"></select></label>
+<p>Autopilot makes a fresh video for the product each day and posts it without a manual review. If the video editor stops a video, nothing posts and Autopilot pauses.</p>
+<label>Product<select id="autoProduct"></select></label>
+<label><input type="checkbox" id="autoYoutube"> Post to YouTube Shorts (public)</label>
+<label>YouTube audience<select id="autoKids"><option value="no">Not made for kids</option><option value="yes">Made for kids</option></select></label>
+<label>YouTube altered or synthetic content<select id="autoSynthetic"><option value="no">No disclosure required</option><option value="yes">Yes, disclose altered or synthetic content</option></select></label>
+<label><input type="checkbox" id="autoPinterest"> Post to Pinterest</label>
+<label>Pinterest board<select id="autoBoard"></select></label>
 <label>Daily posting time on this device<input type="time" id="autoTime" value="09:00"></label>
 <label><input type="checkbox" id="autoOn"> Autopilot is on for this product</label>
 <button type="button" id="autoSave">Save Autopilot</button><p id="autoStatus" role="status"></p><ul id="autoList"></ul></details><button id="forget" type="button">Sign out and forget this device</button></section>
@@ -110,30 +115,33 @@ el('ytPost').onclick=async()=>{
 let autoPlans=[];
 function showAuto(rows){
  autoPlans=rows;
- el('autoList').replaceChildren(...rows.map(row=>{const li=document.createElement('li');li.textContent=row.name+' · '+row.board_name+' · '+row.time+' · '+(row.enabled?'On':'Off')+' · '+row.note;return li}));
+ el('autoList').replaceChildren(...rows.map(row=>{const li=document.createElement('li');li.textContent=row.name+' · '+[row.youtube?'YouTube Shorts':'',row.pinterest?'Pinterest: '+row.board_name:''].filter(Boolean).join(' + ')+' · '+row.time+' · '+(row.enabled?'On':'Off')+' · '+row.note;return li}));
  fillAuto();
 }
 function fillAuto(){
  const plan=autoPlans.find(row=>row.product===el('autoProduct').value);
  el('autoOn').checked=!!(plan&&plan.enabled);
  if(plan){el('autoTime').value=plan.time;if([...el('autoBoard').options].some(o=>o.value===plan.board))el('autoBoard').value=plan.board}
+ el('autoYoutube').checked=!!(plan&&plan.youtube);el('autoPinterest').checked=!!(plan&&plan.pinterest);
+ el('autoKids').value=plan&&plan.kids?'yes':'no';el('autoSynthetic').value=plan&&plan.synthetic?'yes':'no';
 }
 async function loadAuto(){
  el('autoSave').disabled=true;el('autoStatus').textContent='Checking Autopilot…';
  try{
    el('autoProduct').replaceChildren(...[...el('products').options].map(o=>new Option(o.text,o.value)));
-   const boards=await api('/api/v1/pinterest/boards');
+   let boards=[];
+   try{boards=await api('/api/v1/pinterest/boards')}catch(e){}
    el('autoBoard').replaceChildren(...boards.map(b=>new Option(b.name,b.id)));
    showAuto(await api('/api/v1/autopilot'));
-   el('autoSave').disabled=!boards.length;
-   el('autoStatus').textContent=boards.length?'Choose a product, board and time, then save.':'Create a Pinterest board first.';
+   el('autoSave').disabled=false;
+   el('autoStatus').textContent='Choose a product, where to post and a time, then save.';
  }catch(e){el('autoStatus').textContent=e.message}
 }
 el('auto').ontoggle=()=>{if(el('auto').open)loadAuto()};
 el('autoProduct').onchange=fillAuto;
 el('autoSave').onclick=async()=>{
  el('autoSave').disabled=true;
- try{showAuto(await post('/api/v1/autopilot',{product:el('autoProduct').value,board:el('autoBoard').value,time:el('autoTime').value,zone:Intl.DateTimeFormat().resolvedOptions().timeZone,enabled:el('autoOn').checked}));el('autoStatus').textContent='Saved.'}
+ try{showAuto(await post('/api/v1/autopilot',{product:el('autoProduct').value,board:el('autoPinterest').checked?el('autoBoard').value:'',time:el('autoTime').value,zone:Intl.DateTimeFormat().resolvedOptions().timeZone,enabled:el('autoOn').checked,pinterest:el('autoPinterest').checked,youtube:el('autoYoutube').checked,kids:el('autoKids').value==='yes',synthetic:el('autoSynthetic').value==='yes'}));el('autoStatus').textContent='Saved.'}
  catch(e){el('autoStatus').textContent=e.message}finally{el('autoSave').disabled=false}
 };
 el('pinRefresh').onclick=loadPins;

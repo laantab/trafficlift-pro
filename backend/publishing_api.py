@@ -424,8 +424,12 @@ def campaign_short_status(job: uuid.UUID, request: Request):
 
 @router.post('/campaign/{job}')
 def publish_campaign_short(job: uuid.UUID, payload: CampaignShort, request: Request):
-    """Queue an Owner Studio campaign's own approved video and Shorts copy for YouTube."""
     guard(request, True)
+    return queue_campaign_short(job, payload)
+
+
+def queue_campaign_short(job, payload):
+    """Queue an Owner Studio campaign's own approved video and Shorts copy for YouTube."""
     from contextlib import closing
     from backend import campaign_api
     from backend.campaign_editor import verified
