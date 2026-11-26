@@ -24,7 +24,7 @@ def owner(request: Request):
 
 router = APIRouter()
 private = APIRouter(prefix="/api/v1/ad-results", dependencies=[Depends(owner)])
-Platform = Literal["YouTube","TikTok","Instagram","Facebook","LinkedIn","Amazon","Payhip","Website"]
+Platform = Literal["YouTube","TikTok","Instagram","Facebook","LinkedIn","Amazon","Payhip","Pinterest","Website"]
 COUNT = dict(default=None, ge=0, le=10**12)
 FIELDS = ("impressions","views","clicks","orders","shipped_items","likes","comments","shares","sales_usd","commission_usd","spend_usd")
 
