@@ -6,6 +6,7 @@ are still recorded beside each video so the owner can see where footage came fro
 """
 import logging
 import os
+import re
 from urllib.parse import urlsplit
 
 import requests
@@ -16,8 +17,24 @@ MAX_BYTES = 60 * 1024 * 1024
 TIMEOUT = 20
 
 
+def clean_key(raw):
+    """Remove what often gets pasted along with a key: quotes, 'Bearer', or a 'Key' label.
+
+    The Digital Product Factory cleans its Pexels key the same way, so one saved
+    value works in both apps.
+    """
+    text = str(raw or "").strip().strip("\"'").strip()
+    for prefix in ("bearer ", "api key:", "api_key:", "key:", "key "):
+        if text.lower().startswith(prefix):
+            text = text[len(prefix):].strip().strip("\"'")
+    glued = re.match(r"(?i)^key(?=[A-Za-z0-9]{20,})", text)
+    if glued:
+        text = text[glued.end():].strip().strip("\"'")
+    return text
+
+
 def keys():
-    return {"pexels": os.getenv("PEXELS_API_KEY", "").strip(), "pixabay": os.getenv("PIXABAY_API_KEY", "").strip()}
+    return {"pexels": clean_key(os.getenv("PEXELS_API_KEY")), "pixabay": clean_key(os.getenv("PIXABAY_API_KEY"))}
 
 
 def configured():
