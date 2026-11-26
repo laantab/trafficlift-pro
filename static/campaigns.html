@@ -12,7 +12,11 @@
 <label>Book interior PDF (automatically selects two pages)<input id="pdf" type="file" accept="application/pdf"></label>
 <label>Inside page or detail photo<input id="inside" type="file" accept="image/*"></label><label>Second page or detail photo<input id="second" type="file" accept="image/*"></label>
 <label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details><button id="forget" type="button">Sign out and forget this device</button></section>
-<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><details id="shorts" hidden><summary>YouTube Shorts posting details</summary><p><strong id="shortTitle"></strong></p><p id="shortCover"></p><p id="shortHook"></p><p id="shortDescription" style="white-space:pre-line"></p></details><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><p><button id="another" type="button">Create another ad</button></p><a href="/">Back to TrafficLift</a></section></main>
+<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><details id="shorts" hidden><summary>YouTube Shorts posting details</summary><p><strong id="shortTitle"></strong></p><p id="shortCover"></p><p id="shortHook"></p><p id="shortDescription" style="white-space:pre-line"></p></details><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><details id="pinPanel"><summary>Schedule a Pinterest video Pin</summary>
+<label>Board<select id="pinBoard"></select></label><label>Posting time on this device<input type="datetime-local" id="pinTime"></label>
+<button type="button" id="pinSchedule" disabled>Approve and schedule Pin</button>
+<button type="button" id="pinRefresh">Refresh Pinterest status</button><p id="pinStatus" role="status"></p><ul id="pinHistory"></ul></details>
+<p><button id="another" type="button">Create another ad</button></p><a href="/">Back to TrafficLift</a></section></main>
 <script>
 const el=id=>document.getElementById(id);
 async function api(path,options={}) {
@@ -44,9 +48,41 @@ async function watch(id){
  if(job.status==='failed'){localStorage.removeItem('campaign-pending');throw Error('Rendering stopped. Create Campaign will retry the opening.')}
  el('message').textContent='Creating the narration, video, cover frame and posting drafts…';
  await new Promise(resolve=>setTimeout(resolve,2500))}
+ el('pinPanel').open=false;el('pinPanel').dataset.id=id;
  const path='/api/v1/ad-campaigns/'+id;el('player').src=path+'/video';el('kit').href=path+'/kit';el('kit').hidden=true;el('approve').hidden=false;el('review').hidden=false;el('message').textContent='Play the video and review the narration.';localStorage.setItem('campaign-last',id);localStorage.removeItem('campaign-pending')
  }finally{el('create').disabled=false}
 }
+function showPins(rows){
+ el('pinHistory').replaceChildren(...rows.map(row=>{
+   const li=document.createElement('li');
+   li.textContent=new Date(row.due*1000).toLocaleString()+' · '+row.state+' ';
+   if(row.pin){const link=document.createElement('a');link.href='https://www.pinterest.com/pin/'+row.pin+'/';link.textContent='View Pin';li.append(link)}
+   return li;
+ }));
+}
+async function loadPins(){
+ const id=el('pinPanel').dataset.id;
+ el('pinSchedule').disabled=true;el('pinStatus').textContent='Checking Pinterest…';
+ try{
+   const rows=await api('/api/v1/pinterest/'+id);
+   if(el('pinPanel').dataset.id!==id)return;
+   showPins(rows);
+   const boards=await api('/api/v1/pinterest/boards');
+   if(el('pinPanel').dataset.id!==id)return;
+   el('pinBoard').replaceChildren(...boards.map(b=>new Option(b.name,b.id)));
+   el('pinSchedule').disabled=!boards.length;
+   el('pinStatus').textContent=boards.length?'Choose a board and time after reviewing the video.':'Create a Pinterest board before scheduling.';
+ }catch(e){el('pinStatus').textContent=e.message}
+}
+el('pinPanel').ontoggle=()=>{if(el('pinPanel').open)loadPins()};
+el('pinRefresh').onclick=loadPins;
+el('pinSchedule').onclick=async()=>{
+ const when=new Date(el('pinTime').value);
+ if(!(when>Date.now())){el('pinStatus').textContent='Choose a future time.';return}
+ el('pinSchedule').disabled=true;
+ try{showPins(await post('/api/v1/pinterest/'+el('pinPanel').dataset.id,{board:el('pinBoard').value,when:when.toISOString()}));el('pinStatus').textContent='See the saved posting time and status below.'}
+ catch(e){el('pinStatus').textContent=e.message}finally{el('pinSchedule').disabled=false}
+};
 el('approve').onclick=()=>{el('kit').hidden=false;el('approve').hidden=true;el('kit').click()};
 function newAd(){
  el('player').pause();
