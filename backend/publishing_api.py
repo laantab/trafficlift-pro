@@ -402,6 +402,89 @@ def reconcile(identifier: str, payload: Approval, request: Request):
     return youtube.public_job(job)
 
 
+class CampaignShort(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    visibility: Literal['private', 'unlisted', 'public']
+    made_for_kids: StrictBool
+    synthetic_media: StrictBool
+    confirm: Literal[True]
+
+
+def campaign_job(identifier):
+    return next((job for job in store.jobs() if job['snapshot'].get('campaign_id') == identifier
+                 and job['snapshot'].get('source') == 'owner-studio'), None)
+
+
+@router.get('/campaign/{job}')
+def campaign_short_status(job: uuid.UUID, request: Request):
+    guard(request)
+    found = campaign_job(job.hex)
+    return JSONResponse(youtube.public_job(found) if found else {}, headers={'Cache-Control': 'private, no-store'})
+
+
+@router.post('/campaign/{job}')
+def publish_campaign_short(job: uuid.UUID, payload: CampaignShort, request: Request):
+    """Queue an Owner Studio campaign's own approved video and Shorts copy for YouTube."""
+    guard(request, True)
+    from contextlib import closing
+    from backend import campaign_api
+    from backend.campaign_editor import verified
+    connection = youtube.credentials()
+    channel = connection.get('channel_id')
+    if not channel:
+        raise HTTPException(409, 'Choose your YouTube channel in Launch Studio first.')
+    folder = campaign_api.root() / job.hex
+    with closing(campaign_api.database()) as db:
+        row = db.execute("SELECT product FROM jobs WHERE id=? AND status='ready'", (job.hex,)).fetchone()
+        saved = db.execute('SELECT data FROM products WHERE id=?', (row['product'],)).fetchone() if row else None
+    if not row or not verified(folder, 'video') or not (folder / 'shorts.json').is_file():
+        raise HTTPException(409, 'This campaign needs a verified video. Create a new campaign.')
+    if row['product'] == 'holiday':
+        details = campaign_api.HOLIDAY
+    elif saved:
+        details = json.loads(saved['data'])
+    else:
+        raise HTTPException(409, 'The saved product for this campaign was removed.')
+    short = json.loads((folder / 'shorts.json').read_text(encoding='utf-8'))
+    link = _marketing_url(str(details['destination']))
+    if link not in short['description']:
+        raise HTTPException(422, 'Include the exact approved product link in the description.')
+    if re.search(r'link\s+(?:in|below|the)\s+(?:the\s+)?(?:description|caption)|click\s+(?:the\s+)?(?:link|below)', short['description'], re.I):
+        raise HTTPException(422, 'Shorts description URLs are not clickable. Use an accurate channel-profile CTA.')
+    source = folder / 'video.mp4'
+    technical = inspect_media(source)
+    with source.open('rb') as stream:
+        media_hash = hashlib.file_digest(stream, 'sha256').hexdigest()
+    root = storage() / 'publishing' / 'media'
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / (media_hash + '.mp4')
+    if not target.exists():
+        temporary = root / (uuid.uuid4().hex + '.part')
+        shutil.copyfile(source, temporary)
+        temporary.replace(target)
+    product = {'id': 'owner-' + row['product'], 'title': details['name'], 'product_url': link}
+    media_id = hashlib.sha256((media_hash + product['id']).encode()).hexdigest()
+    store.put('media', media_id, {'id': media_id, 'media_hash': media_hash, 'size': target.stat().st_size,
+                                  'product': product, 'technical': technical})
+    snapshot = {'source': 'owner-studio', 'campaign_id': job.hex, 'channel_id': channel,
+                'title': short['title'][:100], 'description': short['description'], 'marketing_url': link,
+                'visibility': payload.visibility, 'made_for_kids': payload.made_for_kids,
+                'synthetic_media': payload.synthetic_media, 'confirm_product_and_rights': True,
+                'confirm_video_and_copy': True, 'confirm_profile_link': True,
+                'confirm_not_previously_posted': True, 'product': product, 'media_hash': media_hash,
+                'technical': technical,
+                'channel_title': next(item['title'] for item in connection['channels'] if item['id'] == channel),
+                'grant_id': connection['grant_id']}
+    review_hash = hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
+    value = {'id': uuid.uuid4().hex, 'platform': 'youtube', 'state': 'review', 'snapshot': snapshot,
+             'review_hash': review_hash, 'media_id': media_id, 'events': [{'at': time.time(), 'state': 'review'}]}
+    dedupe = hashlib.sha256((media_hash + ':' + channel).encode()).hexdigest()
+    created = store.create_job(value, dedupe)
+    if created['state'] == 'review':
+        created = store.approve(created['id'], created['review_hash'])
+    return youtube.public_job(created)
+
+
 @router.get('/jobs')
 def history(request: Request):
     guard(request)
