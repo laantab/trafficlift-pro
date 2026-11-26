@@ -42,7 +42,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), en
 from backend.research_config import load_research_config, research_status
 load_research_config()
 
-from fastapi import FastAPI, HTTPException, status, Query
+from fastapi import Depends, FastAPI, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -100,9 +100,13 @@ app = FastAPI(
     contact={"name": APP_NAME, "url": "https://github.com/trafficlift/pro"},
 )
 
+from backend.owner_access import LOCAL_ORIGIN_REGEX, allowed_origins, require_owner
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # Only this app's own addresses may call it from a browser.
+    allow_origins=allowed_origins(),
+    allow_origin_regex=LOCAL_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -645,7 +649,7 @@ async def list_video_models() -> JSONResponse:
     })
 
 
-@app.post("/api/v1/video/generate")
+@app.post("/api/v1/video/generate", dependencies=[Depends(require_owner)])
 async def submit_video(request: VideoSubmitRequest) -> JSONResponse:
     """
     Submit an async video generation task. Returns immediately with a
@@ -667,7 +671,7 @@ async def submit_video(request: VideoSubmitRequest) -> JSONResponse:
     return JSONResponse({"success": True, "task": task.to_dict()})
 
 
-@app.get("/api/v1/video/status/{task_id}")
+@app.get("/api/v1/video/status/{task_id}", dependencies=[Depends(require_owner)])
 async def video_status(
     task_id: str,
     model: Annotated[str, Query(description="MiniMax model used to submit the task")] = "MiniMax-H3",
@@ -681,7 +685,7 @@ async def video_status(
     return JSONResponse({"success": True, "task": task.to_dict()})
 
 
-@app.post("/api/v1/video/render")
+@app.post("/api/v1/video/render", dependencies=[Depends(require_owner)])
 async def render_video(request: VideoRenderRequest) -> JSONResponse:
     """
     Submit a video task AND block until it reaches a terminal status, then
@@ -709,7 +713,7 @@ async def render_video(request: VideoRenderRequest) -> JSONResponse:
 
 # ── Campaign history endpoints ─────────────────────────────────────────────
 
-@app.get("/api/v1/campaigns/history")
+@app.get("/api/v1/campaigns/history", dependencies=[Depends(require_owner)])
 async def list_campaigns(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -741,7 +745,7 @@ async def list_campaigns(
     })
 
 
-@app.get("/api/v1/campaigns/{campaign_id}")
+@app.get("/api/v1/campaigns/{campaign_id}", dependencies=[Depends(require_owner)])
 async def get_campaign(campaign_id: str) -> JSONResponse:
     """
     Retrieve a single full campaign (including all generated assets).
@@ -769,7 +773,7 @@ async def get_campaign(campaign_id: str) -> JSONResponse:
     return JSONResponse(record)
 
 
-@app.delete("/api/v1/campaigns/{campaign_id}")
+@app.delete("/api/v1/campaigns/{campaign_id}", dependencies=[Depends(require_owner)])
 async def delete_campaign(campaign_id: str) -> JSONResponse:
     """Delete a specific campaign by ID."""
     deleted = db.delete(campaign_id)
@@ -785,7 +789,7 @@ class BatchDeleteCampaignsRequest(BaseModel):
     campaign_ids: list[str] = Field(min_length=1, max_length=200)
 
 
-@app.post("/api/v1/campaigns/delete-selected")
+@app.post("/api/v1/campaigns/delete-selected", dependencies=[Depends(require_owner)])
 async def delete_selected_campaigns(request: BatchDeleteCampaignsRequest) -> JSONResponse:
     """Delete only checked cleanup candidates; all other campaigns are retained."""
     ids = request.campaign_ids
@@ -797,7 +801,7 @@ async def delete_selected_campaigns(request: BatchDeleteCampaignsRequest) -> JSO
     return JSONResponse({"success": True, "deleted": deleted, "requested": len(ids)})
 
 
-@app.delete("/api/v1/campaigns/clear")
+@app.delete("/api/v1/campaigns/clear", dependencies=[Depends(require_owner)])
 async def clear_all_campaigns() -> JSONResponse:
     """Delete ALL saved campaigns. Use with caution."""
     count = db.clear_all()

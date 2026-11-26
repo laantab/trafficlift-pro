@@ -1114,7 +1114,16 @@
 
     async function loadHistory() {
         try {
-            const r = await fetch(apiUrl('/api/v1/campaigns/history?limit=200'));
+            let r = await fetch(apiUrl('/api/v1/campaigns/history?limit=200'), {credentials:'same-origin', cache:'no-store'});
+            if (r.status === 401) {
+                // Saved campaigns are private. A remembered owner browser renews
+                // its session here; anyone else is pointed to the owner entrance.
+                const renewed = await fetch(apiUrl('/api/v1/owner-device/enter'), {method:'POST', credentials:'same-origin', cache:'no-store'}).catch(() => null);
+                if (renewed && renewed.ok) {
+                    r = await fetch(apiUrl('/api/v1/campaigns/history?limit=200'), {credentials:'same-origin', cache:'no-store'});
+                }
+            }
+            if (r.status === 401) { showHistoryLocked(); return; }
             if (!r.ok) return;
             const d = await r.json();
             historyCampaigns = d.campaigns || [];
@@ -1131,6 +1140,21 @@
             document.getElementById('historyCount').textContent = d.total || 0;
             document.getElementById('drawerHistoryCount').textContent = d.total || 0;
         } catch (e) { /* ignore */ }
+    }
+
+    function showHistoryLocked() {
+        const list = document.getElementById('historyList');
+        list.replaceChildren();
+        const box = document.createElement('div');
+        box.className = 'text-center py-16 text-slate-400 text-sm space-y-3';
+        const note = document.createElement('p');
+        note.textContent = 'Saved campaigns are private. They are safe; unlock the owner area to see them.';
+        const link = document.createElement('a');
+        link.href = '/owner';
+        link.className = 'inline-block px-4 py-2 rounded-lg bg-brand-600 text-white font-semibold';
+        link.textContent = 'Unlock owner area';
+        box.append(note, link);
+        list.append(box);
     }
 
     function renderHistoryList(campaigns) {
@@ -1242,7 +1266,8 @@
     async function deleteCampaign(id) {
         if (!confirm('Delete this campaign?')) return;
         try {
-            const r = await fetch(apiUrl(`/api/v1/campaigns/${id}`), { method: 'DELETE' });
+            const r = await fetch(apiUrl(`/api/v1/campaigns/${id}`), { method: 'DELETE', credentials:'same-origin' });
+            if (r.status === 401) { showHistoryLocked(); showToast('Owner area locked', 'Unlock the owner area, then delete again.', 'error'); return; }
             if (!r.ok) throw new Error();
             loadHistory();
             showToast('Deleted', 'Campaign removed', 'success');
@@ -1301,9 +1326,11 @@
         try {
             const response = await fetch(apiUrl('/api/v1/campaigns/delete-selected'), {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({campaign_ids: ids}),
             });
+            if (response.status === 401) throw new Error('Unlock the owner area, then run cleanup again. Nothing was deleted.');
             if (!response.ok) throw new Error('Cleanup request failed: HTTP ' + response.status);
             const outcome = await response.json();
             if (outcome.deleted !== ids.length) throw new Error('Only ' + outcome.deleted + ' of ' + ids.length + ' records found; refresh to reconcile.');

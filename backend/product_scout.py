@@ -32,7 +32,9 @@ import os
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from backend.owner_access import limit_research
 from pydantic import BaseModel, Field
 
 from backend.product_research import (
@@ -282,7 +284,7 @@ def diagnostics_image_search(q: str = Query("phone stand", max_length=100)) -> d
     }
 
 
-@router.post("/find-winner")
+@router.post("/find-winner", dependencies=[Depends(limit_research)])
 def find_winner_post(payload: ProductRequest) -> dict:
     """POST variant. JSON body with the full control surface."""
     return _synthesize(
@@ -294,7 +296,7 @@ def find_winner_post(payload: ProductRequest) -> dict:
     )
 
 
-@router.get("/find-winner")
+@router.get("/find-winner", dependencies=[Depends(limit_research)])
 def find_winner_get(
     url_or_keyword: str = Query(
         "trending product",
@@ -356,7 +358,7 @@ def _normalize_analyze_product_url(value: str) -> str:
     return cleaned
 
 
-@router.get("/analyze-product-url")
+@router.get("/analyze-product-url", dependencies=[Depends(limit_research)])
 def analyze_product_url_get(
     url: str = Query(
         ...,
@@ -397,7 +399,7 @@ def analyze_product_url_get(
     return analyze_product_url_v2(url)
 
 
-@router.get("/discover-winner")
+@router.get("/discover-winner", dependencies=[Depends(limit_research)])
 def discover_winner_get(
     request: Request,
     exclude: Optional[str] = Query(None, max_length=6000),
