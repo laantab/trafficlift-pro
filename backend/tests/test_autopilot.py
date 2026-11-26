@@ -27,9 +27,9 @@ def setup(tmp_path, monkeypatch):
 
 def test_one_video_a_day_then_pause_when_editor_holds(tmp_path, monkeypatch):
     setup(tmp_path, monkeypatch)
-    rows = autopilot.save(autopilot.Plan(product="holiday", board="123", time="09:00", zone="America/Los_Angeles", enabled=True))
-    assert rows[0]["enabled"] and rows[0]["board_name"] == "Books" and rows[0]["time"] == "09:00"
     early = datetime(2026, 11, 26, 16, 30, tzinfo=timezone.utc)   # 8:30 AM Pacific
+    rows = autopilot.save(autopilot.Plan(product="holiday", board="123", time="09:00", zone="America/Los_Angeles", enabled=True), now=early)
+    assert rows[0]["enabled"] and rows[0]["board_name"] == "Books" and rows[0]["time"] == "09:00"
     due = datetime(2026, 11, 26, 17, 1, tzinfo=timezone.utc)      # 9:01 AM Pacific
     autopilot.tick(early)
     with campaign_api.database() as db:
@@ -110,3 +110,37 @@ def test_new_openings_run_before_the_original_three(tmp_path, monkeypatch):
     campaign_api.launch(key, job)
     with campaign_api.database() as db:
         assert db.execute("SELECT variant FROM jobs WHERE id=?", (job,)).fetchone()[0] == 3
+
+
+def test_youtube_only_autopilot_starts_tomorrow_and_queues_a_short(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    from backend import publishing_api, youtube_publisher
+    monkeypatch.setattr(youtube_publisher, "credentials", lambda grant_id=None: {"channel_id": "UC1"})
+    sent = []
+    monkeypatch.setattr(publishing_api, "queue_campaign_short", lambda job, choice: sent.append((job.hex, choice)))
+    monkeypatch.setattr(publishing_api, "campaign_job", lambda job: None)
+    after_nine = datetime(2026, 11, 26, 18, 30, tzinfo=timezone.utc)   # 10:30 AM Pacific
+    plan = autopilot.Plan(product="holiday", time="09:00", zone="America/Los_Angeles", enabled=True,
+                          pinterest=False, youtube=True)
+    row = autopilot.save(plan, now=after_nine)[0]
+    assert row["youtube"] and not row["pinterest"] and row["board"] == ""
+    autopilot.tick(after_nine)                                    # turned on after 9:00: nothing today
+    with campaign_api.database() as db:
+        assert not db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    tomorrow = datetime(2026, 11, 27, 17, 1, tzinfo=timezone.utc)
+    autopilot.tick(tomorrow)
+    with campaign_api.database() as db:
+        job = db.execute("SELECT id FROM jobs").fetchone()[0]
+    ready(job)
+    autopilot.tick(tomorrow)
+    assert [j for j, _ in sent] == [job]
+    choice = sent[0][1]
+    assert choice.visibility == "public" and choice.made_for_kids is False and choice.synthetic_media is False
+    with pins.database() as db:
+        assert not db.execute("SELECT COUNT(*) FROM pins").fetchone()[0]
+    assert "YouTube Shorts" in autopilot.plans()[0]["note"]
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        autopilot.save(autopilot.Plan(product="holiday", time="09:00", zone="America/Los_Angeles", enabled=True,
+                                      pinterest=False, youtube=False))

@@ -1,4 +1,4 @@
-"""Autopilot: one new campaign video per product per day, posted to Pinterest.
+"""Autopilot: one new campaign video per product per day, posted to Pinterest and/or YouTube Shorts.
 
 Every video still passes the campaign editor before it can be queued. A video
 the editor holds, or any posting problem, pauses that product's Autopilot until
@@ -32,6 +32,11 @@ def database():
         enabled INTEGER, last_day TEXT DEFAULT '', job TEXT DEFAULT '', note TEXT DEFAULT '',
         last_job TEXT DEFAULT '')""")
     db.execute("CREATE TABLE IF NOT EXISTS runs(job TEXT PRIMARY KEY, product TEXT, made REAL)")
+    have = {row[1] for row in db.execute("PRAGMA table_info(plans)")}
+    for column, kind in (("pinterest", "INTEGER DEFAULT 1"), ("youtube", "INTEGER DEFAULT 0"),
+                         ("kids", "INTEGER DEFAULT 0"), ("synthetic", "INTEGER DEFAULT 0")):
+        if column not in have:
+            db.execute(f"ALTER TABLE plans ADD COLUMN {column} {kind}")
     return db
 
 
@@ -45,10 +50,15 @@ def product_names():
 
 class Plan(BaseModel):
     product: str = Field(min_length=1, max_length=40)
-    board: str = Field(pattern=r"^[0-9]{1,30}$")
+    board: str = Field(default="", pattern=r"^[0-9]{0,30}$")
     time: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
     zone: str = Field(min_length=1, max_length=64)
     enabled: bool
+    pinterest: bool = True
+    youtube: bool = False
+    # The channel owner's standing YouTube declarations for these videos.
+    kids: bool = False
+    synthetic: bool = False
 
 
 @router.get("", dependencies=[Depends(pinterest_queue.owner)])
@@ -59,30 +69,53 @@ def plans():
     for row in rows:
         row["name"] = names.get(row["product"], "Removed product")
         row["time"] = "%02d:%02d" % divmod(row.pop("minute"), 60)
-        row["enabled"] = bool(row["enabled"])
+        for flag in ("enabled", "pinterest", "youtube", "kids", "synthetic"):
+            row[flag] = bool(row[flag])
         row.pop("job")
         row.pop("last_job")
     return rows
 
 
 @router.post("", dependencies=[Depends(pinterest_queue.owner)])
-def save(plan: Plan):
+def save_plan(plan: Plan):
+    return save(plan)
+
+
+def save(plan, now=None):
     if plan.product not in product_names():
         raise HTTPException(404, "Choose a saved product.")
     try:
-        ZoneInfo(plan.zone)
+        zone = ZoneInfo(plan.zone)
     except (ZoneInfoNotFoundError, ValueError):
         raise HTTPException(422, "This device's time zone was not recognized.")
-    board = next((b for b in pinterest_queue.board_list() if b["id"] == plan.board), None)
-    if not board:
-        raise HTTPException(422, "Choose a board on the connected account.")
+    if not plan.pinterest and not plan.youtube:
+        raise HTTPException(422, "Choose Pinterest, YouTube Shorts, or both.")
+    board = {"id": "", "name": ""}
+    if plan.pinterest:
+        board = next((b for b in pinterest_queue.board_list() if b["id"] == plan.board), None)
+        if not board:
+            raise HTTPException(422, "Choose a board on the connected account.")
+    if plan.youtube:
+        from backend import youtube_publisher
+        if not youtube_publisher.credentials().get("channel_id"):
+            raise HTTPException(409, "Choose your YouTube channel in Launch Studio first.")
     hour, minute = map(int, plan.time.split(":"))
+    local = (now or datetime.now(timezone.utc)).astimezone(zone)
     with closing(database()) as db, db:
-        db.execute("""INSERT INTO plans(product,board,board_name,minute,zone,enabled,note) VALUES(?,?,?,?,?,?,?)
+        before = db.execute("SELECT enabled,last_day FROM plans WHERE product=?", (plan.product,)).fetchone()
+        last_day = before["last_day"] if before else ""
+        if plan.enabled and not (before and before["enabled"]) and local.hour*60 + local.minute >= hour*60 + minute:
+            # Turned on after today's posting time: the first video goes out tomorrow.
+            last_day = local.strftime("%Y-%m-%d")
+        db.execute("""INSERT INTO plans(product,board,board_name,minute,zone,enabled,note,pinterest,youtube,kids,synthetic,last_day)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                       ON CONFLICT(product) DO UPDATE SET board=excluded.board, board_name=excluded.board_name,
-                      minute=excluded.minute, zone=excluded.zone, enabled=excluded.enabled, note=excluded.note""",
+                      minute=excluded.minute, zone=excluded.zone, enabled=excluded.enabled, note=excluded.note,
+                      pinterest=excluded.pinterest, youtube=excluded.youtube, kids=excluded.kids,
+                      synthetic=excluded.synthetic, last_day=excluded.last_day""",
                    (plan.product, board["id"], board["name"], hour*60+minute, plan.zone, int(plan.enabled),
-                    "On. A new video posts each day at this time." if plan.enabled else "Off."))
+                    "On. A new video posts each day at this time." if plan.enabled else "Off.",
+                    int(plan.pinterest), int(plan.youtube), int(plan.kids), int(plan.synthetic), last_day))
     start()
     return plans()
 
@@ -128,6 +161,13 @@ def tick(now=None):
                     update(product, last_job="")
                     pause(product, "Pinterest did not confirm the last video. Check the Pinterest connection.")
                     continue
+                if plan["youtube"]:
+                    from backend import publishing_api
+                    short = publishing_api.campaign_job(plan["last_job"])
+                    if short and short["state"] in ("failed", "needs_attention"):
+                        update(product, last_job="")
+                        pause(product, "YouTube did not confirm the last video. Open Launch Studio to check it.")
+                        continue
             if plan["job"]:
                 with closing(campaign_api.database()) as db:
                     row = db.execute("SELECT status FROM jobs WHERE id=?", (plan["job"],)).fetchone()
@@ -138,9 +178,19 @@ def tick(now=None):
                     pause(product, "the video editor stopped today's video. Nothing was posted."
                           if status == "held" else "today's video could not be made. Nothing was posted.")
                     continue
-                pinterest_queue.schedule(uuid.UUID(plan["job"]), pinterest_queue.Schedule(
-                    board=plan["board"], when=now + timedelta(seconds=60)))
-                update(product, job="", last_job=plan["job"], note="Sent a new video to Pinterest on " + plan["last_day"] + ".")
+                sent = []
+                if plan["youtube"]:
+                    from backend import publishing_api
+                    publishing_api.queue_campaign_short(uuid.UUID(plan["job"]), publishing_api.CampaignShort(
+                        visibility="public", made_for_kids=bool(plan["kids"]),
+                        synthetic_media=bool(plan["synthetic"]), confirm=True))
+                    sent.append("YouTube Shorts")
+                if plan["pinterest"]:
+                    pinterest_queue.schedule(uuid.UUID(plan["job"]), pinterest_queue.Schedule(
+                        board=plan["board"], when=now + timedelta(seconds=60)))
+                    sent.append("Pinterest")
+                update(product, job="", last_job=plan["job"],
+                       note="Sent a new video to " + " and ".join(sent) + " on " + plan["last_day"] + ".")
                 continue
             local = now.astimezone(ZoneInfo(plan["zone"]))
             day = local.strftime("%Y-%m-%d")
