@@ -1,4 +1,5 @@
 """Book and product campaigns using local narration and owner-supplied artwork."""
+import json
 import math
 import os
 import subprocess
@@ -9,7 +10,7 @@ from pathlib import Path
 ASSETS = Path(__file__).with_name("campaign_assets")
 HOLIDAY = {
     "name": "A Season for Everyone", "format": "paperback",
-    "destination": "https://www.amazon.com/dp/B0HQ84DS7S",
+    "destination": "https://www.amazon.com/dp/B0HPQFZJQD",
     "feature": "Christmas coloring scenes paired with personal reflection prompts",
     "prompt": "Something that makes me smile is…", "affiliate": False,
 }
@@ -42,12 +43,35 @@ def plan(product, index, holiday=False):
     return lines
 
 
+def shorts_package(product, lines):
+    """Pair a product-led title with a short visual cue and the actual spoken hook."""
+    name = product["name"].strip()
+    holiday = product == HOLIDAY
+    if holiday:
+        index = next((i for i, (hook, _) in enumerate(HOLIDAY_HOOKS) if hook == lines[0]), 0)
+        angle = ("Who makes you smile?", "Inside the Christmas journal", "A Christmas memory")[index]
+        cover = ("That one person", "Finish this thought", "Remember when?")[index]
+    else:
+        index = next((i for i, hook in enumerate(PRODUCT_HOOKS)
+                      if hook.format(name=product["name"]) == lines[0]), 0)
+        angle = ("A closer look", "One detail to see", "Is it for you?")[index]
+        cover = ("What's inside?", "Look closer", "See for yourself")[index]
+    title = f"{name} | {angle}"
+    if len(title) > 60:
+        title = name
+    disclosure = "I earn a commission through this link. " if product["affiliate"] else ""
+    description = f"{disclosure}{name} — {product['feature'].rstrip('.')}.\n{lines[-1]}\n{product['destination']}"
+    return {"title": title, "cover_text": cover, "hook": lines[0],
+            "narration": lines, "description": description}
+
+
 def posts(product, lines):
     name, link = product["name"], product["destination"]
     hook, detail = lines[0], product["feature"].rstrip(".")
     disclosure = "I earn a commission through this link. " if product["affiliate"] else ""
+    short = shorts_package(product, lines)
     return {
-        "youtube-shorts": f"{hook[:98]}\n\n{disclosure}{name} features {detail}. {lines[-1]}\n{link}",
+        "youtube-shorts": short["title"] + "\n\n" + short["description"],
         "instagram-reels": f"{hook}\n\n{disclosure}A closer look inside {name}. {detail.capitalize()}.\n{link}",
         "tiktok": f"{disclosure}{hook} {name} • {detail}.\n{link}",
         "facebook-reels": f"{disclosure}{hook}\n\nTake a closer look at {name} in this reel. {lines[-1]}\n{link}",
@@ -63,6 +87,7 @@ def render_campaign(directory, product, images, lines):
     from PIL import Image, ImageDraw, ImageFont, ImageOps
     from backend.photo_video import dependencies, check_video, check_narration_audio
     from backend import campaign_editor as editor
+    short = shorts_package(product, lines)
     drafts = posts(product, lines)
     editor.check_copy(product, lines, drafts)
     model, voices = dependencies()
@@ -100,6 +125,8 @@ def render_campaign(directory, product, images, lines):
             font = ImageFont.truetype(fontfile, font.size-2)
         draw.rounded_rectangle((54,1400,984,1730), radius=28, fill="#24433b")
         draw.multiline_text((519,1565), caption, font=font, fill="white", anchor="mm", align="center", spacing=9)
+        if i == 0:
+            draw.text((519, 1310), short["cover_text"], font=font, fill="#24433b", anchor="mm")
         canvas.save(directory/f"scene{i}.jpg", quality=89)
         timeline.extend([f"file scene{i}.jpg", f"duration {duration}"])
     timeline.append("file scene3.jpg")
@@ -132,8 +159,10 @@ def render_campaign(directory, product, images, lines):
     with zipfile.ZipFile(directory/"campaign.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(directory/"video.mp4", "video.mp4")
         archive.write(directory/"scene0.jpg", "cover-frame.jpg")
+        archive.writestr("youtube-shorts-plan.json", json.dumps(short, ensure_ascii=False, indent=2))
         for platform, copy in drafts.items():
             archive.writestr(f"{platform}.txt", copy)
+    (directory/"shorts.json").write_text(json.dumps(short), encoding="utf-8")
     editor.receipt(directory, frames, scenes)
     for name in ["voice.wav","closing.wav","frames",*(f"scene{i}.jpg" for i in range(4))]:
         (directory/name).unlink()

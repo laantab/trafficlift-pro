@@ -193,6 +193,9 @@ def status(job: uuid.UUID, request: Request):
         return {"status":"held"}
     if row[0]=="ready" and not (root()/job.hex/"editorial.json").is_file():
         return {"status":"held"}
+    metadata = root()/job.hex/"shorts.json"
+    if row[0] == "ready" and metadata.is_file():
+        return {"status": "ready", "shorts": json.loads(metadata.read_text(encoding="utf-8"))}
     return {"status":row[0]}
 
 
