@@ -174,7 +174,8 @@ def run():
 @router.on_event("startup")
 def start():
     global worker
-    if not (campaign_api.root()/"autopilot.sqlite").exists():
+    # Look without creating folders, so a site that never used Autopilot is untouched.
+    if not (campaign_api.studio.storage()/"campaigns"/"autopilot.sqlite").exists():
         return
     if not worker or not worker.is_alive():
         # A video being made when the site restarted cannot finish.
