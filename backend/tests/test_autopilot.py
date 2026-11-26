@@ -94,3 +94,19 @@ def test_openings_fit_the_editor_and_ai_hooks_are_screened(monkeypatch):
     for bad in ["Guaranteed to be the best gift", "Save 50% today on this", "See https://example.com now"]:
         monkeypatch.setattr(viral_hooks, "ask", lambda prompt, bad=bad: json.dumps({"hook": bad, "cover": "Look closer"}))
         assert viral_hooks.write(product) is None
+
+
+def test_new_openings_run_before_the_original_three(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    from uuid import uuid4
+    key = "a"*32
+    (campaign_api.root()/key).mkdir()
+    (campaign_api.root()/key/"0.jpg").write_bytes(b"photo")
+    with campaign_api.database() as db:
+        db.execute("INSERT INTO products VALUES(?,?)", (key, json.dumps({"name": "Comic Book Creator",
+                   "destination": "https://keepitrealnow.com/", "feature": "A comic", "prompt": "", "affiliate": False})))
+        db.execute("INSERT INTO jobs VALUES(?,?,?,?)", ("b"*32, key, 0, "ready"))
+    job = uuid4().hex
+    campaign_api.launch(key, job)
+    with campaign_api.database() as db:
+        assert db.execute("SELECT variant FROM jobs WHERE id=?", (job,)).fetchone()[0] == 3

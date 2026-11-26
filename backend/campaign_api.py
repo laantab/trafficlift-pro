@@ -178,7 +178,9 @@ def launch(key, job, rotate=False):
                 raise HTTPException(409,"Campaign storage is full.")
             used = [r[0] for r in db.execute("SELECT variant FROM jobs WHERE product=? AND status IN ('ready','rendering') ORDER BY rowid",(key,))]
             openings = 3 if holiday else len(PRODUCT_HOOKS)
-            variant = next((i for i in range(openings) if i not in used), None)
+            # Newer openings run first; the original three come last.
+            order = list(range(3, openings)) + list(range(min(3, openings)))
+            variant = next((i for i in order if i not in used), None)
             if variant is None and rotate:
                 # Every opening has run: repeat the one used longest ago.
                 variant = min(range(openings), key=lambda i: max(n for n, v in enumerate(used) if v == i))
