@@ -1,8 +1,8 @@
 """Owner-only 30-day TikTok growth planner, free video maker and results log.
 
-Reuses the existing campaign renderer and its release checks. Nothing here
-calls a paid provider, and nothing is ever posted: the owner downloads the
-reviewed video and posts it personally.
+Reuses the existing campaign renderer and its release checks. Videos can also be
+built from free stock footage. Nothing here calls a paid provider, and nothing is
+ever posted: the owner downloads the reviewed video and posts it personally.
 """
 import base64
 from contextlib import closing
@@ -26,6 +26,8 @@ from backend import photo_video_api as studio
 from backend.campaign_api import render_lock
 from backend.campaign_editor import EditorialHold, verified
 from backend.campaigns import render_campaign
+from backend import stock_media
+from backend.stock_video import render_stock_video
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -86,6 +88,10 @@ class Video(Check):
     images: list[str] = Field(min_length=1, max_length=4)
 
 
+class StockVideo(Check):
+    request_id: uuid.UUID
+
+
 class Post(BaseModel):
     posted: datetime.date
     day: Optional[int] = Field(default=None, ge=1, le=growth.DAYS)
@@ -119,10 +125,13 @@ def overview(db):
             db.execute("SELECT day,id FROM videos WHERE status='ready' ORDER BY made")}
     plan = []
     for item in growth.plan():
+        # Days with a stock-footage script show that script: nobody films the item.
+        stock = growth.stock_entry(item["day"])
+        item = {key: value for key, value in (stock or item).items() if key != "searches"}
         checks = growth.review(item)
-        plan.append({**item, "checks": checks, "ready": all(c["ok"] for c in checks),
+        plan.append({**item, "checks": checks, "ready": all(c["ok"] for c in checks), "stock": bool(stock),
                      "posted": item["day"] in logged, "video": made.get(item["day"])})
-    return {"account": growth.ACCOUNT, "handle": growth.HANDLE, "profile": growth.PROFILE,
+    return {"account": growth.ACCOUNT, "stock_ready": stock_media.configured(), "handle": growth.HANDLE, "profile": growth.PROFILE,
             "start": start, "day": day, "days": growth.DAYS,
             "start_followers": growth.START_FOLLOWERS, "goal": growth.GOAL_FOLLOWERS,
             "categories": growth.CATEGORIES,
@@ -228,6 +237,119 @@ def create(payload: Video, request: Request):
     return {"id": job}
 
 
+def build_stock(job, product, queries, lines):
+    status = "failed"
+    folder = root() / job
+    try:
+        media, credits = stock_media.collect(queries, folder)
+        (folder / "credits.json").write_text(json.dumps(credits), encoding="utf-8")
+        render_stock_video(folder, product, media, lines)
+        status = "ready"
+    except EditorialHold:
+        log.exception("Stock video held by editorial review")
+        status = "held"
+    except LookupError as missing:
+        log.warning("Stock video stopped: %s", missing)
+        (folder / "problem.txt").write_text(str(missing), encoding="utf-8")
+    except Exception:
+        log.exception("Stock video render failed")
+    finally:
+        for leftover in folder.glob("stock*"):
+            leftover.unlink(missing_ok=True)
+        try:
+            with closing(database()) as db, db:
+                db.execute("UPDATE videos SET status=? WHERE id=?", (status, job))
+        finally:
+            render_lock.release()
+
+
+def start_stock(day, job, lines=None):
+    """Begin one stock-footage video. Raises HTTPException when it cannot start."""
+    item = growth.stock_entry(day)
+    if not item:
+        raise HTTPException(422, "This day is about your own book. Use your own photos of it instead.")
+    if not stock_media.configured():
+        raise HTTPException(503, "Stock footage needs a Pexels or Pixabay key in the site settings.")
+    lines = [line.strip() for line in (lines or [scene["say"] for scene in item["scenes"]])]
+    failed = [c for c in growth.review(item, lines) if not c["ok"]]
+    if failed:
+        raise HTTPException(422, "Fix this before making the video: " + failed[0]["check"] + ". " + failed[0]["note"])
+    with closing(database()) as db, db:
+        if db.execute("SELECT 1 FROM videos WHERE id=?", (job,)).fetchone():
+            return {"id": job}
+        if db.execute("SELECT COUNT(*) FROM videos").fetchone()[0] >= MAX_VIDEOS:
+            raise HTTPException(409, "Video storage for this plan is full. Ask for older videos to be cleared.")
+    if not render_lock.acquire(False):
+        raise HTTPException(409, "Another video is rendering. Try again when it finishes.")
+    folder = root() / job
+    try:
+        folder.mkdir()
+        studio.reserve_hosted_render()
+        with closing(database()) as db, db:
+            db.execute("INSERT INTO videos VALUES (?,?,?,?,?)",
+                       (job, day, "rendering", json.dumps(lines), datetime.datetime.now().isoformat()))
+        product = {"name": growth.ACCOUNT, "destination": growth.PROFILE, "feature": item["topic"],
+                   "prompt": "", "affiliate": False, "cover_text": item["cover_text"]}
+        threading.Thread(target=build_stock, args=(job, product, item["searches"], lines), daemon=True).start()
+    except Exception:
+        render_lock.release()
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return {"id": job}
+
+
+@router.post("/api/v1/growth/stock-videos", status_code=202)
+def create_stock(payload: StockVideo, request: Request):
+    """Render one free, narrated vertical video from free stock footage."""
+    studio.video_guard(request)
+    return start_stock(payload.day, payload.request_id.hex, payload.lines)
+
+
+def make_todays_video():
+    """Have today's stock video waiting for the owner. One attempt per day."""
+    if not stock_media.configured() or not (studio.storage() / "growth" / "growth.sqlite").exists():
+        return
+    with closing(database()) as db, db:
+        if not setting(db, "start"):
+            return
+        _, day = campaign_day(db)
+        tried = db.execute("SELECT 1 FROM videos WHERE day=? AND made>=?",
+                           (day, today().isoformat())).fetchone() or \
+            db.execute("SELECT 1 FROM videos WHERE day=? AND status='ready'", (day,)).fetchone()
+    if tried or not growth.stock_entry(day):
+        return
+    try:
+        start_stock(day, uuid.uuid4().hex)
+    except HTTPException as waiting:
+        log.info("Today's stock video is waiting: %s", waiting.detail)
+
+
+stop = threading.Event()
+worker = None
+
+
+def run():
+    while not stop.wait(600):
+        try:
+            make_todays_video()
+        except Exception:
+            log.exception("Daily stock video check failed")
+
+
+@router.on_event("startup")
+def start_daily_video():
+    global worker
+    if stock_media.configured() and (not worker or not worker.is_alive()):
+        stop.clear()
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+
+
+@router.on_event("shutdown")
+def stop_daily_video():
+    stop.set()
+
+
 @router.on_event("startup")
 def recover_interrupted_videos():
     if (studio.storage() / "growth" / "growth.sqlite").exists():
@@ -245,7 +367,13 @@ def status(job: uuid.UUID, request: Request):
     state = row["status"]
     if state == "ready" and not verified(root() / job.hex, "video"):
         state = "held"
-    return {"status": state, "day": row["day"], "lines": json.loads(row["lines"])}
+    result = {"status": state, "day": row["day"], "lines": json.loads(row["lines"])}
+    folder = root() / job.hex
+    if (folder / "credits.json").is_file():
+        result["credits"] = json.loads((folder / "credits.json").read_text(encoding="utf-8"))
+    if (folder / "problem.txt").is_file():
+        result["problem"] = (folder / "problem.txt").read_text(encoding="utf-8")[:200]
+    return result
 
 
 @router.get("/api/v1/growth/videos/{job}/video")

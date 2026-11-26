@@ -57,8 +57,11 @@ video{width:100%;max-height:60vh;background:#182625;border-radius:10px}[hidden]{
 
 <section class="card">
 <h3 style="margin-top:0">2. Make the video</h3>
-<p><strong>Film it on your phone</strong> following the scenes above. That is the best choice for most days.</p>
-<details id="maker"><summary><strong>Or let TrafficLift make it from your photos (free)</strong></summary>
+<p id="stockIntro"><strong>Let TrafficLift make it from free stock footage.</strong> It finds a clip for each scene on Pexels or Pixabay, adds the narration and captions, and checks the result. Nothing is posted and no paid service is used.</p>
+<button type="button" id="makeStock">Make this video for me</button>
+<p id="stockStatus" role="status" class="muted"></p>
+<p class="muted">You can also film it on your phone following the scenes above.</p>
+<details id="maker"><summary><strong>Or use your own photos (free)</strong></summary>
 <p class="muted">Add 1 to 4 photos you took yourself, in scene order. TrafficLift adds the narration and captions. Nothing is posted and no paid service is used.</p>
 <label>Your photos<input id="photos" type="file" accept="image/*" multiple></label>
 <button type="button" id="make">Make the video</button>
@@ -68,6 +71,7 @@ video{width:100%;max-height:60vh;background:#182625;border-radius:10px}[hidden]{
 <h3>Review before you download</h3>
 <video controls playsinline id="player"></video>
 <p class="muted">The narrator says:</p><ol id="spoken"></ol>
+<p class="muted" id="creditsNote" hidden>Footage used (free to use, no credit required):</p><ul id="credits" class="muted"></ul>
 <label><input type="checkbox" class="rv"> I played it to the end and it plays smoothly.</label>
 <label><input type="checkbox" class="rv"> The narration sounds right and matches the pictures.</label>
 <label><input type="checkbox" class="rv"> I can read every caption.</label>
@@ -118,7 +122,7 @@ video{width:100%;max-height:60vh;background:#182625;border-radius:10px}[hidden]{
 </main>
 <script>
 const el=id=>document.getElementById(id);
-let state=null,current=1,videoId=null;
+let state=null,current=1,videoId=null,stockJob=null;
 function say(text,bad=true){el('message').textContent=text||'';el('message').className=bad?'no':'ok';if(text)el('message').scrollIntoView({block:'nearest'})}
 async function api(path,options={}){
  const response=await fetch(path,{cache:'no-store',credentials:'same-origin',...options});
@@ -149,6 +153,10 @@ function showDay(day,scroll){
  showChecks(p.checks);
  el('caption').textContent=p.caption+'\n'+p.hashtags.join(' ');
  el('review').hidden=true;el('makeStatus').textContent='';el('photos').value='';
+ el('stockStatus').textContent='';el('makeStock').disabled=!p.stock||!state.stock_ready;
+ el('stockIntro').hidden=!p.stock;
+ if(!p.stock)el('stockStatus').textContent='This day is about your own book, so stock footage cannot show it. Use your own photos of the book below.';
+ else if(!state.stock_ready)el('stockStatus').textContent='Stock footage is not set up yet. Add a Pexels or Pixabay key in the site settings.';
  document.querySelectorAll('.rv').forEach(b=>b.checked=false);gate();
  if(p.video)watch(p.video,true);
  const form=el('postForm');form.reset();form.elements.posted.value=new Date().toLocaleDateString('en-CA');
@@ -189,13 +197,22 @@ async function photo(file){const bitmap=await createImageBitmap(file);const scal
 async function watch(id,quiet){
  videoId=id;const day=current;
  for(;;){const job=await api('/api/v1/growth/videos/'+id);if(current!==day)return;
-  if(job.status==='ready'){el('spoken').replaceChildren(...job.lines.map(l=>text('li',l)));break}
-  if(job.status!=='rendering'){if(!quiet)el('makeStatus').textContent='The video did not pass its checks. Try again with clear, well-lit photos.';return}
-  el('makeStatus').textContent='Adding narration and captions, then checking every frame. About a minute…';
+  const note=el(stockJob===id?'stockStatus':'makeStatus');
+  if(job.status==='ready'){el('spoken').replaceChildren(...job.lines.map(l=>text('li',l)));
+   const credits=job.credits||[];el('creditsNote').hidden=!credits.length;
+   el('credits').replaceChildren(...credits.map(c=>text('li','Scene '+c.scene+': '+c.kind+' from '+c.source+(c.creator?' by '+c.creator:''))));break}
+  if(job.status!=='rendering'){if(!quiet)note.textContent=job.problem?job.problem+' Try the day again later, or use your own photos.':(stockJob===id?'The video did not pass its checks. Try again.':'The video did not pass its checks. Try again with clear, well-lit photos.');return}
+  note.textContent=stockJob===id?'Finding footage, adding narration and captions, then checking it. One to three minutes…':'Adding narration and captions, then checking every frame. About a minute…';
   await new Promise(r=>setTimeout(r,2500))}
  el('player').src='/api/v1/growth/videos/'+id+'/video';el('save').href='/api/v1/growth/videos/'+id+'/video?save=1';
- el('review').hidden=false;el('makeStatus').textContent=quiet?'':'Ready. Play it and tick the four boxes.';
+ el('review').hidden=false;el(stockJob===id?'stockStatus':'makeStatus').textContent=quiet?'':'Ready. Play it and tick the four boxes.';
 }
+el('makeStock').onclick=async()=>{
+ el('makeStock').disabled=true;el('review').hidden=true;document.querySelectorAll('.rv').forEach(b=>b.checked=false);gate();
+ try{const id=crypto.randomUUID();stockJob=id.replaceAll('-','');
+  const job=await send('/api/v1/growth/stock-videos',{day:current,lines:lines(),request_id:id});stockJob=job.id;await watch(job.id)}
+ catch(e){el('stockStatus').textContent=e.message}finally{const p=state.plan[current-1];el('makeStock').disabled=!p.stock||!state.stock_ready}
+};
 el('make').onclick=async()=>{
  const files=[...el('photos').files].slice(0,4);if(!files.length){el('makeStatus').textContent='Add at least one photo first.';return}
  el('make').disabled=true;el('review').hidden=true;document.querySelectorAll('.rv').forEach(b=>b.checked=false);gate();
