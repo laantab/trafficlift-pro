@@ -111,8 +111,14 @@ def save_product(product: Product, request: Request):
     return {"id":key}
 
 
-def build(job, product, images, lines):
+def build(job, product, images, lines, holiday=False):
     try:
+        if not holiday:
+            from backend import viral_hooks
+            written = viral_hooks.write(product, earlier_hooks(job))
+            if written:
+                lines = [written["hook"], *lines[1:]]
+                product = {**product, "cover_text": written["cover"]}
         render_campaign(root()/job, product, images, lines)
         status = "ready"
     except EditorialHold:
@@ -129,10 +135,23 @@ def build(job, product, images, lines):
             render_lock.release()
 
 
-@router.post("/api/v1/ad-campaigns")
-def create(payload: Campaign, request: Request):
-    studio.video_guard(request)
-    key, job = payload.product, payload.request_id.hex
+def earlier_hooks(job):
+    """Spoken openings already used for this job's product."""
+    with closing(database()) as db:
+        row = db.execute("SELECT product FROM jobs WHERE id=?", (job,)).fetchone()
+        others = [r[0] for r in db.execute("SELECT id FROM jobs WHERE product=? AND id!=?", (row[0], job))] if row else []
+    hooks = []
+    for other in others:
+        try:
+            hooks.append(json.loads((root()/other/"shorts.json").read_text(encoding="utf-8"))["hook"])
+        except (OSError, ValueError, KeyError):
+            continue
+    return hooks
+
+
+def launch(key, job, rotate=False):
+    """Start one campaign render. Autopilot passes rotate to reuse the oldest opening."""
+    from backend.campaigns import PRODUCT_HOOKS
     with database() as db:
         prior = db.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
         if prior:
@@ -157,19 +176,29 @@ def create(payload: Campaign, request: Request):
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] >= 100:
                 raise HTTPException(409,"Campaign storage is full.")
-            used = {r[0] for r in db.execute("SELECT variant FROM jobs WHERE product=? AND status IN ('ready','rendering')",(key,))}
-            variant = next((i for i in range(3) if i not in used), None)
+            used = [r[0] for r in db.execute("SELECT variant FROM jobs WHERE product=? AND status IN ('ready','rendering') ORDER BY rowid",(key,))]
+            openings = 3 if holiday else len(PRODUCT_HOOKS)
+            variant = next((i for i in range(openings) if i not in used), None)
+            if variant is None and rotate:
+                # Every opening has run: repeat the one used longest ago.
+                variant = min(range(openings), key=lambda i: max(n for n, v in enumerate(used) if v == i))
             if variant is None:
-                raise HTTPException(409,"All three campaign openings have been used for this product.")
+                raise HTTPException(409,"Every campaign opening has been used for this product.")
             studio.reserve_hosted_render()
             folder.mkdir()
             db.execute("INSERT INTO jobs VALUES (?,?,?,?)",(job,key,variant,"rendering"))
             db.commit()
-            threading.Thread(target=build,args=(job,product,images,plan(product,variant,holiday)),daemon=True).start()
+            threading.Thread(target=build,args=(job,product,images,plan(product,variant,holiday),holiday),daemon=True).start()
         except Exception:
             render_lock.release()
             raise
     return {"id":job}
+
+
+@router.post("/api/v1/ad-campaigns")
+def create(payload: Campaign, request: Request):
+    studio.video_guard(request)
+    return launch(payload.product, payload.request_id.hex)
 
 
 @router.on_event("startup")
