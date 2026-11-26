@@ -15,7 +15,7 @@
 <p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><details id="shorts" hidden><summary>YouTube Shorts posting details</summary><p><strong id="shortTitle"></strong></p><p id="shortCover"></p><p id="shortHook"></p><p id="shortDescription" style="white-space:pre-line"></p></details><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><details id="pinPanel"><summary>Schedule a Pinterest video Pin</summary>
 <label>Board<select id="pinBoard"></select></label><label>Posting time on this device<input type="datetime-local" id="pinTime"></label>
 <button type="button" id="pinSchedule" disabled>Approve and schedule Pin</button>
-<button type="button" id="pinRefresh">Refresh Pinterest status</button><p id="pinStatus" role="status"></p><ul id="pinHistory"></ul></details>
+<button type="button" id="pinRefresh">Refresh Pinterest status</button> <a id="pinConnect" class="download" href="/api/v1/pinterest/connect" hidden>Connect Pinterest</a><p id="pinStatus" role="status"></p><ul id="pinHistory"></ul></details>
 <p><button id="another" type="button">Create another ad</button></p><a href="/">Back to TrafficLift</a></section></main>
 <script>
 const el=id=>document.getElementById(id);
@@ -62,7 +62,7 @@ function showPins(rows){
 }
 async function loadPins(){
  const id=el('pinPanel').dataset.id;
- el('pinSchedule').disabled=true;el('pinStatus').textContent='Checking Pinterest…';
+ el('pinSchedule').disabled=true;el('pinConnect').hidden=true;el('pinStatus').textContent='Checking Pinterest…';
  try{
    const rows=await api('/api/v1/pinterest/'+id);
    if(el('pinPanel').dataset.id!==id)return;
@@ -72,7 +72,7 @@ async function loadPins(){
    el('pinBoard').replaceChildren(...boards.map(b=>new Option(b.name,b.id)));
    el('pinSchedule').disabled=!boards.length;
    el('pinStatus').textContent=boards.length?'Choose a board and time after reviewing the video.':'Create a Pinterest board before scheduling.';
- }catch(e){el('pinStatus').textContent=e.message}
+ }catch(e){el('pinStatus').textContent=e.message;el('pinConnect').hidden=!/connection/i.test(e.message)}
 }
 el('pinPanel').ontoggle=()=>{if(el('pinPanel').open)loadPins()};
 el('pinRefresh').onclick=loadPins;
