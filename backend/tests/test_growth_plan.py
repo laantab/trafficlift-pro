@@ -289,3 +289,13 @@ def test_stock_search_prefers_clips_and_only_contacts_the_stock_libraries(monkey
     assert [(c["kind"], c["creator"]) for c in credits] == [("video", "Ann"), ("photo", "Bo")]
     assert "https://videos.pexels.com/video-files/7/hd.mp4" in calls
     assert all(stock_media.allowed(url) for url in calls)
+
+
+def test_pixabay_results_must_actually_match_the_scene():
+    from backend import stock_media
+    hits = [{"id": 1, "tags": "bokeh, colorful, abstract"}, {"id": 2, "tags": "bell, ornament, tree"},
+            {"id": 3, "tags": "jar, lid, kitchen, hands"}, {"id": 4, "tags": "jars, pantry"},
+            {"id": 5, "tags": "opening, countdown, numbers"}]
+    assert [h["id"] for h in stock_media.on_topic("opening jar lid", hits)] == [3]
+    assert [h["id"] for h in stock_media.on_topic("jar", hits)] == [3, 4]
+    assert stock_media.on_topic("milk frother", hits) == []
