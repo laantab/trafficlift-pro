@@ -822,6 +822,8 @@ from backend.campaign_api import router as campaign_router
 app.include_router(campaign_router)
 from backend.pinterest_queue import router as pinterest_queue_router
 app.include_router(pinterest_queue_router)
+from backend.autopilot import router as autopilot_router
+app.include_router(autopilot_router)
 from backend.ad_results import router as results_router
 app.include_router(results_router)
 from backend.video_editor_in_chief import router as video_editor_in_chief_router

@@ -11,7 +11,13 @@
 <label>Cover or verified product photo<input id="cover" type="file" accept="image/*" required></label>
 <label>Book interior PDF (automatically selects two pages)<input id="pdf" type="file" accept="application/pdf"></label>
 <label>Inside page or detail photo<input id="inside" type="file" accept="image/*"></label><label>Second page or detail photo<input id="second" type="file" accept="image/*"></label>
-<label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details><button id="forget" type="button">Sign out and forget this device</button></section>
+<label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details>
+<details id="auto"><summary>Autopilot: post a new video every day</summary>
+<p>Autopilot makes a fresh video for the product each day and posts it to Pinterest. If the video editor stops a video, nothing posts and Autopilot pauses.</p>
+<label>Product<select id="autoProduct"></select></label><label>Pinterest board<select id="autoBoard"></select></label>
+<label>Daily posting time on this device<input type="time" id="autoTime" value="09:00"></label>
+<label><input type="checkbox" id="autoOn"> Autopilot is on for this product</label>
+<button type="button" id="autoSave">Save Autopilot</button><p id="autoStatus" role="status"></p><ul id="autoList"></ul></details><button id="forget" type="button">Sign out and forget this device</button></section>
 <p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><details id="shorts" hidden><summary>YouTube Shorts posting details</summary><p><strong id="shortTitle"></strong></p><p id="shortCover"></p><p id="shortHook"></p><p id="shortDescription" style="white-space:pre-line"></p></details><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><details id="pinPanel"><summary>Schedule a Pinterest video Pin</summary>
 <label>Board<select id="pinBoard"></select></label><label>Posting time on this device<input type="datetime-local" id="pinTime"></label>
 <button type="button" id="pinSchedule" disabled>Approve and schedule Pin</button>
@@ -75,6 +81,35 @@ async function loadPins(){
  }catch(e){el('pinStatus').textContent=e.message;el('pinConnect').hidden=!/connection/i.test(e.message)}
 }
 el('pinPanel').ontoggle=()=>{if(el('pinPanel').open)loadPins()};
+let autoPlans=[];
+function showAuto(rows){
+ autoPlans=rows;
+ el('autoList').replaceChildren(...rows.map(row=>{const li=document.createElement('li');li.textContent=row.name+' · '+row.board_name+' · '+row.time+' · '+(row.enabled?'On':'Off')+' · '+row.note;return li}));
+ fillAuto();
+}
+function fillAuto(){
+ const plan=autoPlans.find(row=>row.product===el('autoProduct').value);
+ el('autoOn').checked=!!(plan&&plan.enabled);
+ if(plan){el('autoTime').value=plan.time;if([...el('autoBoard').options].some(o=>o.value===plan.board))el('autoBoard').value=plan.board}
+}
+async function loadAuto(){
+ el('autoSave').disabled=true;el('autoStatus').textContent='Checking Autopilot…';
+ try{
+   el('autoProduct').replaceChildren(...[...el('products').options].map(o=>new Option(o.text,o.value)));
+   const boards=await api('/api/v1/pinterest/boards');
+   el('autoBoard').replaceChildren(...boards.map(b=>new Option(b.name,b.id)));
+   showAuto(await api('/api/v1/autopilot'));
+   el('autoSave').disabled=!boards.length;
+   el('autoStatus').textContent=boards.length?'Choose a product, board and time, then save.':'Create a Pinterest board first.';
+ }catch(e){el('autoStatus').textContent=e.message}
+}
+el('auto').ontoggle=()=>{if(el('auto').open)loadAuto()};
+el('autoProduct').onchange=fillAuto;
+el('autoSave').onclick=async()=>{
+ el('autoSave').disabled=true;
+ try{showAuto(await post('/api/v1/autopilot',{product:el('autoProduct').value,board:el('autoBoard').value,time:el('autoTime').value,zone:Intl.DateTimeFormat().resolvedOptions().timeZone,enabled:el('autoOn').checked}));el('autoStatus').textContent='Saved.'}
+ catch(e){el('autoStatus').textContent=e.message}finally{el('autoSave').disabled=false}
+};
 el('pinRefresh').onclick=loadPins;
 el('pinSchedule').onclick=async()=>{
  const when=new Date(el('pinTime').value);

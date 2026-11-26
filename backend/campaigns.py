@@ -19,11 +19,23 @@ HOLIDAY_HOOKS = [
     ("What would you write after these words?", "Something that makes me smile is…"),
     ("Which Christmas memory would you put on paper?", "Start with someone who makes you smile."),
 ]
-PRODUCT_HOOKS = [
-    "What do you actually get with {name}?",
-    "Curious about {name}? Take a closer look.",
-    "Would {name} suit you? Start with this detail.",
+# Each opening pairs the spoken hook with a title angle and a cover cue. The first
+# three keep their original order so earlier campaigns still resolve.
+PRODUCT_OPENINGS = [
+    ("What do you actually get with {name}?", "A closer look", "What's inside?"),
+    ("Curious about {name}? Take a closer look.", "One detail to see", "Look closer"),
+    ("Would {name} suit you? Start with this detail.", "Is it for you?", "See for yourself"),
+    ("Most people have never seen {name} like this.", "A new look", "Wait for it"),
+    ("Stop scrolling. You need to see {name}.", "Worth ten seconds", "Stop scrolling"),
+    ("What if the perfect gift was {name}?", "A gift idea", "Gift idea?"),
+    ("Here's the part of {name} most people miss.", "The part people miss", "Most miss this"),
+    ("About to scroll past {name}? Look at this first.", "Before you scroll", "Look first"),
+    ("Ten seconds. That's all {name} needs to show you.", "Ten second tour", "Ten seconds"),
+    ("Shopping for a gift? Look at {name} before you decide.", "Before you decide", "Before you buy"),
+    ("Who do you know that would love {name}?", "Who would love this?", "Tag someone"),
+    ("This is what {name} looks like up close.", "Up close", "Up close"),
 ]
+PRODUCT_HOOKS = [hook for hook, _, _ in PRODUCT_OPENINGS]
 
 
 def plan(product, index, holiday=False):
@@ -54,8 +66,8 @@ def shorts_package(product, lines):
     else:
         index = next((i for i, hook in enumerate(PRODUCT_HOOKS)
                       if hook.format(name=product["name"]) == lines[0]), 0)
-        angle = ("A closer look", "One detail to see", "Is it for you?")[index]
-        cover = ("What's inside?", "Look closer", "See for yourself")[index]
+        _, angle, cover = PRODUCT_OPENINGS[index]
+        cover = product.get("cover_text") or cover
     title = f"{name} | {angle}"
     if len(title) > 60:
         title = name
