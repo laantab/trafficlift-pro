@@ -38,6 +38,10 @@ def test_schedule_publish_and_track_once(tmp_path, monkeypatch):
     pins.tick()
     assert len(created)==1 and created[0]["link"]==campaign_api.HOLIDAY["destination"]
     assert pins.history(campaign)[0]["state"]=="published and tracked"
+    # A published Pin is never queued twice, but one that never reached the board can be approved again.
+    assert pins.schedule(campaign,selection)[0]["state"]=="published and tracked"
+    with pins.database() as db, db: db.execute("UPDATE pins SET state='check board', pin=''")
+    assert pins.schedule(campaign,selection)[0]["state"]=="scheduled"
     assert any(s["reference"].endswith("/999/") for s in pins.ad_results.overview()["subjects"])
 
 
@@ -66,7 +70,7 @@ def test_owner_connects_and_token_renews(tmp_path, monkeypatch):
         first = client.get("/api/v1/pinterest/connect", follow_redirects=False)
         query = parse_qs(urlsplit(first.headers["location"]).query)
         assert first.status_code == 303 and query["client_id"] == ["1644839"]
-        assert "pins:write" in query["scope"][0] and "test-secret" not in first.headers["location"]
+        assert "pins:write" in query["scope"][0] and "boards:write" in query["scope"][0] and "test-secret" not in first.headers["location"]
         assert query["redirect_uri"] == ["https://testserver/api/v1/pinterest/callback"]
         state = query["state"][0]
         assert client.get("/api/v1/pinterest/callback", params={"state": "wrong", "code": "c"}).status_code == 400

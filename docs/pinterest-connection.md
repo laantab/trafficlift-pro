@@ -13,8 +13,9 @@ publishing store, so scheduled Pins keep posting without a pasted token.
 3. Open Owner Studio, open **Schedule a Pinterest video Pin**, and choose
    **Connect Pinterest**.
 
-The requested permissions are `boards:read`, `pins:read`, `pins:write` and
-`user_accounts:read`. The one-click token on the Pinterest Manage page is
+The requested permissions are `boards:read`, `boards:write`, `pins:read`,
+`pins:write` and `user_accounts:read`. Pinterest refuses to create a Pin
+without `boards:write`. The one-click token on the Pinterest Manage page is
 read-only and cannot publish. `TRAFFICLIFT_PINTEREST_TOKEN` remains a fallback
 when no owner grant is saved.
 
