@@ -29,7 +29,8 @@ stop = threading.Event()
 worker = None
 log = logging.getLogger(__name__)
 refreshing = threading.Lock()
-SCOPES = {"boards:read", "pins:read", "pins:write", "user_accounts:read"}
+# Pinterest requires boards:write as well as pins:write to save a Pin to a board.
+SCOPES = {"boards:read", "boards:write", "pins:read", "pins:write", "user_accounts:read"}
 TOKEN_URL = "https://api.pinterest.com/v5/oauth/token"
 COOKIE = "trafficlift_pinterest_oauth"
 CALLBACK = "/api/v1/pinterest/callback"
@@ -198,6 +199,9 @@ def schedule(campaign: uuid.UUID, selection: Schedule):
     with closing(database()) as db, db:
         db.execute("INSERT OR IGNORE INTO pins(campaign,board,due,state,title,description,destination) VALUES(?,?,?,'scheduled',?,?,?)",
                    (key,selection.board,when.timestamp(),product["name"],description[:800],product["destination"]))
+        # The owner may approve again after a Pin that never reached the board.
+        db.execute("UPDATE pins SET state='scheduled', due=? WHERE campaign=? AND board=? AND pin='' AND state IN ('failed','check board')",
+                   (when.timestamp(),key,selection.board))
     return history(campaign)
 
 
