@@ -299,3 +299,13 @@ def test_pixabay_results_must_actually_match_the_scene():
     assert [h["id"] for h in stock_media.on_topic("opening jar lid", hits)] == [3]
     assert [h["id"] for h in stock_media.on_topic("jar", hits)] == [3, 4]
     assert stock_media.on_topic("milk frother", hits) == []
+
+
+def test_a_key_pasted_with_its_label_or_quotes_still_works(monkeypatch):
+    from backend import stock_media
+    real = "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2w3X4y5Z6a7B8"
+    for pasted in (real, "  " + real + "\n", '"' + real + '"', "Bearer " + real, "Key" + real, "API Key: " + real, "key: '" + real + "'"):
+        monkeypatch.setenv("PEXELS_API_KEY", pasted)
+        assert stock_media.keys()["pexels"] == real
+    monkeypatch.setenv("PEXELS_API_KEY", "keyboard")       # a short real word is left alone
+    assert stock_media.keys()["pexels"] == "keyboard"
