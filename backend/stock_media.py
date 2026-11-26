@@ -77,10 +77,27 @@ def pexels_photos(query, key):
                    "creator": photo.get("photographer", ""), "page": photo.get("url", "")}
 
 
+_FILLER = {"a", "an", "the", "of", "in", "on", "at", "to", "and", "for", "with", "from", "up"}
+
+
+def on_topic(query, hits):
+    """Pixabay returns loosely related results, so keep only hits whose own tags
+    name most of what was asked for, best match first."""
+    words = [w for w in query.lower().split() if w not in _FILLER]
+    need = max(1, (len(words) + 1) // 2)
+    scored = []
+    for hit in hits:
+        tags = [t.strip() for t in str(hit.get("tags", "")).lower().replace(",", " ").split()]
+        score = sum(any(t.startswith(w[:4]) or w.startswith(t[:4]) for t in tags if len(t) > 2) for w in words)
+        if score >= need:
+            scored.append((score, hit))
+    return [hit for _, hit in sorted(scored, key=lambda pair: -pair[0])]
+
+
 def pixabay_videos(query, key):
     data = get("https://pixabay.com/api/videos/",
-               params={"key": key, "q": query, "per_page": 10, "safesearch": "true"}).json()
-    for hit in data.get("hits", []):
+               params={"key": key, "q": query, "per_page": 30, "safesearch": "true"}).json()
+    for hit in on_topic(query, data.get("hits", [])):
         if not 4 <= float(hit.get("duration") or 0) <= 90:
             continue
         best = portrait_file([{"url": v.get("url"), "width": v.get("width"), "height": v.get("height")}
@@ -92,8 +109,8 @@ def pixabay_videos(query, key):
 
 def pixabay_photos(query, key):
     data = get("https://pixabay.com/api/", params={"key": key, "q": query, "image_type": "photo",
-               "orientation": "vertical", "per_page": 10, "safesearch": "true"}).json()
-    for hit in data.get("hits", []):
+               "orientation": "vertical", "per_page": 30, "safesearch": "true"}).json()
+    for hit in on_topic(query, data.get("hits", [])):
         if hit.get("largeImageURL"):
             yield {"id": "pixabay-photo-%s" % hit["id"], "kind": "photo", "url": hit["largeImageURL"],
                    "source": "Pixabay", "creator": hit.get("user", ""), "page": hit.get("pageURL", "")}
@@ -111,7 +128,8 @@ def candidates(query):
             yield from search(query, key)
         except Exception as problem:
             # Never log the address: Pixabay carries its key in the query string.
-            log.warning("Stock search unavailable (%s): %s", search.__name__, type(problem).__name__)
+            status = getattr(getattr(problem, "response", None), "status_code", "")
+            log.warning("Stock search unavailable (%s): %s %s", search.__name__, type(problem).__name__, status)
 
 
 def download(item, target):
