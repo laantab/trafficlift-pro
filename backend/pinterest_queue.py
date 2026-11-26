@@ -1,7 +1,9 @@
 """Owner-approved Video Pins. One publication per campaign and board."""
 import base64
+import hashlib
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -9,18 +11,27 @@ import uuid
 import zipfile
 from contextlib import closing
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from backend import ad_results, campaign_api
+from backend import publishing_store as store
 from backend.campaign_editor import verified
 from backend.photo_video_api import video_guard
 
 router = APIRouter(prefix="/api/v1/pinterest")
 stop = threading.Event()
 worker = None
+refreshing = threading.Lock()
+SCOPES = {"boards:read", "pins:read", "pins:write", "user_accounts:read"}
+TOKEN_URL = "https://api.pinterest.com/v5/oauth/token"
+COOKIE = "trafficlift_pinterest_oauth"
+CALLBACK = "/api/v1/pinterest/callback"
+MISSING = "Pinterest publishing needs a TrafficLift account connection."
 
 
 def owner(request: Request):
@@ -38,15 +49,99 @@ def database():
     return db
 
 
+def app_keys():
+    """Pinterest app ID and secret, kept in the deployment's private settings."""
+    app_id, secret = os.getenv("PINTEREST_APP_ID", ""), os.getenv("PINTEREST_APP_SECRET", "")
+    return (app_id, secret) if app_id and secret else None
+
+
+def exchange(fields):
+    response = requests.post(TOKEN_URL, auth=app_keys(), data=fields, timeout=30, allow_redirects=False)
+    response.raise_for_status()
+    tokens = response.json()
+    return {"access_token": tokens["access_token"], "refresh_token": tokens.get("refresh_token", ""),
+            "expires_at": time.time() + int(tokens.get("expires_in", 3600))}
+
+
+def token():
+    """A connected owner's token, renewed shortly before it expires."""
+    if not app_keys() or not os.getenv("TRAFFICLIFT_PUBLISHING_KEY"):
+        return os.getenv("TRAFFICLIFT_PINTEREST_TOKEN")
+    with refreshing:
+        grant = store.get("pinterest", "owner")
+        if not grant:
+            return os.getenv("TRAFFICLIFT_PINTEREST_TOKEN")
+        if grant["expires_at"] - time.time() < 300:
+            if not grant.get("refresh_token"):
+                return None
+            renewed = exchange({"grant_type": "refresh_token", "refresh_token": grant["refresh_token"]})
+            renewed["refresh_token"] = renewed["refresh_token"] or grant["refresh_token"]
+            store.put("pinterest", "owner", renewed)
+            grant = renewed
+        return grant["access_token"]
+
+
 def api(method, path, **kwargs):
-    token = os.getenv("TRAFFICLIFT_PINTEREST_TOKEN")
-    if not token:
-        raise HTTPException(503, "Pinterest publishing needs a TrafficLift account connection.")
+    bearer = token()
+    if not bearer:
+        raise HTTPException(503, MISSING)
     response = requests.request(method, "https://api.pinterest.com/v5/" + path,
-                                headers={"Authorization": "Bearer " + token}, timeout=30,
+                                headers={"Authorization": "Bearer " + bearer}, timeout=30,
                                 allow_redirects=False, **kwargs)
     response.raise_for_status()
     return response.json()
+
+
+@router.get("/connect", dependencies=[Depends(owner)])
+def connect(request: Request):
+    """Send the signed-in owner to Pinterest's own permission screen."""
+    keys = app_keys()
+    if not keys:
+        raise HTTPException(503, "Pinterest connection is awaiting server setup.")
+    state, browser = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    store.put("pinterest", "pending", {"state": hashlib.sha256(state.encode()).hexdigest(),
+              "browser": hashlib.sha256(browser.encode()).hexdigest(), "expires_at": time.time() + 600})
+    url = "https://www.pinterest.com/oauth/?" + urlencode({
+        "client_id": keys[0], "redirect_uri": str(request.base_url).rstrip("/") + CALLBACK,
+        "response_type": "code", "scope": ",".join(sorted(SCOPES)), "state": state})
+    response = RedirectResponse(url, status_code=303, headers={"Cache-Control": "no-store"})
+    response.set_cookie(COOKIE, browser, httponly=True, secure=True, samesite="lax", max_age=600, path=CALLBACK)
+    return response
+
+
+@router.get("/callback")
+def callback(request: Request, state: str = "", code: str = "", error: str = ""):
+    # Keep the one-time code out of the access log.
+    request.scope["query_string"] = b""
+    request.scope["raw_path"] = request.url.path.encode()
+    if not app_keys():
+        raise HTTPException(503, "Pinterest connection is awaiting server setup.")
+    pending = store.pop("pinterest", "pending")
+    browser = request.cookies.get(COOKIE, "")
+    if (not pending or not state or len(state) > 128 or not browser or pending["expires_at"] < time.time()
+            or not secrets.compare_digest(pending["state"], hashlib.sha256(state.encode()).hexdigest())
+            or not secrets.compare_digest(pending["browser"], hashlib.sha256(browser.encode()).hexdigest())):
+        raise HTTPException(400, "Pinterest connection request expired. Connect again from Owner Studio.")
+    if error or not code or len(code) > 4096:
+        raise HTTPException(400, "Pinterest connection was declined. Connect again when ready.")
+    try:
+        grant = exchange({"grant_type": "authorization_code", "code": code,
+                          "redirect_uri": str(request.base_url).rstrip("/") + CALLBACK,
+                          "continuous_refresh": "true"})
+    except (requests.RequestException, KeyError, ValueError):
+        raise HTTPException(502, "Pinterest did not complete the connection. Connect again.")
+    store.put("pinterest", "owner", grant)
+    start()
+    response = RedirectResponse("/owner?pinterest=connected", status_code=303,
+                                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+    response.delete_cookie(COOKIE, path=CALLBACK)
+    return response
+
+
+@router.post("/disconnect", dependencies=[Depends(owner)])
+def disconnect():
+    store.pop("pinterest", "owner")
+    return {"connected": False}
 
 
 def boards():
@@ -177,7 +272,7 @@ def run():
 @router.on_event("startup")
 def start():
     global worker
-    if os.getenv("TRAFFICLIFT_PINTEREST_TOKEN") and (not worker or not worker.is_alive()):
+    if (os.getenv("TRAFFICLIFT_PINTEREST_TOKEN") or app_keys()) and (not worker or not worker.is_alive()):
         with closing(database()) as db, db:
             db.execute("UPDATE pins SET state='scheduled' WHERE state='uploading'")
             db.execute("UPDATE pins SET state='check board' WHERE state='submitting'")
