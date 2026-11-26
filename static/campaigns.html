@@ -12,7 +12,7 @@
 <label>Book interior PDF (automatically selects two pages)<input id="pdf" type="file" accept="application/pdf"></label>
 <label>Inside page or detail photo<input id="inside" type="file" accept="image/*"></label><label>Second page or detail photo<input id="second" type="file" accept="image/*"></label>
 <label><input name="affiliate" type="checkbox"> This is an affiliate link</label><button>Save product</button></form></details><button id="forget" type="button">Sign out and forget this device</button></section>
-<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><p><button id="another" type="button">Create another ad</button></p><a href="/">Back to TrafficLift</a></section></main>
+<p id="message" role="status"></p><section id="review" hidden><h2>Review your campaign</h2><video controls playsinline id="player"></video><details id="shorts" hidden><summary>YouTube Shorts posting details</summary><p><strong id="shortTitle"></strong></p><p id="shortCover"></p><p id="shortHook"></p><p id="shortDescription" style="white-space:pre-line"></p></details><p><button id="approve">Approve and get posting kit</button> <a id="kit" class="download" hidden>Download posting kit</a></p><p><button id="another" type="button">Create another ad</button></p><a href="/">Back to TrafficLift</a></section></main>
 <script>
 const el=id=>document.getElementById(id);
 async function api(path,options={}) {
@@ -29,7 +29,17 @@ async function watch(id){
  el('create').disabled=true;el('review').hidden=true;
  try{
  for(;;){let job=await api('/api/v1/ad-campaigns/'+id);
- if(job.status==='ready')break;
+ if(job.status==='ready'){
+   const short=job.shorts;
+   el('shorts').hidden=!short;
+   if(short){
+     el('shortTitle').textContent=short.title;
+     el('shortCover').textContent='Opening frame: '+short.cover_text;
+     el('shortHook').textContent='Spoken hook: '+short.hook;
+     el('shortDescription').textContent=short.description;
+   }
+   break;
+ }
  if(job.status==='held'){localStorage.removeItem('campaign-pending');localStorage.removeItem('campaign-last');throw Error('This video needs a fresh editorial review. Create a new campaign to continue.')}
  if(job.status==='failed'){localStorage.removeItem('campaign-pending');throw Error('Rendering stopped. Create Campaign will retry the opening.')}
  el('message').textContent='Creating the narration, video, cover frame and posting drafts…';
