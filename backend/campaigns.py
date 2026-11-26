@@ -56,6 +56,8 @@ def shorts_package(product, lines):
                       if hook.format(name=product["name"]) == lines[0]), 0)
         angle = ("A closer look", "One detail to see", "Is it for you?")[index]
         cover = ("What's inside?", "Look closer", "See for yourself")[index]
+    # Topic videos (growth plan) supply their own opening-frame text.
+    cover = product.get("cover_text") or cover
     title = f"{name} | {angle}"
     if len(title) > 60:
         title = name

@@ -1,0 +1,214 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TikTok 30-Day Plan · TrafficLift Pro</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f4ec;color:#1c302c;font:17px/1.55 system-ui,sans-serif}
+main{max-width:760px;margin:auto;padding:24px}header{border-bottom:1px solid #bac4bc;padding-bottom:14px}
+h1{font:38px Georgia,serif;margin:22px 0 6px}h2{font:26px Georgia,serif;margin:34px 0 8px}h3{margin:18px 0 6px;font-size:18px}
+a{color:#14513f}label{display:block;margin:10px 0}
+input,select,button,textarea,.download{font:inherit;padding:10px;border:1px solid #91a69b;border-radius:8px}
+input:not([type=checkbox]),select,textarea{width:100%;background:white}textarea{min-height:64px;resize:vertical}
+button,.download{background:#14513f;color:white;cursor:pointer;display:inline-block;text-decoration:none}
+button.plain{background:white;color:#14513f}button:disabled,.download[aria-disabled=true]{opacity:.5;pointer-events:none}
+.card{background:white;border:1px solid #cfd8d0;border-radius:14px;padding:18px;margin:14px 0}
+.next{background:#14513f;color:white;border:0}.next a{color:#f1c95d}.next strong{font-size:20px}
+.bar{height:14px;border-radius:7px;background:#dfe6df;overflow:hidden}.bar i{display:block;height:100%;background:#d9a93b}
+.tag{display:inline-block;background:#e6efe8;border-radius:20px;padding:2px 12px;font-size:14px;margin:0 6px 6px 0}
+.scene{border-top:1px solid #e1e7e1;padding:12px 0}.scene small,.muted{color:#566a63;font-size:15px}
+.ok{color:#14613f}.no{color:#9a2b1c;font-weight:600}ul.checks{list-style:none;padding:0;margin:8px 0}ul.checks li{margin:4px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.days{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.days button{background:white;color:#1c302c;text-align:left;font-size:15px}.days button.today{border:2px solid #d9a93b}.days button.done{background:#e6efe8}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #e1e7e1;padding:6px;text-align:left}
+video{width:100%;max-height:60vh;background:#182625;border-radius:10px}[hidden]{display:none!important}
+</style>
+<main>
+<header><a href="/">TrafficLift Pro</a> · <a href="/owner">Owner Studio</a> · <a href="/analytics">Ad Analytics</a></header>
+<h1>TikTok 30-Day Plan</h1>
+<p class="muted" id="who"></p>
+<p id="message" role="status" class="no"></p>
+
+<form id="unlock" hidden class="card"><label>Owner access code<input id="code" type="password" autocomplete="current-password" required></label>
+<label><input type="checkbox" id="remember" checked> Remember this personal device for 90 days</label><button>Open my plan</button></form>
+
+<div id="app" hidden>
+<section class="card next"><strong id="nextTitle"></strong><p id="nextText" style="margin:6px 0 0"></p></section>
+
+<section class="card">
+<strong id="progressText"></strong>
+<div class="bar" style="margin:10px 0"><i id="progressBar"></i></div>
+<p class="muted" id="pace"></p>
+<form id="followersForm" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+<label style="flex:1;min-width:180px;margin:0">Followers right now<input id="followers" type="number" min="0" required></label><button>Update</button></form>
+<details style="margin-top:10px"><summary>Change the day the plan started</summary>
+<form id="startForm" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap"><label style="flex:1;margin:0">Day 1 was<input id="start" type="date" required></label><button>Save</button></form></details>
+</section>
+
+<h2 id="dayTitle"></h2>
+<p><span class="tag" id="dayCategory"></span><span class="tag" id="dayFormat"></span></p>
+<p class="muted" id="dayHow"></p>
+
+<section class="card">
+<h3 style="margin-top:0">1. Read the script</h3>
+<p class="muted">Each scene says what to say, what to show and the words to put on screen. You can change what you say; the checks update when you click the button.</p>
+<div id="scenes"></div>
+<button type="button" class="plain" id="recheck">Check my changes</button>
+<ul class="checks" id="checks"></ul>
+</section>
+
+<section class="card">
+<h3 style="margin-top:0">2. Make the video</h3>
+<p><strong>Film it on your phone</strong> following the scenes above. That is the best choice for most days.</p>
+<details id="maker"><summary><strong>Or let TrafficLift make it from your photos (free)</strong></summary>
+<p class="muted">Add 1 to 4 photos you took yourself, in scene order. TrafficLift adds the narration and captions. Nothing is posted and no paid service is used.</p>
+<label>Your photos<input id="photos" type="file" accept="image/*" multiple></label>
+<button type="button" id="make">Make the video</button>
+<p id="makeStatus" role="status" class="muted"></p>
+</details>
+<div id="review" hidden>
+<h3>Review before you download</h3>
+<video controls playsinline id="player"></video>
+<p class="muted">The narrator says:</p><ol id="spoken"></ol>
+<label><input type="checkbox" class="rv"> I played it to the end and it plays smoothly.</label>
+<label><input type="checkbox" class="rv"> The narration sounds right and matches the pictures.</label>
+<label><input type="checkbox" class="rv"> I can read every caption.</label>
+<label><input type="checkbox" class="rv"> The ending invitation is one I am happy with.</label>
+<a class="download" id="save" aria-disabled="true">Download the video</a>
+</div>
+</section>
+
+<section class="card">
+<h3 style="margin-top:0">3. Post it yourself</h3>
+<p class="muted">TrafficLift never posts for you. Copy this caption into TikTok when you upload.</p>
+<p id="caption" style="white-space:pre-line"></p>
+<button type="button" class="plain" id="copy">Copy caption and hashtags</button>
+<p class="muted" style="margin-bottom:0">If you earn money from a link or were given the product, say so in the video and switch on TikTok's commercial content label.</p>
+</section>
+
+<section class="card">
+<h3 style="margin-top:0">4. Log the results (the next day)</h3>
+<p class="muted">Open the video in TikTok, tap the three dots, then Analytics. Type in what you see. Leave a box empty if TikTok does not show it.</p>
+<form id="postForm">
+<div class="grid">
+<label>Date posted<input name="posted" type="date" required></label>
+<label>Views<input name="views" type="number" min="0"></label>
+<label>Average watch time (seconds)<input name="watch_seconds" type="number" min="0" step="0.1"></label>
+<label>Watched full video (%)<input name="retention" type="number" min="0" max="100" step="0.1"></label>
+<label>Likes<input name="likes" type="number" min="0"></label>
+<label>Comments<input name="comments" type="number" min="0"></label>
+<label>Shares<input name="shares" type="number" min="0"></label>
+<label>Saves<input name="saves" type="number" min="0"></label>
+<label>Profile visits<input name="profile_visits" type="number" min="0"></label>
+<label>New followers from it<input name="follower_change" type="number"></label>
+</div><button>Save these results</button></form>
+</section>
+
+<h2>What to repeat, what to adjust</h2>
+<section class="card"><div id="advice"></div></section>
+
+<h2>Results so far</h2>
+<section class="card" style="overflow-x:auto"><table id="log"></table><p class="muted" id="logEmpty">No posts logged yet.</p></section>
+
+<h2>All 30 days</h2>
+<p class="muted">Tap any day to open it. One video a day. Film two or three at a time if that is easier.</p>
+<div class="days" id="days"></div>
+
+<h2>How each format works</h2>
+<section class="card" id="formats"></section>
+</div>
+</main>
+<script>
+const el=id=>document.getElementById(id);
+let state=null,current=1,videoId=null;
+function say(text,bad=true){el('message').textContent=text||'';el('message').className=bad?'no':'ok';if(text)el('message').scrollIntoView({block:'nearest'})}
+async function api(path,options={}){
+ const response=await fetch(path,{cache:'no-store',credentials:'same-origin',...options});
+ const data=await response.json().catch(()=>({}));
+ if(response.status===401){el('unlock').hidden=false;el('app').hidden=true}
+ if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Please check what you typed and try again.');
+ return data;
+}
+const send=(path,data,method='POST')=>api(path,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+const text=(tag,value,cls)=>{const node=document.createElement(tag);node.textContent=value;if(cls)node.className=cls;return node};
+function item(){return state.plan.find(p=>p.day===current)}
+function lines(){return [...document.querySelectorAll('#scenes textarea')].map(t=>t.value)}
+function showChecks(checks){
+ el('checks').replaceChildren(...checks.map(c=>text('li',(c.ok?'✓ ':'✗ ')+c.check+(c.ok?'':' — '+c.note),c.ok?'ok':'no')));
+ const ready=checks.every(c=>c.ok);el('make').disabled=!ready;return ready;
+}
+function showDay(day,scroll){
+ current=day;videoId=null;const p=item();
+ el('dayTitle').textContent='Day '+p.day+': '+p.topic;
+ el('dayCategory').textContent=p.category_name;el('dayFormat').textContent=p.format_name;el('dayHow').textContent=p.format_how;
+ el('scenes').replaceChildren(...p.scenes.map((s,i)=>{
+  const box=document.createElement('div');box.className='scene';
+  box.append(text('strong',(i===0?'Scene 1 · the hook':i===3?'Scene 4 · the ending':'Scene '+(i+1))));
+  const label=document.createElement('label');label.append(text('small','Say'));
+  const area=document.createElement('textarea');area.value=s.say;area.maxLength=220;label.append(area);box.append(label);
+  box.append(text('small','Show: '+s.show));box.append(document.createElement('br'));box.append(text('small','On screen: “'+s.text+'”'));
+  return box}));
+ showChecks(p.checks);
+ el('caption').textContent=p.caption+'\n'+p.hashtags.join(' ');
+ el('review').hidden=true;el('makeStatus').textContent='';el('photos').value='';
+ document.querySelectorAll('.rv').forEach(b=>b.checked=false);gate();
+ if(p.video)watch(p.video,true);
+ const form=el('postForm');form.reset();form.elements.posted.value=new Date().toLocaleDateString('en-CA');
+ [...el('days').children].forEach(b=>b.setAttribute('aria-current',b.dataset.day==day?'true':'false'));
+ if(scroll)el('dayTitle').scrollIntoView({block:'start'});
+}
+function gate(){const ok=[...document.querySelectorAll('.rv')].every(b=>b.checked);el('save').setAttribute('aria-disabled',ok?'false':'true')}
+document.querySelectorAll('.rv').forEach(b=>b.onchange=gate);
+function render(data){
+ state=data;el('app').hidden=false;el('unlock').hidden=true;
+ el('who').textContent=data.account+' ('+data.handle+') · Day '+data.day+' of '+data.days;
+ const a=data.advice,gained=Math.max(0,a.followers-data.start_followers),need=data.goal-data.start_followers;
+ el('progressText').textContent=a.followers.toLocaleString()+' followers · goal '+data.goal.toLocaleString();
+ el('progressBar').style.width=Math.min(100,Math.round(gained*100/need))+'%';
+ el('pace').textContent=a.summary[0];el('followers').value=a.followers;el('start').value=data.start;
+ const today=data.plan.find(p=>p.day===data.day),next=data.plan.find(p=>p.day>=data.day&&!p.posted)||today;
+ el('nextTitle').textContent='Your next step';
+ el('nextText').textContent=today.posted?(next.day===today.day?'Today is done. Come back tomorrow and log today\'s results.':'Today is done. Next up is Day '+next.day+': '+next.topic+'.'):'Make and post Day '+today.day+': '+today.topic+'. Then log yesterday\'s results below.';
+ const box=el('advice');box.replaceChildren();
+ a.summary.slice(1).forEach(s=>box.append(text('p',s)));
+ if(a.repeat.length){box.append(text('h3','Repeat'));a.repeat.forEach(s=>box.append(text('p',s,'ok')))}
+ if(a.adjust.length){box.append(text('h3','Adjust'));a.adjust.forEach(s=>box.append(text('p',s)))}
+ if(!box.children.length)box.append(text('p',a.summary[0]));
+ el('days').replaceChildren(...data.plan.map(p=>{const b=text('button','Day '+p.day+' · '+p.topic+(p.posted?' ✓':''));b.type='button';b.dataset.day=p.day;
+  b.className=(p.day===data.day?'today ':'')+(p.posted?'done':'');b.onclick=()=>showDay(p.day,true);return b}));
+ const cols=[['posted','Date'],['topic','Topic'],['format','Format'],['views','Views'],['watch_seconds','Watch (s)'],['retention','Full (%)'],['likes','Likes'],['comments','Comments'],['shares','Shares'],['saves','Saves'],['profile_visits','Profile visits'],['follower_change','New followers']];
+ const table=el('log');table.replaceChildren();el('logEmpty').hidden=data.posts.length>0;
+ if(data.posts.length){const head=document.createElement('tr');cols.forEach(c=>head.append(text('th',c[1])));head.append(text('th',''));table.append(head);
+  data.posts.forEach(post=>{const row=document.createElement('tr');cols.forEach(c=>{let v=post[c[0]];if(c[0]==='format'&&v)v=data.formats[v].name;row.append(text('td',v==null?'—':v))});
+   const cell=document.createElement('td'),del=text('button','Remove','plain');del.type='button';del.style.padding='2px 8px';
+   del.onclick=async()=>{if(!confirm('Remove this logged post?'))return;try{render(await api('/api/v1/growth/posts/'+post.id,{method:'DELETE'}));showDay(current)}catch(e){say(e.message)}};
+   cell.append(del);row.append(cell);table.append(row)})}
+ el('formats').replaceChildren(...Object.values(data.formats).map(f=>{const p=document.createElement('p');p.append(text('strong',f.name+': '));p.append(f.how);return p}));
+}
+async function load(){render(await api('/api/v1/growth'));showDay(state.day)}
+el('recheck').onclick=async()=>{try{const r=await send('/api/v1/growth/check',{day:current,lines:lines()});showChecks(r.checks);say(r.ready?'Your script passes every check.':'',false)}catch(e){say(e.message)}};
+async function photo(file){const bitmap=await createImageBitmap(file);const scale=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));const c=document.createElement('canvas');c.width=Math.round(bitmap.width*scale);c.height=Math.round(bitmap.height*scale);c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);bitmap.close();return c.toDataURL('image/jpeg',.85).split(',')[1]}
+async function watch(id,quiet){
+ videoId=id;const day=current;
+ for(;;){const job=await api('/api/v1/growth/videos/'+id);if(current!==day)return;
+  if(job.status==='ready'){el('spoken').replaceChildren(...job.lines.map(l=>text('li',l)));break}
+  if(job.status!=='rendering'){if(!quiet)el('makeStatus').textContent='The video did not pass its checks. Try again with clear, well-lit photos.';return}
+  el('makeStatus').textContent='Adding narration and captions, then checking every frame. About a minute…';
+  await new Promise(r=>setTimeout(r,2500))}
+ el('player').src='/api/v1/growth/videos/'+id+'/video';el('save').href='/api/v1/growth/videos/'+id+'/video?save=1';
+ el('review').hidden=false;el('makeStatus').textContent=quiet?'':'Ready. Play it and tick the four boxes.';
+}
+el('make').onclick=async()=>{
+ const files=[...el('photos').files].slice(0,4);if(!files.length){el('makeStatus').textContent='Add at least one photo first.';return}
+ el('make').disabled=true;el('review').hidden=true;document.querySelectorAll('.rv').forEach(b=>b.checked=false);gate();
+ try{const images=[];for(const f of files)images.push(await photo(f));
+  const job=await send('/api/v1/growth/videos',{day:current,lines:lines(),images,request_id:crypto.randomUUID()});await watch(job.id)}
+ catch(e){el('makeStatus').textContent=e.message}finally{el('make').disabled=false}
+};
+el('copy').onclick=async()=>{try{await navigator.clipboard.writeText(el('caption').textContent);say('Caption copied.',false)}catch(e){say('Select the caption and copy it by hand.')}};
+el('followersForm').onsubmit=async e=>{e.preventDefault();try{render(await send('/api/v1/growth/settings',{followers:+el('followers').value}));showDay(current);say('Follower count updated.',false)}catch(x){say(x.message)}};
+el('startForm').onsubmit=async e=>{e.preventDefault();try{render(await send('/api/v1/growth/settings',{start:el('start').value}));showDay(state.day);say('Start day saved.',false)}catch(x){say(x.message)}};
+el('postForm').onsubmit=async e=>{e.preventDefault();const p=item(),data={day:p.day,topic:p.topic,category:p.category,format:p.format};
+ for(const [k,v] of new FormData(e.target))data[k]=k==='posted'?v:(v===''?null:+v);
+ try{render(await send('/api/v1/growth/posts',data));showDay(current);say('Results saved for Day '+p.day+'.',false)}catch(x){say(x.message)}};
+el('unlock').onsubmit=async e=>{e.preventDefault();try{await send('/api/v1/video-owner-login',{access_code:el('code').value,remember_device:el('remember').checked});el('code').value='';say('');await load()}catch(x){say(x.message)}};
+(async()=>{await fetch('/api/v1/owner-device/enter',{method:'POST',credentials:'same-origin',cache:'no-store'}).catch(()=>{});await load()})().catch(e=>{if(el('unlock').hidden)say(e.message)});
+</script></html>

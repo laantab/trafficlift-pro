@@ -1,0 +1,187 @@
+"""30-day TikTok growth plan: content mix, script checks, tracking and the free video path."""
+import base64
+import io
+import time
+import uuid
+from collections import Counter
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+import trafficlift_pro as server
+from backend import growth_api, growth_plan as growth
+from backend.campaign_editor import check_copy
+from backend.campaigns import HOLIDAY, plan as product_plan, posts, shorts_package
+
+
+def test_thirty_days_follow_the_requested_mix():
+    plan = growth.plan()
+    assert [p["day"] for p in plan] == list(range(1, 31))
+    assert Counter(p["category"] for p in plan) == {"gadgets": 11, "kitchen": 7, "health": 6, "money": 3, "books": 3}
+    assert {p["format"] for p in plan} == set(growth.FORMATS)
+    assert len({p["topic"] for p in plan}) == 30 and len({p["hook"] for p in plan}) == 30
+
+
+def test_every_script_passes_its_checks_and_the_existing_editor():
+    for item in growth.plan():
+        assert growth.ready(item), (item["day"], [c for c in growth.review(item) if not c["ok"]])
+        assert len(item["scenes"]) == 4 and all(s["say"] and s["show"] and s["text"] for s in item["scenes"])
+        lines = [s["say"] for s in item["scenes"]]
+        product = {"name": growth.ACCOUNT, "destination": growth.PROFILE, "feature": item["topic"],
+                   "prompt": "", "affiliate": False, "cover_text": item["cover_text"]}
+        check_copy(product, lines, posts(product, lines))
+        assert shorts_package(product, lines)["cover_text"] == item["cover_text"]
+
+
+def test_existing_product_campaigns_keep_their_opening_text():
+    assert shorts_package(HOLIDAY, product_plan(HOLIDAY, 0, True))["cover_text"] == "That one person"
+    saved = {"name": "Orbit Lamp", "destination": "https://seller.example/lamp", "feature": "An adjustable arm",
+             "prompt": "", "affiliate": False}
+    assert shorts_package(saved, product_plan(saved, 0))["cover_text"] == "What's inside?"
+
+
+@pytest.mark.parametrize("line,check", [
+    ("This cures back pain. Follow 4your Good Health.", "No unsupported health or results claims"),
+    ("You will lose 20 pounds. Follow 4your Good Health.", "No unsupported health or results claims"),
+    ("This video will go viral. Follow 4your Good Health.", "No unsupported health or results claims"),
+    ("Comment YES to get the link. Follow 4your Good Health.", "Ending invites, without bait"),
+    ("Tag 3 friends and follow 4your Good Health.", "Ending invites, without bait"),
+    ("That is the whole trick from 4your Good Health.", "Ending invites, without bait"),
+    ("Follow me for more kitchen hacks.", "Ending names your account"),
+])
+def test_unsafe_or_pushy_endings_are_flagged(line, check):
+    item = growth.entry(2)
+    lines = [s["say"] for s in item["scenes"][:3]] + [line]
+    failed = {c["check"] for c in growth.review(item, lines) if not c["ok"]}
+    assert check in failed
+
+
+def test_off_topic_script_and_unlabeled_weight_loss_are_flagged():
+    item = growth.entry(2)
+    failed = {c["check"] for c in growth.review(item, ["Look at this.", "It is nice.", "I like it.",
+                                                        "Follow 4your Good Health for more."]) if not c["ok"]}
+    assert "Script matches the topic" in failed
+    story = growth.entry(24)
+    lines = [s["say"] for s in story["scenes"]]
+    lines[1] = "I lost 25 pounds with routines like the ones in it."
+    assert "Personal results are labeled" in {c["check"] for c in growth.review(story, lines) if not c["ok"]}
+
+
+def test_advice_never_promises_and_names_what_to_repeat():
+    start = growth.advice([], None, 1)
+    assert start["remaining"] == 945 and start["pace_needed"] == 32
+    assert "guarantee" in start["summary"][0]
+    posts_logged = [
+        {"category": "gadgets", "format": "demo", "views": 2400, "follower_change": 30, "retention": 45, "saves": 40, "shares": 20, "profile_visits": 90},
+        {"category": "gadgets", "format": "demo", "views": 1800, "follower_change": 22, "retention": 41, "saves": 30, "shares": 12, "profile_visits": 70},
+        {"category": "health", "format": "quick_tip", "views": 300, "follower_change": 1, "retention": 20, "saves": 1, "shares": 0, "profile_visits": 8},
+    ]
+    result = growth.advice(posts_logged, None, 4)
+    assert result["followers"] == 55 + 53
+    assert any("Amazing gadgets" in line for line in result["repeat"])
+    assert any("Healthy lifestyle" in line for line in result["adjust"])
+    assert not any(word in " ".join(result["repeat"] + result["adjust"] + result["summary"]).lower()
+                   for word in ("will go viral", "you will reach", "guaranteed"))
+
+
+def photo():
+    buffer = io.BytesIO()
+    Image.new("RGB", (640, 800), "#3a7").save(buffer, "JPEG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+@pytest.fixture
+def owner(monkeypatch, tmp_path):
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.delenv("TRAFFICLIFT_HOSTED_VIDEO", raising=False)
+    monkeypatch.setenv("TRAFFICLIFT_FREE_VIDEO", "1")
+    monkeypatch.setattr(growth_api.studio, "storage", lambda: tmp_path)
+    return TestClient(server.app)
+
+
+def test_plan_page_and_data_are_owner_only_on_the_hosted_site(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO", "1")
+    monkeypatch.setenv("TRAFFICLIFT_HOSTED_VIDEO_ACCESS_TOKEN", "s" * 40)
+    monkeypatch.setattr(growth_api.studio, "storage", lambda: tmp_path)
+    client = TestClient(server.app, base_url="https://trafficlift-pro.onrender.com")
+    assert client.get("/growth").status_code == 200
+    assert client.get("/api/v1/growth").status_code == 401
+    assert client.post("/api/v1/growth/posts", json={"posted": "2026-11-27", "topic": "x y"}).status_code == 401
+    assert client.post("/api/v1/growth/videos", json={"day": 1, "lines": ["a"] * 4, "images": [photo()],
+                                                      "request_id": str(uuid.uuid4())}).status_code == 401
+
+
+def test_overview_tracks_followers_and_logged_posts(owner):
+    data = owner.get("/api/v1/growth").json()
+    assert data["account"] == "4your Good Health" and data["day"] == 1 and len(data["plan"]) == 30
+    assert data["advice"]["followers"] == 55 and all(p["ready"] for p in data["plan"])
+    data = owner.post("/api/v1/growth/settings", json={"followers": 80}).json()
+    assert data["advice"]["remaining"] == 920
+    item = data["plan"][0]
+    data = owner.post("/api/v1/growth/posts", json={
+        "posted": "2026-11-27", "day": 1, "topic": item["topic"], "category": item["category"], "format": item["format"],
+        "views": 900, "watch_seconds": 6.5, "retention": 38, "likes": 40, "comments": 3, "shares": 2, "saves": 9,
+        "profile_visits": 30, "follower_change": 12}).json()
+    assert data["plan"][0]["posted"] and data["posts"][0]["views"] == 900 and data["posts"][0]["follower_change"] == 12
+    assert owner.post("/api/v1/growth/posts", json={"posted": "2026-11-27", "topic": "Other", "category": "nope"}).status_code == 422
+    data = owner.delete(f"/api/v1/growth/posts/{data['posts'][0]['id']}").json()
+    assert data["posts"] == [] and not data["plan"][0]["posted"]
+
+
+def test_edited_script_is_rechecked_before_any_render(owner):
+    item = growth.entry(1)
+    lines = [s["say"] for s in item["scenes"]]
+    assert owner.post("/api/v1/growth/check", json={"day": 1, "lines": lines}).json()["ready"]
+    bad = lines[:3] + ["This cures sore hands. Follow 4your Good Health."]
+    assert not owner.post("/api/v1/growth/check", json={"day": 1, "lines": bad}).json()["ready"]
+    with patch.object(growth_api, "render_campaign") as render:
+        reply = owner.post("/api/v1/growth/videos", json={"day": 1, "lines": bad, "images": [photo()],
+                                                          "request_id": str(uuid.uuid4())})
+    assert reply.status_code == 422 and "health" in reply.json()["detail"]
+    render.assert_not_called()
+
+
+def test_video_uses_the_free_renderer_with_the_owners_photos_and_script(owner, tmp_path):
+    item = growth.entry(1)
+    lines = [s["say"] for s in item["scenes"]]
+    seen = {}
+
+    def fake_render(directory, product, images, spoken):
+        seen.update(product=product, images=[i.name for i in images], lines=spoken)
+        (directory / "video.mp4").write_bytes(b"mp4")
+        (directory / "campaign.zip").write_bytes(b"zip")
+        from backend.campaign_editor import digest
+        import json
+        (directory / "editorial.json").write_text(json.dumps(
+            {"version": 1, "video": digest(directory / "video.mp4"), "kit": digest(directory / "campaign.zip")}))
+
+    request_id = str(uuid.uuid4())
+    body = {"day": 1, "lines": lines, "images": [photo(), photo()], "request_id": request_id}
+    with patch.object(growth_api, "render_campaign", side_effect=fake_render):
+        job = owner.post("/api/v1/growth/videos", json=body)
+        assert job.status_code == 202
+        for _ in range(100):
+            state = owner.get("/api/v1/growth/videos/" + job.json()["id"]).json()
+            if state["status"] != "rendering":
+                break
+            time.sleep(.05)
+        assert owner.post("/api/v1/growth/videos", json=body).json() == job.json()
+    assert state == {"status": "ready", "day": 1, "lines": lines}
+    assert seen["lines"] == lines and seen["images"] == ["photo0.jpg", "photo1.jpg", "photo1.jpg", "photo1.jpg"]
+    assert seen["product"]["name"] == "4your Good Health" and seen["product"]["affiliate"] is False
+    assert seen["product"]["destination"] == "https://www.tiktok.com/@hammer2085"
+    video = owner.get(f"/api/v1/growth/videos/{job.json()['id']}/video?save=1")
+    assert video.content == b"mp4" and "4your-Good-Health-Day-01.mp4" in video.headers["content-disposition"]
+    assert owner.get("/api/v1/growth").json()["plan"][0]["video"] == job.json()["id"]
+    assert not growth_api.render_lock.locked()
+    (tmp_path / "growth" / job.json()["id"] / "video.mp4").write_bytes(b"tampered")
+    assert owner.get("/api/v1/growth/videos/" + job.json()["id"]).json()["status"] == "held"
+
+
+def test_no_paid_provider_or_publishing_code_in_the_growth_feature():
+    import inspect
+    source = inspect.getsource(growth_api) + inspect.getsource(growth)
+    for word in ("heygen", "krea", "fal_client", "minimax", "openai", "youtube_publisher", "pinterest", "requests.", "httpx"):
+        assert word not in source.lower()
