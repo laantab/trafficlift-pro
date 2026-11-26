@@ -849,6 +849,9 @@ from backend.premium_ad_api import router as premium_ad_router
 app.include_router(premium_ad_router)
 from backend.pin_image_api import router as pin_image_router
 app.include_router(pin_image_router)
+# Owner-only 30-day TikTok growth planner. Free local rendering; never posts.
+from backend.growth_api import router as growth_router
+app.include_router(growth_router)
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
