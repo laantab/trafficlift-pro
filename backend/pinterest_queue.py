@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -26,6 +27,7 @@ from backend.photo_video_api import video_guard
 router = APIRouter(prefix="/api/v1/pinterest")
 stop = threading.Event()
 worker = None
+log = logging.getLogger(__name__)
 refreshing = threading.Lock()
 SCOPES = {"boards:read", "pins:read", "pins:write", "user_accounts:read"}
 TOKEN_URL = "https://api.pinterest.com/v5/oauth/token"
@@ -88,6 +90,9 @@ def api(method, path, **kwargs):
     response = requests.request(method, "https://api.pinterest.com/v5/" + path,
                                 headers={"Authorization": "Bearer " + bearer}, timeout=30,
                                 allow_redirects=False, **kwargs)
+    if response.status_code >= 400:
+        # Pinterest explains refusals in the reply body; keep it for the owner's logs.
+        log.warning("Pinterest refused %s %s: %s %s", method, path.split("/")[0], response.status_code, response.text[:600])
     response.raise_for_status()
     return response.json()
 
@@ -248,7 +253,8 @@ def tick():
     if row:
         try:
             publish(row)
-        except Exception:
+        except Exception as problem:
+            log.warning("Pinterest video Pin was not confirmed: %s", type(problem).__name__)
             with closing(database()) as db, db:
                 db.execute("""UPDATE pins SET state=CASE WHEN state='submitting' THEN 'check board' ELSE 'failed' END
                               WHERE campaign=? AND board=? AND state!='published'""",(row["campaign"],row["board"]))
