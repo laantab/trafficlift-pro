@@ -9,6 +9,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,7 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend import campaign_api, pinterest_queue
+from backend import campaign_api, facebook_publisher, pinterest_queue
 
 router = APIRouter(prefix="/api/v1/autopilot")
 stop = threading.Event()
@@ -34,7 +35,8 @@ def database():
     db.execute("CREATE TABLE IF NOT EXISTS runs(job TEXT PRIMARY KEY, product TEXT, made REAL)")
     have = {row[1] for row in db.execute("PRAGMA table_info(plans)")}
     for column, kind in (("pinterest", "INTEGER DEFAULT 1"), ("youtube", "INTEGER DEFAULT 0"),
-                         ("kids", "INTEGER DEFAULT 0"), ("synthetic", "INTEGER DEFAULT 0")):
+                         ("kids", "INTEGER DEFAULT 0"), ("synthetic", "INTEGER DEFAULT 0"),
+                         ("facebook", "INTEGER DEFAULT 0")):
         if column not in have:
             db.execute(f"ALTER TABLE plans ADD COLUMN {column} {kind}")
     return db
@@ -56,6 +58,7 @@ class Plan(BaseModel):
     enabled: bool
     pinterest: bool = True
     youtube: bool = False
+    facebook: bool = False
     # The channel owner's standing YouTube declarations for these videos.
     kids: bool = False
     synthetic: bool = False
@@ -69,7 +72,7 @@ def plans():
     for row in rows:
         row["name"] = names.get(row["product"], "Removed product")
         row["time"] = "%02d:%02d" % divmod(row.pop("minute"), 60)
-        for flag in ("enabled", "pinterest", "youtube", "kids", "synthetic"):
+        for flag in ("enabled", "pinterest", "youtube", "facebook", "kids", "synthetic"):
             row[flag] = bool(row[flag])
         row.pop("job")
         row.pop("last_job")
@@ -88,8 +91,8 @@ def save(plan, now=None):
         zone = ZoneInfo(plan.zone)
     except (ZoneInfoNotFoundError, ValueError):
         raise HTTPException(422, "This device's time zone was not recognized.")
-    if not plan.pinterest and not plan.youtube:
-        raise HTTPException(422, "Choose Pinterest, YouTube Shorts, or both.")
+    if not plan.pinterest and not plan.youtube and not plan.facebook:
+        raise HTTPException(422, "Choose Pinterest, YouTube Shorts, Facebook, or a combination.")
     board = {"id": "", "name": ""}
     if plan.pinterest:
         board = next((b for b in pinterest_queue.board_list() if b["id"] == plan.board), None)
@@ -99,6 +102,8 @@ def save(plan, now=None):
         from backend import youtube_publisher
         if not youtube_publisher.credentials().get("channel_id"):
             raise HTTPException(409, "Choose your YouTube channel in Launch Studio first.")
+    if plan.facebook and not facebook_publisher.page():
+        raise HTTPException(409, "Connect your Facebook Page first.")
     hour, minute = map(int, plan.time.split(":"))
     local = (now or datetime.now(timezone.utc)).astimezone(zone)
     with closing(database()) as db, db:
@@ -107,15 +112,16 @@ def save(plan, now=None):
         if plan.enabled and not (before and before["enabled"]) and local.hour*60 + local.minute >= hour*60 + minute:
             # Turned on after today's posting time: the first video goes out tomorrow.
             last_day = local.strftime("%Y-%m-%d")
-        db.execute("""INSERT INTO plans(product,board,board_name,minute,zone,enabled,note,pinterest,youtube,kids,synthetic,last_day)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        db.execute("""INSERT INTO plans(product,board,board_name,minute,zone,enabled,note,pinterest,youtube,facebook,kids,synthetic,last_day)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                       ON CONFLICT(product) DO UPDATE SET board=excluded.board, board_name=excluded.board_name,
                       minute=excluded.minute, zone=excluded.zone, enabled=excluded.enabled, note=excluded.note,
-                      pinterest=excluded.pinterest, youtube=excluded.youtube, kids=excluded.kids,
-                      synthetic=excluded.synthetic, last_day=excluded.last_day""",
+                      pinterest=excluded.pinterest, youtube=excluded.youtube, facebook=excluded.facebook,
+                      kids=excluded.kids, synthetic=excluded.synthetic, last_day=excluded.last_day""",
                    (plan.product, board["id"], board["name"], hour*60+minute, plan.zone, int(plan.enabled),
                     "On. A new video posts each day at this time." if plan.enabled else "Off.",
-                    int(plan.pinterest), int(plan.youtube), int(plan.kids), int(plan.synthetic), last_day))
+                    int(plan.pinterest), int(plan.youtube), int(plan.facebook), int(plan.kids),
+                    int(plan.synthetic), last_day))
     start()
     return plans()
 
@@ -138,6 +144,11 @@ def clear_old_videos():
         with closing(pinterest_queue.database()) as db:
             waiting = db.execute("SELECT 1 FROM pins WHERE campaign=? AND state NOT IN ('published and tracked','failed')",
                                  (job,)).fetchone()
+        if waiting:
+            continue
+        with closing(facebook_publisher.database()) as db:
+            waiting = db.execute("SELECT 1 FROM reels WHERE source='campaign' AND identifier=? "
+                                 "AND state NOT IN ('published and tracked','failed')", (job,)).fetchone()
         if waiting:
             continue
         shutil.rmtree(campaign_api.root()/job, ignore_errors=True)
@@ -168,6 +179,12 @@ def tick(now=None):
                         update(product, last_job="")
                         pause(product, "YouTube did not confirm the last video. Open Launch Studio to check it.")
                         continue
+                if plan["facebook"]:
+                    reel_state = facebook_publisher.status_for("campaign", plan["last_job"])
+                    if reel_state in ("failed", "check feed"):
+                        update(product, last_job="")
+                        pause(product, "Facebook did not confirm the last video. Check the Facebook connection.")
+                        continue
             if plan["job"]:
                 with closing(campaign_api.database()) as db:
                     row = db.execute("SELECT status FROM jobs WHERE id=?", (plan["job"],)).fetchone()
@@ -189,6 +206,14 @@ def tick(now=None):
                     pinterest_queue.schedule(uuid.UUID(plan["job"]), pinterest_queue.Schedule(
                         board=plan["board"], when=now + timedelta(seconds=60)))
                     sent.append("Pinterest")
+                if plan["facebook"]:
+                    with zipfile.ZipFile(campaign_api.root() / plan["job"] / "campaign.zip") as archive:
+                        caption = archive.read("facebook-reels.txt").decode()
+                    names = product_names()
+                    facebook_publisher.queue("campaign", plan["job"], names.get(plan["product"], "Video"),
+                                             caption, campaign_api.root() / plan["job"] / "video.mp4",
+                                             when=time.time() + 60)
+                    sent.append("Facebook")
                 update(product, job="", last_job=plan["job"],
                        note="Sent a new video to " + " and ".join(sent) + " on " + plan["last_day"] + ".")
                 continue

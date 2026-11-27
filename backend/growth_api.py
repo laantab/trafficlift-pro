@@ -272,8 +272,9 @@ def build_stock(job, product, queries, lines):
         finally:
             render_lock.release()
         if status == "ready" and day:
-            from backend import growth_youtube
+            from backend import growth_facebook, growth_youtube
             growth_youtube.after_video(day["day"], job)
+            growth_facebook.after_video(day["day"], job)
 
 
 def start_stock(day, job, lines=None):
@@ -347,8 +348,9 @@ def run():
             make_todays_video()
         except Exception:
             log.exception("Daily stock video check failed")
-        from backend import growth_youtube
+        from backend import growth_facebook, growth_youtube
         growth_youtube.catch_up()
+        growth_facebook.catch_up()
 
 
 @router.on_event("startup")
