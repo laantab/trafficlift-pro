@@ -854,6 +854,10 @@ from backend.growth_api import router as growth_router
 app.include_router(growth_router)
 from backend.growth_youtube import router as growth_youtube_router
 app.include_router(growth_youtube_router)
+from backend.growth_facebook import router as growth_facebook_router
+app.include_router(growth_facebook_router)
+from backend.facebook_publisher import router as facebook_publisher_router
+app.include_router(facebook_publisher_router)
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)

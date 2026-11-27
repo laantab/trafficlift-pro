@@ -2,7 +2,7 @@ import json
 import zipfile
 from datetime import datetime, timezone
 
-from backend import autopilot, campaign_api, campaign_editor, campaigns, pinterest_queue as pins, viral_hooks
+from backend import autopilot, campaign_api, campaign_editor, campaigns, facebook_publisher as fb, pinterest_queue as pins, viral_hooks
 
 
 def ready(job):
@@ -144,3 +144,43 @@ def test_youtube_only_autopilot_starts_tomorrow_and_queues_a_short(tmp_path, mon
     with pytest.raises(HTTPException):
         autopilot.save(autopilot.Plan(product="holiday", time="09:00", zone="America/Los_Angeles", enabled=True,
                                       pinterest=False, youtube=False))
+
+
+def test_facebook_only_autopilot_queues_a_reel_with_the_campaign_caption(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv("TRAFFICLIFT_PUBLISHING_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(fb, "page", lambda: {"id": "999", "name": "Intelligent innovation solutions",
+                        "access_token": "page-token"})
+    after_nine = datetime(2026, 11, 26, 18, 30, tzinfo=timezone.utc)   # 10:30 AM Pacific
+    plan = autopilot.Plan(product="holiday", time="09:00", zone="America/Los_Angeles", enabled=True,
+                          pinterest=False, youtube=False, facebook=True)
+    row = autopilot.save(plan, now=after_nine)[0]
+    assert row["facebook"] and not row["pinterest"] and not row["youtube"]
+    autopilot.tick(after_nine)                                    # turned on after 9:00: nothing today
+    with campaign_api.database() as db:
+        assert not db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    tomorrow = datetime(2026, 11, 27, 17, 1, tzinfo=timezone.utc)
+    autopilot.tick(tomorrow)
+    with campaign_api.database() as db:
+        job = db.execute("SELECT id FROM jobs").fetchone()[0]
+    ready(job)
+    autopilot.tick(tomorrow)
+    with fb.database() as db:
+        row = db.execute("SELECT state,title,description FROM reels WHERE source='campaign' AND identifier=?",
+                         (job,)).fetchone()
+    assert row["state"] == "scheduled" and row["title"] == campaign_api.HOLIDAY["name"]
+    assert row["description"].startswith("A memory for Christmas.")
+    with pins.database() as db:
+        assert not db.execute("SELECT COUNT(*) FROM pins").fetchone()[0]
+    assert "Facebook" in autopilot.plans()[0]["note"]
+
+
+def test_facebook_plan_needs_a_connected_page(tmp_path, monkeypatch):
+    setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(fb, "page", lambda: None)
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        autopilot.save(autopilot.Plan(product="holiday", time="09:00", zone="America/Los_Angeles", enabled=True,
+                                      pinterest=False, youtube=False, facebook=True))
