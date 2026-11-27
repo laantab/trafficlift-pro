@@ -58,12 +58,24 @@ def data(response):
         raise HTTPException(502, 'YouTube returned an unreadable response.') from exc
 
 
-def credentials(grant_id=None):
+# One connection per channel: the main product channel and the tips channel.
+SLOTS = ('owner', 'tips')
+
+
+def credentials(grant_id=None, slot='owner'):
     # Serialize refresh and disconnect so a late refresh cannot restore a removed grant.
+    if slot not in SLOTS:
+        raise HTTPException(404, 'Unknown YouTube connection.')
     with store.database() as db:
-        row = db.execute("SELECT payload FROM records WHERE kind='youtube' AND id='owner'").fetchone()
-        connection = store.unseal(row['payload']) if row else None
-        if not connection or (grant_id and connection['grant_id'] != grant_id):
+        connection = None
+        # A queued upload names its grant; find whichever channel connection holds it.
+        for slot in (SLOTS if grant_id else (slot,)):
+            row = db.execute("SELECT payload FROM records WHERE kind='youtube' AND id=?", (slot,)).fetchone()
+            connection = store.unseal(row['payload']) if row else None
+            if connection and (not grant_id or connection['grant_id'] == grant_id):
+                break
+            connection = None
+        if not connection:
             raise HTTPException(409, 'Reconnect and review the intended YouTube channel.')
         if connection['expires_at'] < time.time() + 90:
             result = data(call('POST', TOKEN, data={**oauth_config(), 'grant_type': 'refresh_token',
@@ -76,7 +88,7 @@ def credentials(grant_id=None):
                               expires_at=time.time() + int(result.get('expires_in', 3600)))
             if result.get('refresh_token'):
                 connection['refresh_token'] = result['refresh_token']
-            db.execute("UPDATE records SET payload=? WHERE kind='youtube' AND id='owner'", (store.seal(connection),))
+            db.execute("UPDATE records SET payload=? WHERE kind='youtube' AND id=?", (store.seal(connection), slot))
     return connection
 
 
