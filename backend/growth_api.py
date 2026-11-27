@@ -12,6 +12,7 @@ import datetime
 import io
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import threading
@@ -63,7 +64,13 @@ def setting(db, key, default=None):
 
 
 def today():
-    return datetime.date.today()
+    """The owner's calendar day, so the plan does not roll over mid-afternoon on a UTC server."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        zone = ZoneInfo(os.getenv("TRAFFICLIFT_TIMEZONE", "America/Los_Angeles"))
+    except (ZoneInfoNotFoundError, ValueError):
+        return datetime.date.today()
+    return datetime.datetime.now(zone).date()
 
 
 def campaign_day(db):
@@ -340,6 +347,8 @@ def run():
             make_todays_video()
         except Exception:
             log.exception("Daily stock video check failed")
+        from backend import growth_youtube
+        growth_youtube.catch_up()
 
 
 @router.on_event("startup")

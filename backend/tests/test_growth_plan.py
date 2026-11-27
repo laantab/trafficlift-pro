@@ -309,3 +309,19 @@ def test_a_key_pasted_with_its_label_or_quotes_still_works(monkeypatch):
         assert stock_media.keys()["pexels"] == real
     monkeypatch.setenv("PEXELS_API_KEY", "keyboard")       # a short real word is left alone
     assert stock_media.keys()["pexels"] == "keyboard"
+
+
+def test_plan_day_follows_the_owners_clock_not_the_servers(monkeypatch):
+    import datetime
+    from zoneinfo import ZoneInfo
+
+    class Clock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime(2026, 11, 27, 1, 30, tzinfo=ZoneInfo("UTC")).astimezone(tz)
+
+    monkeypatch.setattr(growth_api.datetime, "datetime", Clock)
+    monkeypatch.delenv("TRAFFICLIFT_TIMEZONE", raising=False)
+    assert growth_api.today() == datetime.date(2026, 11, 26)          # 5:30 PM Pacific is still the 26th
+    monkeypatch.setenv("TRAFFICLIFT_TIMEZONE", "UTC")
+    assert growth_api.today() == datetime.date(2026, 11, 27)
