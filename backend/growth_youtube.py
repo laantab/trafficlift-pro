@@ -55,8 +55,9 @@ def post(day, video):
     if not row or row["day"] != day or not verified(folder, "video"):
         raise HTTPException(409, "This day has no checked video yet. Make the video first.")
     item = growth.stock_entry(day) or growth.entry(day)
-    description = item["caption"] + "\n\n" + " ".join(item["hashtags"] + ["#shorts"])
-    product = {"id": "growth-day-%02d" % day, "title": item["topic"], "product_url": growth.PROFILE}
+    description = (item["caption"] + "\n\nLink on my channel page.\n\n"
+                    + " ".join(item["hashtags"] + ["#shorts"]))
+    product = {"id": "growth-day-%02d" % day, "title": item["topic"], "product_url": growth.SHOP_URL}
     choice = publishing_api.CampaignShort(visibility="public", made_for_kids=False, synthetic_media=False, confirm=True)
     job = publishing_api.queue_short(folder / "video.mp4", product, item["topic"], description, "",
                                      choice, "growth", video, found)
