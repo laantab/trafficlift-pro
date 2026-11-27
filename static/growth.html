@@ -43,6 +43,18 @@ video{width:100%;max-height:60vh;background:#182625;border-radius:10px}[hidden]{
 <form id="startForm" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap"><label style="flex:1;margin:0">Day 1 was<input id="start" type="date" required></label><button>Save</button></form></details>
 </section>
 
+<section class="card" id="ytCard">
+<h3 style="margin-top:0">YouTube Shorts</h3>
+<p id="ytText" class="muted">Checking YouTube…</p>
+<div class="bar" id="ytBarBox" hidden><i id="ytBar" style="display:block;height:100%;width:0"></i></div>
+<p id="ytChannelRow" hidden><label>Channel for these Shorts<select id="ytChannel"></select></label><button type="button" id="ytUse">Use this channel</button></p>
+<p><button type="button" id="ytConnect" hidden>Connect your tips channel</button></p>
+<label id="ytAutoRow" hidden><input type="checkbox" id="ytAuto"> Post each day's video to YouTube Shorts automatically (public, without a review)</label>
+<p><button type="button" class="plain" id="ytPost" hidden>Post this day's video to YouTube now</button></p>
+<p id="ytStatus" role="status" class="muted"></p>
+<ul id="ytList" class="muted"></ul>
+</section>
+
 <h2 id="dayTitle"></h2>
 <p><span class="tag" id="dayCategory"></span><span class="tag" id="dayFormat"></span></p>
 <p class="muted" id="dayHow"></p>
@@ -191,7 +203,25 @@ function render(data){
    cell.append(del);row.append(cell);table.append(row)})}
  el('formats').replaceChildren(...Object.values(data.formats).map(f=>{const p=document.createElement('p');p.append(text('strong',f.name+': '));p.append(f.how);return p}));
 }
-async function load(){render(await api('/api/v1/growth'));showDay(state.day)}
+async function loadYoutube(){
+ try{
+  const y=await api('/api/v1/growth/youtube');
+  el('ytConnect').hidden=!y.configured||y.connected;
+  el('ytChannelRow').hidden=!y.connected||y.ready;
+  el('ytChannel').replaceChildren(...y.channels.map(c=>new Option(c.title,c.id)));
+  el('ytAutoRow').hidden=el('ytPost').hidden=!y.ready;el('ytAuto').checked=y.auto;
+  el('ytBarBox').hidden=!y.ready||y.subscribers===null;
+  if(y.subscribers!==null)el('ytBar').style.width=Math.min(100,Math.round(y.subscribers*100/y.goal))+'%';
+  el('ytText').textContent=!y.configured?'YouTube is not set up on this site.':!y.connected?'Connect the YouTube channel these tip videos should go to. When Google asks, pick your tips channel, not your main one.':!y.ready?'Connected. Confirm the channel below.':y.channel+(y.subscribers===null?'':' · '+y.subscribers.toLocaleString()+' subscribers · goal '+y.goal.toLocaleString())+'. No plan can guarantee that number.';
+  el('ytList').replaceChildren(...y.shorts.map(s=>{const li=text('li','Day '+s.day+' · '+s.topic+' · '+s.state+(s.views===undefined?'':' · '+s.views.toLocaleString()+' views · '+s.likes.toLocaleString()+' likes')+(s.message?' · '+s.message:'')+' ');
+   if(s.url){const a=document.createElement('a');a.href=s.url;a.target='_blank';a.rel='noopener';a.textContent='Open';li.append(a)}return li}));
+ }catch(e){el('ytText').textContent=e.message}
+}
+el('ytConnect').onclick=async()=>{try{const r=await send('/api/v1/publishing/youtube/connect?slot=tips',{});location.assign(r.authorization_url)}catch(e){el('ytStatus').textContent=e.message}};
+el('ytUse').onclick=async()=>{try{await send('/api/v1/publishing/youtube/channel',{channel_id:el('ytChannel').value,slot:'tips'});el('ytStatus').textContent='Channel saved.';await loadYoutube()}catch(e){el('ytStatus').textContent=e.message}};
+el('ytAuto').onchange=async()=>{try{await send('/api/v1/growth/youtube/settings',{auto:el('ytAuto').checked});el('ytStatus').textContent=el('ytAuto').checked?'On. Each new daily video will post to YouTube Shorts.':'Off. Nothing posts to YouTube on its own.'}catch(e){el('ytStatus').textContent=e.message}};
+el('ytPost').onclick=async()=>{el('ytPost').disabled=true;try{await send('/api/v1/growth/youtube/post',{day:current});el('ytStatus').textContent='Day '+current+' is on its way to YouTube.';await loadYoutube()}catch(e){el('ytStatus').textContent=e.message}finally{el('ytPost').disabled=false}};
+async function load(){render(await api('/api/v1/growth'));showDay(state.day);loadYoutube()}
 el('recheck').onclick=async()=>{try{const r=await send('/api/v1/growth/check',{day:current,lines:lines()});showChecks(r.checks);say(r.ready?'Your script passes every check.':'',false)}catch(e){say(e.message)}};
 async function photo(file){const bitmap=await createImageBitmap(file);const scale=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));const c=document.createElement('canvas');c.width=Math.round(bitmap.width*scale);c.height=Math.round(bitmap.height*scale);c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);bitmap.close();return c.toDataURL('image/jpeg',.85).split(',')[1]}
 async function watch(id,quiet){

@@ -1,8 +1,10 @@
 """Owner-only 30-day TikTok growth planner, free video maker and results log.
 
 Reuses the existing campaign renderer and its release checks. Videos can also be
-built from free stock footage. Nothing here calls a paid provider, and nothing is
-ever posted: the owner downloads the reviewed video and posts it personally.
+built from free stock footage. Nothing here calls a paid provider or posts
+anything itself: the owner downloads the reviewed video and posts it to TikTok
+personally. A finished video is handed to the separate Shorts module, which
+posts only when the owner has switched that on.
 """
 import base64
 from contextlib import closing
@@ -238,7 +240,7 @@ def create(payload: Video, request: Request):
 
 
 def build_stock(job, product, queries, lines):
-    status = "failed"
+    status, day = "failed", None
     folder = root() / job
     try:
         media, credits = stock_media.collect(queries, folder)
@@ -259,8 +261,12 @@ def build_stock(job, product, queries, lines):
         try:
             with closing(database()) as db, db:
                 db.execute("UPDATE videos SET status=? WHERE id=?", (status, job))
+                day = db.execute("SELECT day FROM videos WHERE id=?", (job,)).fetchone()
         finally:
             render_lock.release()
+        if status == "ready" and day:
+            from backend import growth_youtube
+            growth_youtube.after_video(day["day"], job)
 
 
 def start_stock(day, job, lines=None):

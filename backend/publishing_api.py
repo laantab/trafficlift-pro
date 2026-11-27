@@ -67,11 +67,17 @@ def queue_loop():
             continue
 
 
+def known(slot):
+    if slot not in youtube.SLOTS:
+        raise HTTPException(404, 'Unknown YouTube connection.')
+    return slot
+
+
 @router.get('/status')
-def status(request: Request):
+def status(request: Request, slot: str = 'owner'):
     video_guard(request)
     ready = youtube.configured()
-    connection = store.get('youtube', 'owner') if ready else None
+    connection = store.get('youtube', known(slot)) if ready else None
     return JSONResponse({'configured': ready, 'connected': bool(connection),
         'channel_id': connection.get('channel_id') if connection else None,
         'channels': connection.get('channels', []) if connection else []},
@@ -79,8 +85,9 @@ def status(request: Request):
 
 
 @router.post('/youtube/connect')
-def connect(request: Request):
+def connect(request: Request, slot: str = 'owner'):
     guard(request, True)
+    known(slot)
     config = youtube.oauth_config()
     if str(request.base_url).rstrip('/') != config['redirect_uri'].split('/api/')[0]:
         raise HTTPException(503, 'Open TrafficLift at its configured YouTube address.')
@@ -96,7 +103,7 @@ def connect(request: Request):
                    'ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload', (store.seal(state_hash),))
         db.execute("INSERT INTO records VALUES('oauth',?,?)", (state_hash, store.seal({
             'browser': hashlib.sha256(browser.encode()).hexdigest(), 'verifier': verifier,
-            'generation': state_hash, 'expires_at': time.time() + 600})))
+            'generation': state_hash, 'slot': slot, 'expires_at': time.time() + 600})))
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
     url = 'https://accounts.google.com/o/oauth2/v2/auth?' + urlencode({
         'client_id': config['client_id'], 'redirect_uri': config['redirect_uri'],
@@ -143,14 +150,16 @@ def callback(request: Request, state: str = '', code: str = '', error: str = '')
         row = db.execute("SELECT payload FROM records WHERE kind='settings' AND id='oauth_generation'").fetchone()
         current = store.unseal(row['payload']) if row else None
         if current == pending['generation']:
-            db.execute("INSERT INTO records VALUES('youtube','owner',?) "
-                       'ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload', (store.seal(connection),))
+            db.execute("INSERT INTO records VALUES('youtube',?,?) "
+                       'ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload',
+                       (known(pending.get('slot', 'owner')), store.seal(connection)))
         else:
             db.execute("INSERT INTO records VALUES('revocation',?,?)", (connection['grant_id'],
                        store.seal({'refresh_token': connection['refresh_token']})))
     if current != pending['generation']:
         raise HTTPException(409, 'YouTube connection was canceled. Connect again when ready.')
-    response = RedirectResponse('/launch-studio?youtube=connected', status_code=303)
+    response = RedirectResponse('/growth?youtube=connected' if pending.get('slot') == 'tips'
+                                else '/launch-studio?youtube=connected', status_code=303)
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.delete_cookie('trafficlift_youtube_oauth', path='/api/v1/publishing/youtube/callback')
@@ -159,38 +168,46 @@ def callback(request: Request, state: str = '', code: str = '', error: str = '')
 
 class ChannelSelection(BaseModel):
     channel_id: str = Field(min_length=1, max_length=128)
+    slot: str = 'owner'
 
 
 @router.post('/youtube/channel')
 def select_channel(payload: ChannelSelection, request: Request):
     guard(request, True)
-    connection = youtube.credentials()
+    slot = known(payload.slot)
+    connection = youtube.credentials(slot=slot)
     available = youtube.channels(connection)
     if payload.channel_id not in {channel['id'] for channel in available}:
         raise HTTPException(409, 'Choose a channel returned by your YouTube account.')
+    # Each connection posts to its own channel, so tips never land on the product channel.
+    other = store.get('youtube', next(name for name in youtube.SLOTS if name != slot))
+    if other and other.get('channel_id') == payload.channel_id:
+        raise HTTPException(409, 'That channel is already used by your other YouTube connection. '
+                                 'Connect again and pick the other channel when Google asks.')
     connection.update(channel_id=payload.channel_id, channels=available)
     # Serialize selection with disconnect, refusing to resurrect a removed grant.
     with store.database() as db:
-        row = db.execute("SELECT payload FROM records WHERE kind='youtube' AND id='owner'").fetchone()
+        row = db.execute("SELECT payload FROM records WHERE kind='youtube' AND id=?", (slot,)).fetchone()
         if not row or store.unseal(row['payload'])['grant_id'] != connection['grant_id']:
             raise HTTPException(409, 'Connection changed. Connect again.')
         current = store.unseal(row['payload'])
         current.update(channel_id=payload.channel_id, channels=available)
-        db.execute("UPDATE records SET payload=? WHERE kind='youtube' AND id='owner'", (store.seal(current),))
+        db.execute("UPDATE records SET payload=? WHERE kind='youtube' AND id=?", (store.seal(current), slot))
     return {'channel_id': payload.channel_id}
 
 
 @router.post('/youtube/disconnect')
-def disconnect(request: Request):
+def disconnect(request: Request, slot: str = 'owner'):
     guard(request, True)
+    known(slot)
     with store.database() as db:
-        row = db.execute("SELECT payload FROM records WHERE kind='youtube' AND id='owner'").fetchone()
+        row = db.execute("SELECT payload FROM records WHERE kind='youtube' AND id=?", (slot,)).fetchone()
         connection = store.unseal(row['payload']) if row else None
         if connection:
             # Remove the grant and retain revocation work in one durable transaction.
             db.execute("INSERT INTO records VALUES('revocation',?,?)", (connection['grant_id'],
                        store.seal({'refresh_token': connection['refresh_token']})))
-        db.execute("DELETE FROM records WHERE kind IN ('youtube','oauth')")
+        db.execute("DELETE FROM records WHERE (kind='youtube' AND id=?) OR kind='oauth'", (slot,))
         db.execute("INSERT INTO records VALUES('settings','oauth_generation',?) "
                    'ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload', (store.seal(uuid.uuid4().hex),))
     complete = revoke_pending()
@@ -410,9 +427,9 @@ class CampaignShort(BaseModel):
     confirm: Literal[True]
 
 
-def campaign_job(identifier):
+def campaign_job(identifier, origin='owner-studio'):
     return next((job for job in store.jobs() if job['snapshot'].get('campaign_id') == identifier
-                 and job['snapshot'].get('source') == 'owner-studio'), None)
+                 and job['snapshot'].get('source') == origin), None)
 
 
 @router.get('/campaign/{job}')
@@ -455,7 +472,14 @@ def queue_campaign_short(job, payload):
         raise HTTPException(422, 'Include the exact approved product link in the description.')
     if re.search(r'link\s+(?:in|below|the)\s+(?:the\s+)?(?:description|caption)|click\s+(?:the\s+)?(?:link|below)', short['description'], re.I):
         raise HTTPException(422, 'Shorts description URLs are not clickable. Use an accurate channel-profile CTA.')
-    source = folder / 'video.mp4'
+    product = {'id': 'owner-' + row['product'], 'title': details['name'], 'product_url': link}
+    return queue_short(folder / 'video.mp4', product, short['title'], short['description'], link, payload,
+                       'owner-studio', job.hex, connection)
+
+
+def queue_short(source, product, title, description, link, payload, origin, identifier, connection):
+    """Copy one verified video into the encrypted queue for the connection's channel and approve it."""
+    channel = connection['channel_id']
     technical = inspect_media(source)
     with source.open('rb') as stream:
         media_hash = hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -466,12 +490,11 @@ def queue_campaign_short(job, payload):
         temporary = root / (uuid.uuid4().hex + '.part')
         shutil.copyfile(source, temporary)
         temporary.replace(target)
-    product = {'id': 'owner-' + row['product'], 'title': details['name'], 'product_url': link}
     media_id = hashlib.sha256((media_hash + product['id']).encode()).hexdigest()
     store.put('media', media_id, {'id': media_id, 'media_hash': media_hash, 'size': target.stat().st_size,
                                   'product': product, 'technical': technical})
-    snapshot = {'source': 'owner-studio', 'campaign_id': job.hex, 'channel_id': channel,
-                'title': short['title'][:100], 'description': short['description'], 'marketing_url': link,
+    snapshot = {'source': origin, 'campaign_id': identifier, 'channel_id': channel,
+                'title': title[:100], 'description': description, 'marketing_url': link,
                 'visibility': payload.visibility, 'made_for_kids': payload.made_for_kids,
                 'synthetic_media': payload.synthetic_media, 'confirm_product_and_rights': True,
                 'confirm_video_and_copy': True, 'confirm_profile_link': True,
