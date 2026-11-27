@@ -9,6 +9,7 @@ import re
 ACCOUNT = "4your Good Health"
 HANDLE = "@hammer2085"
 PROFILE = "https://www.tiktok.com/@hammer2085"
+SHOP_URL = "https://keepitrealnow.com/shop/"
 START_FOLLOWERS = 55
 GOAL_FOLLOWERS = 1000
 DAYS = 30
