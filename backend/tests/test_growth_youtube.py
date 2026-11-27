@@ -100,3 +100,19 @@ def test_each_connection_keeps_its_own_channel(site, monkeypatch):
     monkeypatch.setattr(youtube, "call", lambda *a, **k: type("R", (), {"status_code": 200})())
     api.disconnect(None, slot="tips")
     assert store.get("youtube", "tips") is None and store.get("youtube", "owner")["channel_id"] == MAIN
+
+
+def test_a_video_made_before_auto_was_on_still_goes_out_on_its_day(site, monkeypatch):
+    import datetime
+    site("tips", TIPS, "4your Good Health")
+    monkeypatch.setattr(growth_api, "today", lambda: datetime.date(2026, 11, 27))
+    with growth_api.database() as db:
+        db.execute("INSERT OR REPLACE INTO settings VALUES ('start','2026-11-26')")
+    video(2)                                   # tomorrow's video, made early
+    growth_youtube.catch_up()                  # auto is off: nothing
+    assert store.jobs() == []
+    growth_youtube.save(growth_youtube.Auto(auto=True), None)
+    growth_youtube.catch_up()
+    growth_youtube.catch_up()                  # and only once
+    jobs = store.jobs()
+    assert len(jobs) == 1 and jobs[0]["snapshot"]["title"] == growth.entry(2)["topic"]

@@ -78,6 +78,26 @@ def after_video(day, video):
         log.exception("Plan Short could not be queued")
 
 
+def catch_up():
+    """Post today's video if it was made before automatic posting could send it. Never raises."""
+    try:
+        if not (studio.storage() / "growth" / "growth.sqlite").exists():
+            return
+        with closing(database()) as db, db:
+            if growth_api.setting(db, "youtube_auto") != "1" or not growth_api.setting(db, "start"):
+                return
+            _, day = growth_api.campaign_day(db)
+            if db.execute("SELECT 1 FROM shorts WHERE day=?", (day,)).fetchone():
+                return
+            row = db.execute("SELECT id FROM videos WHERE day=? AND status='ready' ORDER BY made DESC", (day,)).fetchone()
+        if row and connection():
+            post(day, row["id"])
+    except HTTPException as waiting:
+        log.info("Plan Short not queued: %s", waiting.detail)
+    except Exception:
+        log.exception("Plan Short catch-up failed")
+
+
 def numbers(found, video_ids):
     """Subscriber and per-Short counts straight from YouTube, refreshed at most every ten minutes."""
     if _stats["value"] is not None and time.time() - _stats["at"] < 600 and set(video_ids) <= set(_stats["value"]["videos"]):
