@@ -45,7 +45,15 @@ class Product(BaseModel):
     images: list[str] = Field(min_length=1, max_length=3)
 
 
+class Story(BaseModel):
+    hook: str = Field(min_length=4, max_length=100)
+    situation: str = Field(min_length=4, max_length=140)
+    takeaway: str = Field(min_length=4, max_length=160)
+    invitation: str = Field(min_length=4, max_length=90)
+
+
 class Campaign(BaseModel):
+    story: Story | None = None
     product: str = Field(max_length=40)
     request_id: uuid.UUID
 
@@ -113,7 +121,7 @@ def save_product(product: Product, request: Request):
 
 def build(job, product, images, lines, holiday=False):
     try:
-        if not holiday:
+        if not holiday and not product.get("story"):
             from backend import viral_hooks
             written = viral_hooks.write(product, earlier_hooks(job))
             if written:
@@ -149,13 +157,13 @@ def earlier_hooks(job):
     return hooks
 
 
-def launch(key, job, rotate=False):
+def launch(key, job, rotate=False, story=None):
     """Start one campaign render. Autopilot passes rotate to reuse the oldest opening."""
     from backend.campaigns import PRODUCT_HOOKS
     with database() as db:
         prior = db.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
         if prior:
-            if prior["product"] != key:
+            if prior["product"] != key or (prior["variant"] == -1) != bool(story):
                 raise HTTPException(409,"This request belongs to another product.")
             return {"id":job}
         holiday = key == "holiday"
@@ -181,6 +189,12 @@ def launch(key, job, rotate=False):
             # Newer openings run first; the original three come last.
             order = list(range(3, openings)) + list(range(min(3, openings)))
             variant = next((i for i in order if i not in used), None)
+            if story:
+                variant = -1
+                product = {**product, "story": True, "cover_text": "What would you say?"}
+                lines = [story.hook, story.situation, story.takeaway, f"{story.invitation} {product['name']}."]
+                if product["affiliate"]:
+                    lines[1] += " I earn a commission through my link."
             if variant is None and rotate:
                 # Every opening has run: repeat the one used longest ago.
                 variant = min(range(openings), key=lambda i: max(n for n, v in enumerate(used) if v == i))
@@ -190,7 +204,7 @@ def launch(key, job, rotate=False):
             folder.mkdir()
             db.execute("INSERT INTO jobs VALUES (?,?,?,?)",(job,key,variant,"rendering"))
             db.commit()
-            threading.Thread(target=build,args=(job,product,images,plan(product,variant,holiday),holiday),daemon=True).start()
+            threading.Thread(target=build,args=(job,product,images,lines if story else plan(product,variant,holiday),holiday),daemon=True).start()
         except Exception:
             render_lock.release()
             raise
@@ -200,7 +214,7 @@ def launch(key, job, rotate=False):
 @router.post("/api/v1/ad-campaigns")
 def create(payload: Campaign, request: Request):
     studio.video_guard(request)
-    return launch(payload.product, payload.request_id.hex)
+    return launch(payload.product, payload.request_id.hex, story=payload.story)
 
 
 @router.on_event("startup")
