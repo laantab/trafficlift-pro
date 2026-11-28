@@ -5,6 +5,13 @@
 </style><main><header><a href="/">TrafficLift Pro</a> · <a href="/analytics">Ad Analytics</a> · <a href="/growth">TikTok 30-Day Plan</a></header><h1>Owner Studio</h1>
 <form id="unlock" hidden><label>Owner access code<input id="code" type="password" autocomplete="current-password" required></label><label><input type="checkbox" id="remember" checked> Remember this personal device for 90 days</label><button>Enter Owner Studio</button></form>
 <section id="studio" hidden><label>Saved product<select id="products"></select></label><button id="create">Create Campaign</button>
+<details id="storyPanel"><summary>Create a Story Reel</summary>
+<label>Situation<select id="storyPick"><option value="">Write a situation</option></select></label>
+<form id="storyForm"><label>Spoken opening<input name="hook" minlength="4" maxlength="100" required></label>
+<label>What happens next<input name="situation" minlength="4" maxlength="140" required></label>
+<label>One line viewers can use<input name="takeaway" minlength="4" maxlength="160" required></label>
+<label>Closing invitation<input name="invitation" minlength="4" maxlength="90" required></label>
+<button>Create review video</button></form></details>
 <details><summary>Save another product</summary><form id="save">
 <label>Product name<input name="name" required maxlength="80"></label><label>Purchase link<input name="destination" type="url" required></label>
 <label>One verified feature<input name="feature" required minlength="3" maxlength="120"></label><label>Page quotation or demonstration detail<input name="prompt" maxlength="100"></label>
@@ -45,7 +52,7 @@ async function api(path,options={}) {
  return data;
 }
 const post=(path,data)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-async function refresh(){const products=await api('/api/v1/campaign-products');el('products').replaceChildren(...products.map(p=>new Option(p.name,p.id)));el('studio').hidden=false;el('unlock').hidden=true}
+async function refresh(){const products=await api('/api/v1/campaign-products');el('products').replaceChildren(...products.map(p=>new Option(p.name,p.id)));resetStories();el('studio').hidden=false;el('unlock').hidden=true}
 function report(error){el('message').textContent=error.message;el('message').scrollIntoView({block:'nearest'})}
 async function watch(id){
  el('create').disabled=true;el('review').hidden=true;
@@ -55,7 +62,7 @@ async function watch(id){
    const short=job.shorts;
    el('shorts').hidden=!short;
    if(short){
-     el('shortTitle').textContent=short.title;
+     el('shortTitle').textContent=(short.format || 'Product Reel')+' · '+short.title;
      el('shortCover').textContent='Opening frame: '+short.cover_text;
      el('shortHook').textContent='Spoken hook: '+short.hook;
      el('shortDescription').textContent=short.description;
@@ -170,7 +177,38 @@ async function start(){
  if(last)await watch(last)
 }
 el('unlock').onsubmit=async e=>{e.preventDefault();try{await post('/api/v1/video-owner-login',{access_code:el('code').value,remember_device:el('remember').checked});el('code').value='';await start()}catch(error){report(error)}};
-el('create').onclick=async()=>{el('create').disabled=true;try{const id=crypto.randomUUID();const job=await post('/api/v1/ad-campaigns',{product:el('products').value,request_id:id});localStorage.setItem('campaign-pending',job.id);await watch(job.id);el('review').scrollIntoView({block:'start'})}catch(error){report(error)}finally{el('create').disabled=false}};
+const parentingStories = [
+ ["When the group chat turns on your kid", "Your kid glances at the phone, turns it face down, and goes quiet.", "Ask: What happens in your group chat when somebody becomes the joke?", "Save that question for a quiet moment."],
+ ["If I tell you, will you take my phone?", "That question can stop a conversation before it starts.", "I'm glad you came to me. Tell me what happened. We can figure out the next step together.", "Save this for the day your kid asks."],
+ ["Your kid saw the party they weren't invited to.", "You might want to call the other parent. First, sit beside your kid.", "That hurts. Do you want me to listen, or help you think through what to do?", "Send this to someone raising a teen."]
+];
+function resetStories(){
+ const name=el('products').selectedOptions[0]?.textContent || '';
+ const picks=el('storyPick');
+ picks.replaceChildren(new Option('Write a situation',''));
+ if (/parenting in a digital age|guiding connected kids/i.test(name)){
+   parentingStories.forEach((lines,i)=>picks.add(new Option(lines[0],String(i))));
+ }
+ el('storyForm').reset();
+}
+el('products').addEventListener('change',resetStories);
+el('storyPick').onchange=()=>{
+ const lines=parentingStories[el('storyPick').value] || [];
+ Array.from(el('storyForm').querySelectorAll('input')).forEach((input,i)=>input.value=lines[i]||'');
+};
+async function createReview(story){
+ const button=el('storyForm').querySelector('button');
+ el('create').disabled=button.disabled=true;
+ try{
+   const job=await post('/api/v1/ad-campaigns',{product:el('products').value,request_id:crypto.randomUUID(),story});
+   localStorage.setItem('campaign-pending',job.id);
+   await watch(job.id);
+   el('review').scrollIntoView({block:'start'});
+ }catch(error){report(error)}finally{el('create').disabled=button.disabled=false}
+}
+el('create').onclick=()=>createReview(null);
+el('storyForm').onsubmit=e=>{e.preventDefault();createReview(Object.fromEntries(new FormData(e.target)))};
+
 async function imageData(file){const bitmap=await createImageBitmap(file);const scale=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));const c=document.createElement('canvas');c.width=Math.round(bitmap.width*scale);c.height=Math.round(bitmap.height*scale);c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);bitmap.close();return c.toDataURL('image/jpeg',.85).split(',')[1]}
 el('save').onsubmit=async e=>{e.preventDefault();const form=e.target;const button=form.querySelector('button');button.disabled=true;try{const data=Object.fromEntries(new FormData(form));data.affiliate=form.elements.affiliate.checked;data.images=[];for(const id of ['cover','inside','second']){const file=el(id).files[0];if(file)data.images.push(await imageData(file))}const pdf=el('pdf').files[0];if(pdf){if(pdf.size>37000000)throw Error('Use an interior PDF under 37 MB.');data.interior_pdf=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(pdf)})}const saved=await post('/api/v1/campaign-products',data);await refresh();el('products').value=saved.id;form.reset();form.closest('details').open=false;el('message').textContent='Saved. Your product is ready for a campaign.'}catch(error){report(error)}finally{button.disabled=false}};
 async function enter(){
