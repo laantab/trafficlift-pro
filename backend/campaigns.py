@@ -57,6 +57,11 @@ def plan(product, index, holiday=False):
 
 def shorts_package(product, lines):
     """Pair a product-led title with a short visual cue and the actual spoken hook."""
+    if product.get("story"):
+        disclosure = "I earn a commission through my link. " if product["affiliate"] else ""
+        return {"format": "Story Reel", "title": lines[0][:100], "hook": lines[0],
+                "cover_text": "What would you say?", "narration": lines,
+                "description": disclosure + lines[2] + "\n" + lines[3] + "\n" + product["destination"]}
     name = product["name"].strip()
     holiday = product == HOLIDAY
     if holiday:
@@ -73,7 +78,7 @@ def shorts_package(product, lines):
         title = name
     disclosure = "I earn a commission through this link. " if product["affiliate"] else ""
     description = f"{disclosure}{name} — {product['feature'].rstrip('.')}.\n{lines[-1]}\n{product['destination']}"
-    return {"title": title, "cover_text": cover, "hook": lines[0],
+    return {"format": "Product Reel", "title": title, "cover_text": cover, "hook": lines[0],
             "narration": lines, "description": description}
 
 
@@ -82,6 +87,9 @@ def posts(product, lines):
     hook, detail = lines[0], product["feature"].rstrip(".")
     disclosure = "I earn a commission through this link. " if product["affiliate"] else ""
     short = shorts_package(product, lines)
+    if product.get("story"):
+        copy = short["title"] + "\n\n" + short["description"]
+        return {network: copy for network in ("youtube-shorts", "instagram-reels", "tiktok", "facebook-reels", "linkedin")}
     return {
         "youtube-shorts": short["title"] + "\n\n" + short["description"],
         "instagram-reels": f"{hook}\n\n{disclosure}A closer look inside {name}. {detail.capitalize()}.\n{link}",
@@ -110,7 +118,7 @@ def render_campaign(directory, product, images, lines):
                                  providers=["CPUExecutionProvider"]), str(voices))
     clips = []
     for line in lines:
-        audio, rate = engine.create(line, voice="af_heart", speed=1.0, lang="en-us")
+        audio, rate = engine.create(line, voice="am_michael" if product.get("story") else "af_heart", speed=.97 if product.get("story") else 1.0, lang="en-us")
         clips.append(audio)
     del engine
     fontfile = os.getenv("TRAFFICLIFT_FONT") or ("C:/Windows/Fonts/arial.ttf" if os.name == "nt" else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
